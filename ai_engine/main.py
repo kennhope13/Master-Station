@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     """Quản lý vòng đời ứng dụng: khởi tạo analyzer và scheduler khi bật, dọn dẹp khi tắt."""
     logger.info("=== StationOS AI Aggregator starting ===")
     logger.info("Backend : %s", cfg.backend_url)
-    logger.info("Port    : 8100")
+    logger.info("Port    : 9100")
     
     # Kích hoạt chế độ xử lý camera trực tiếp và tự động load config
     await _load_config_from_backend()
@@ -81,7 +81,7 @@ async def _load_config_from_backend() -> None:
     """
     import httpx
     devices = []
-    max_retries = 10
+    max_retries = 30
     retry_delay = 2.0
     for attempt in range(1, max_retries + 1):
         try:
@@ -214,6 +214,17 @@ async def _load_config_from_backend() -> None:
                     logger.warning("[Startup] Failed to fetch ROI for device %s: %s", d["id"], ex)
 
 
+                focal_opt = cfg_raw.get("focal_length_optical")
+                focal_th = cfg_raw.get("focal_length_thermal")
+                if focal_opt is not None and focal_th is not None and float(focal_opt) == float(focal_th) and float(focal_opt) > 0:
+                    vx, vy, vw, vh = 0.0, 0.0, 1.0, 1.0
+                else:
+                    vvr_raw = cfg_raw.get("visible_valid_rect", {})
+                    vx = float(vvr_raw.get("x", 0.20))
+                    vy = float(vvr_raw.get("y", 0.084))
+                    vw = float(vvr_raw.get("width", 0.63))
+                    vh = float(vvr_raw.get("height", 0.841))
+
                 analyzer = ThermalAnalyzer(
                     device_id=d["id"],
                     camera_ip=ip,
@@ -221,11 +232,15 @@ async def _load_config_from_backend() -> None:
                     password=password,
                     stream_id=stream_id,
                     points=points,
-                    zones=zones
+                    zones=zones,
+                    vvr_x=vx,
+                    vvr_y=vy,
+                    vvr_w=vw,
+                    vvr_h=vh
                 )
                 analyzer.start()
                 routes._thermal_analyzers[stream_id] = analyzer
-                logger.info("[Startup] Thermal analyzer started: %s (%d points, %d zones)", stream_id, len(points), len(zones))
+                logger.info("[Startup] Thermal analyzer started: %s (%d points, %d zones) with VVR mapping", stream_id, len(points), len(zones))
 
             elif dev_type == "camera_cctv":
                 # Camera quang học: khởi tạo không có line (user thêm qua UI)
@@ -281,4 +296,4 @@ app.include_router(routes.router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8100, reload=False, log_level="info")
+    uvicorn.run("main:app", host="0.0.0.0", port=9100, reload=False, log_level="info")

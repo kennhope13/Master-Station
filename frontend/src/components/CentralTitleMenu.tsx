@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, Map, FileArchive, FileText, Users, LogOut } from 'lucide-react';
+import { ChevronDown, Map, FileArchive, FileText, Users, LogOut, LayoutGrid, BellRing } from 'lucide-react';
 import { authService } from '@/services/AuthService';
 import { isCentralUser } from '@/utils/centralAccess';
 
@@ -29,12 +29,12 @@ export default function CentralTitleMenu({ title }: Props) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  if (!isCentralMode) return <h2>{title}</h2>;
+  if (!isCentralMode) return <h2 style={{ fontSize: '1.25rem', fontWeight: 900, letterSpacing: '0.02em' }}>{title}</h2>;
 
   const handleOpen = () => {
     if (!open && triggerRef.current) {
       const r = triggerRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 4, left: r.left });
+      setPos({ top: r.bottom + 12, left: r.left });
     }
     setOpen(v => !v);
   };
@@ -46,44 +46,115 @@ export default function CentralTitleMenu({ title }: Props) {
       <div
         ref={triggerRef}
         onClick={handleOpen}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}
+        className={`central-menu-trigger ${open ? 'is-open' : ''}`}
+        style={{ 
+          display: 'inline-flex', 
+          alignItems: 'center', 
+          gap: 10, 
+          cursor: 'pointer', 
+          userSelect: 'none',
+          padding: '4px 12px',
+          borderRadius: '8px',
+          background: open ? 'var(--admin-layer-2)' : 'transparent',
+          transition: 'all 0.2s ease',
+          border: `1px solid ${open ? 'var(--admin-border)' : 'transparent'}`
+        }}
       >
-        <h2 style={{ margin: 0 }}>{title}</h2>
+        <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, letterSpacing: '0.02em' }}>{title}</h2>
         <ChevronDown
-          size={13}
-          strokeWidth={2.5}
-          style={{ color: 'var(--admin-text-muted)', flexShrink: 0, transition: 'transform 0.15s', transform: open ? 'rotate(180deg)' : 'none' }}
+          size={16}
+          strokeWidth={3}
+          style={{ 
+            color: open ? 'var(--admin-accent)' : 'var(--admin-text-muted)', 
+            flexShrink: 0, 
+            transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)', 
+            transform: open ? 'rotate(180deg)' : 'none' 
+          }}
         />
       </div>
       {open && (
         <div
           ref={menuRef}
-          style={{ position: 'fixed', top: pos.top, left: pos.left, width: 220, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', boxShadow: '0 10px 30px rgba(0,0,0,0.5)', borderRadius: 4, zIndex: 9999, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+          style={{ 
+            position: 'fixed', 
+            top: pos.top, 
+            left: pos.left, 
+            width: 260, 
+            background: 'var(--admin-panel)', 
+            border: '1px solid var(--admin-border)', 
+            boxShadow: '0 20px 50px rgba(0,0,0,0.6)', 
+            borderRadius: '12px', 
+            zIndex: 9999, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            overflow: 'hidden',
+            animation: 'menuFadeIn 0.2s ease'
+          }}
         >
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--admin-border-light)', background: 'var(--admin-layer-2)', fontSize: '0.65rem', fontWeight: 800, color: 'var(--admin-text-muted)' }}>
-            QUẢN TRỊ TỔNG QUAN
+          <style>{`
+            @keyframes menuFadeIn {
+              from { opacity: 0; transform: translateY(-10px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            .menu-item {
+              width: 100%;
+              text-align: left;
+              padding: 10px 14px;
+              font-size: 0.8rem;
+              display: flex;
+              align-items: center;
+              gap: 12px;
+              background: transparent;
+              border: none;
+              color: var(--admin-text);
+              cursor: pointer;
+              transition: all 0.15s;
+              font-weight: 600;
+            }
+            .menu-item:hover {
+              background: var(--admin-hover);
+              color: var(--admin-accent);
+              padding-left: 18px;
+            }
+            .menu-item svg {
+              color: var(--admin-text-muted);
+              transition: color 0.15s;
+            }
+            .menu-item:hover svg {
+              color: var(--admin-accent);
+            }
+          `}</style>
+          
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)', fontSize: '0.65rem', fontWeight: 900, color: 'var(--admin-accent)', letterSpacing: '0.1em' }}>
+            HỆ THỐNG ĐA TRẠM
           </div>
-          <div style={{ padding: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <button onClick={() => go('/multisite')} className="sb-popover-item" style={{ width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', color: 'var(--admin-text)', cursor: 'pointer', borderRadius: 2 }}>
-              <Map size={14} /> Bản đồ tổng quan
+          
+          <div style={{ padding: '6px 0' }}>
+            <button onClick={() => go('/multisite')} className="menu-item">
+              <LayoutGrid size={16} /> Dashboard Trung tâm
             </button>
-            <button onClick={() => go('/audit-log')} className="sb-popover-item" style={{ width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', color: 'var(--admin-text)', cursor: 'pointer', borderRadius: 2 }}>
-              <FileArchive size={14} /> Nhật ký hệ thống
+            <button onClick={() => go('/alerts-history')} className="menu-item">
+              <BellRing size={16} /> Nhật ký cảnh báo
             </button>
-            <button onClick={() => go('/reports')} className="sb-popover-item" style={{ width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', color: 'var(--admin-text)', cursor: 'pointer', borderRadius: 2 }}>
-              <FileText size={14} /> Báo cáo
+            <button onClick={() => go('/audit-log')} className="menu-item">
+              <FileArchive size={16} /> Nhật ký hệ thống
             </button>
-            <button onClick={() => go('/user-management')} className="sb-popover-item" style={{ width: '100%', textAlign: 'left', padding: '6px 8px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8, background: 'transparent', border: 'none', color: 'var(--admin-text)', cursor: 'pointer', borderRadius: 2 }}>
-              <Users size={14} /> Quản lý người dùng
+            <button onClick={() => go('/reports')} className="menu-item">
+              <FileText size={16} /> Báo cáo & Thống kê
+            </button>
+            <div style={{ height: 1, background: 'var(--admin-border)', margin: '6px 0' }} />
+            <button onClick={() => go('/user-management')} className="menu-item">
+              <Users size={16} /> Quản trị người dùng
             </button>
           </div>
-          <div style={{ borderTop: '1px solid var(--admin-border-light)', padding: 4 }}>
+          
+          <div style={{ background: 'rgba(239,68,68,0.03)', borderTop: '1px solid var(--admin-border)' }}>
             <button
               onClick={() => { authService.logout(); navigate('/login'); window.location.reload(); }}
-              className="sb-popover-item danger"
-              style={{ width: '100%', textAlign: 'left', padding: '8px', fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(239,68,68,0.1)', border: 'none', color: 'var(--admin-danger)', cursor: 'pointer', borderRadius: 2, fontWeight: 700 }}
+              className="menu-item"
+              style={{ color: '#ef4444', padding: '12px 14px' }}
             >
-              <LogOut size={14} /> Đăng xuất
+              <LogOut size={16} /> Đăng xuất hệ thống
             </button>
           </div>
         </div>

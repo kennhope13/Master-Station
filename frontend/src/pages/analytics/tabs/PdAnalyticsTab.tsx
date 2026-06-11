@@ -154,7 +154,11 @@ export default function PdAnalyticsTab() {
   // Render Chart (Bar chart for events)
   useEffect(() => {
     if (!chartRef.current) return;
-    chartInst.current?.destroy();
+
+    // Robust cleanup: destroy any existing chart on this canvas
+    const existingChart = Chart.getChart(chartRef.current);
+    if (existingChart) existingChart.destroy();
+    if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; }
 
     const xLabels = eventHistory.map(h => h.time);
     const yData = eventHistory.map(h => h.db);

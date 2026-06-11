@@ -58,6 +58,10 @@ class ThermalAnalyzer:
     stream_id:   str           # go2rtc stream ID (ví dụ: camera_152_thermal)
     points:      list[ThermalPoint] = field(default_factory=list)
     zones:       list[ThermalZone]  = field(default_factory=list)
+    vvr_x:       float = 0.20
+    vvr_y:       float = 0.084
+    vvr_w:       float = 0.63
+    vvr_h:       float = 0.841
 
     _reader:     RtspReader | None = field(default=None, init=False, repr=False)
     _last_alert: dict[str, float]  = field(default_factory=dict, init=False, repr=False)
@@ -75,10 +79,13 @@ class ThermalAnalyzer:
         rtsp_url = f"{cfg.go2rtc_rtsp}/{self.stream_id}"
         self._reader = RtspReader(rtsp_url, self.stream_id)
         self._reader.start()
+        self._fallback_reader = None
 
     def stop(self) -> None:
         if self._reader:
             self._reader.stop()
+        if getattr(self, '_fallback_reader', None):
+            self._fallback_reader.stop()
         if hasattr(self, '_http_client'):
             try:
                 import asyncio
@@ -95,6 +102,7 @@ class ThermalAnalyzer:
         """
         self.points = points
         self.zones = zones
+        self._rules_synced = False
         if force_jetson_push:
             self._last_jetson_push = 0.0
         self._last_history_save = 0.0
@@ -105,68 +113,87 @@ class ThermalAnalyzer:
         """Đọc nhiệt độ tại các điểm và vùng, annotate frame, gửi alert nếu cần."""
         # 1. Đọc matrix nhiệt từ camera (cache 1.0 giây để tránh overload camera)
         now = time.time()
-        should_fetch = (now - self._last_matrix_fetch >= 1.0) or (self._cached_matrix is None)
+        should_fetch = (now - self._last_matrix_fetch >= 1.0)
+        
+        point_temps = self.last_point_temps
+        zone_results = self.last_zone_results
         
         if should_fetch:
             matrix_data = await self._read_thermal_matrix()
             if matrix_data:
                 self._cached_matrix = matrix_data
                 self._last_matrix_fetch = now
+                self._consecutive_failures = 0
+                
+                point_temps = {}
+                floats, w, h = matrix_data
+                
+                # Trích xuất nhiệt độ cho points
+                for pt in self.points:
+                    px = int(pt.x * w)
+                    py = int(pt.y * h)
+                    px = max(0, min(px, w - 1))
+                    py = max(0, min(py, h - 1))
+                    idx = py * w + px
+                    point_temps[pt.id] = float(floats[idx])
+                
+                # Trích xuất nhiệt độ cho zones (Max temp trong vùng)
+                zone_results = {}
+                for zn in self.zones:
+                    if not zn.polygon or len(zn.polygon) < 3:
+                        continue
+                    
+                    # Tạo mask cho polygon trên matrix nhỏ
+                    poly_pts = np.array([[int(p[0]*w), int(p[1]*h)] for p in zn.polygon], np.int32)
+                    mask = np.zeros((h, w), dtype=np.uint8)
+                    cv2.fillPoly(mask, [poly_pts], 255)
+                    
+                    # Lọc các giá trị nhiệt độ trong vùng
+                    masked_floats = floats.reshape((h, w))[mask == 255]
+                    if masked_floats.size > 0:
+                        max_val = float(np.max(masked_floats))
+                        
+                        full_matrix = floats.reshape((h, w))
+                        full_matrix_masked = np.where(mask == 255, full_matrix, -1000.0)
+                        max_idx = np.argmax(full_matrix_masked)
+                        max_y, max_x = divmod(max_idx, w)
+                        
+                        zone_results[zn.id] = {
+                            "max": max_val,
+                            "x": float(max_x / w),
+                            "y": float(max_y / h)
+                        }
+                
+                self.last_point_temps = point_temps
+                self.last_zone_results = zone_results
+                
+                # Gửi nhiệt độ thực tế về backend
+                await self._ingest_measurements(point_temps, zone_results)
             else:
-                matrix_data = self._cached_matrix
-        else:
-            matrix_data = self._cached_matrix
-        
-        point_temps = {}
-        zone_results = {}
-
-        if not matrix_data:
-            return
-
-        floats, w, h = matrix_data
-
-        # 2. Trích xuất nhiệt độ cho points
-        for pt in self.points:
-            px = int(pt.x * w)
-            py = int(pt.y * h)
-            px = max(0, min(px, w - 1))
-            py = max(0, min(py, h - 1))
-            idx = py * w + px
-            point_temps[pt.id] = float(floats[idx])
-
-        # 3. Trích xuất nhiệt độ cho zones (Max temp trong vùng)
-        for zn in self.zones:
-            if not zn.polygon or len(zn.polygon) < 3:
-                continue
-            
-            # Tạo mask cho polygon trên matrix nhỏ
-            poly_pts = np.array([[int(p[0]*w), int(p[1]*h)] for p in zn.polygon], np.int32)
-            mask = np.zeros((h, w), dtype=np.uint8)
-            cv2.fillPoly(mask, [poly_pts], 255)
-            
-            # Lọc các giá trị nhiệt độ trong vùng
-            masked_floats = floats.reshape((h, w))[mask == 255]
-            if masked_floats.size > 0:
-                max_val = float(np.max(masked_floats))
+                # 2. Fallback sang đọc rulesTemperatureInfo nếu matrix không hoạt động
+                if not getattr(self, '_rules_synced', False):
+                    synced = await self._sync_camera_rules()
+                    if synced:
+                        self._rules_synced = True
                 
-                full_matrix = floats.reshape((h, w))
-                full_matrix_masked = np.where(mask == 255, full_matrix, -1000.0)
-                max_idx = np.argmax(full_matrix_masked)
-                max_y, max_x = divmod(max_idx, w)
-                
-                zone_results[zn.id] = {
-                    "max": max_val,
-                    "x": float(max_x / w),
-                    "y": float(max_y / h)
-                }
-
-        # Lưu cache nhiệt độ thời gian thực
-        self.last_point_temps = point_temps
-        self.last_zone_results = zone_results
-
-        # 4. Gửi nhiệt độ thực tế về backend (chỉ gửi khi vừa fetch matrix mới để tránh quá tải backend)
-        if should_fetch:
-            await self._ingest_measurements(point_temps, zone_results)
+                new_point_temps = {}
+                new_zone_results = {}
+                temps_fetched = await self._read_rules_temperatures(new_point_temps, new_zone_results)
+                if temps_fetched:
+                    point_temps = new_point_temps
+                    zone_results = new_zone_results
+                    self.last_point_temps = point_temps
+                    self.last_zone_results = zone_results
+                    
+                    self._consecutive_failures = 0
+                    self._last_matrix_fetch = now
+                    
+                    # Gửi nhiệt độ thực tế về backend
+                    await self._ingest_measurements(point_temps, zone_results)
+                else:
+                    self._consecutive_failures = getattr(self, '_consecutive_failures', 0) + 1
+                    # Cooldown 4 giây (tổng cộng 5 giây) để camera hồi phục
+                    self._last_matrix_fetch = now + 4.0
 
         # 4.3 Đẩy dữ liệu sang Jetson đối tác mỗi 5 phút
         now = time.time()
@@ -187,7 +214,9 @@ class ThermalAnalyzer:
                     }
                     logger.info("[ThermalAnalyzer] Pushing %d points/zones to Jetson (%s): %s", len(jetson_points), self.camera_ip, payload)
                     try:
-                        r1 = requests.post("http://192.168.10.104:8080/api/thermal-data", json=payload, timeout=5.0)
+                        if not hasattr(self, '_http_client'):
+                            self._http_client = httpx.AsyncClient(timeout=5.0)
+                        r1 = await self._http_client.post("http://192.168.10.104:8080/api/thermal-data", json=payload)
                         logger.info("[ThermalAnalyzer] Push to /api/thermal-data status: %d", r1.status_code)
                     except Exception as e:
                         logger.error("[ThermalAnalyzer] Failed to push to /api/thermal-data: %s", e)
@@ -206,7 +235,9 @@ class ThermalAnalyzer:
                 }
                 try:
                     logger.info("[ThermalAnalyzer] Pushing config to Jetson: %s", config_payload)
-                    r2 = requests.post("http://192.168.10.104:8080/config/thermal", json=config_payload, timeout=5.0)
+                    if not hasattr(self, '_http_client'):
+                        self._http_client = httpx.AsyncClient(timeout=5.0)
+                    r2 = await self._http_client.post("http://192.168.10.104:8080/config/thermal", json=config_payload)
                     logger.info("[ThermalAnalyzer] Push to /config/thermal status: %d", r2.status_code)
                 except Exception as e:
                     logger.error("[ThermalAnalyzer] Failed to push to /config/thermal: %s", e)
@@ -233,11 +264,166 @@ class ThermalAnalyzer:
 
         # 5. Serve MJPEG
         frame = self._reader.latest_frame if self._reader else None
+        use_optical_mapping = False
+        if frame is None:
+            if not getattr(self, '_fallback_reader', None):
+                if "120" in self.stream_id or "120" in self.camera_ip:
+                    fallback_id = self.stream_id.replace("_thermal", "_optical")
+                elif "hanoi" in self.stream_id:
+                    fallback_id = self.stream_id.replace("_thermal", "_optical")
+                else:
+                    fallback_id = self.stream_id.replace("_thermal", "_normal")
+                
+                rtsp_url = f"{cfg.go2rtc_rtsp}/{fallback_id}"
+                logger.info("[ThermalAnalyzer] Thermal stream %s offline. Starting fallback reader for optical stream %s → %s", self.stream_id, fallback_id, rtsp_url)
+                self._fallback_reader = RtspReader(rtsp_url, fallback_id)
+                self._fallback_reader.start()
+            
+            frame = self._fallback_reader.latest_frame if self._fallback_reader else None
+            if frame is not None:
+                use_optical_mapping = True
+                
         if frame is not None:
-            _annotated_frames[self.stream_id] = self._annotate(frame, point_temps, zone_results)
+            _annotated_frames[self.stream_id] = self._annotate(frame, point_temps, zone_results, use_optical_mapping=use_optical_mapping)
 
         # 6. Check alert
         await self._check_and_alert(point_temps, zone_results)
+
+    async def _sync_camera_rules(self) -> bool:
+        if not self.points and not self.zones:
+            return False
+        
+        import xml.etree.ElementTree as ET
+        
+        # Build XML
+        root = ET.Element("ThermometryScene", version="2.0", xmlns="http://www.isapi.org/ver20/XMLSchema")
+        ET.SubElement(root, "id").text = "1"
+        norm = ET.SubElement(root, "normalizedScreenSize")
+        ET.SubElement(norm, "normalizedScreenWidth").text = "1000"
+        ET.SubElement(norm, "normalizedScreenHeight").text = "1000"
+        
+        region_list = ET.SubElement(root, "ThermometryRegionList")
+        rule_idx = 1
+        
+        for pt in self.points:
+            reg = ET.SubElement(region_list, "ThermometryRegion")
+            ET.SubElement(reg, "id").text = str(rule_idx)
+            ET.SubElement(reg, "enabled").text = "true"
+            ET.SubElement(reg, "name").text = pt.id
+            ET.SubElement(reg, "emissivity").text = "0.96"
+            ET.SubElement(reg, "distance").text = "400"
+            ET.SubElement(reg, "reflectiveEnable").text = "false"
+            ET.SubElement(reg, "reflectiveTemperature").text = "20.0"
+            ET.SubElement(reg, "type").text = "point"
+            
+            pt_node = ET.SubElement(reg, "Point")
+            coords = ET.SubElement(pt_node, "CalibratingCoordinates")
+            ET.SubElement(coords, "positionX").text = str(int(pt.x * 1000))
+            ET.SubElement(coords, "positionY").text = str(1000 - int(pt.y * 1000))
+            
+            ET.SubElement(reg, "distanceUnit").text = "centimeter"
+            ET.SubElement(reg, "emissivityMode").text = "customsettings"
+            rule_idx += 1
+            
+        for zn in self.zones:
+            reg = ET.SubElement(region_list, "ThermometryRegion")
+            ET.SubElement(reg, "id").text = str(rule_idx)
+            ET.SubElement(reg, "enabled").text = "true"
+            ET.SubElement(reg, "name").text = zn.label or zn.id
+            ET.SubElement(reg, "emissivity").text = "0.96"
+            ET.SubElement(reg, "distance").text = "400"
+            ET.SubElement(reg, "reflectiveEnable").text = "false"
+            ET.SubElement(reg, "reflectiveTemperature").text = "20.0"
+            ET.SubElement(reg, "type").text = "region"
+            
+            zn_node = ET.SubElement(reg, "Region")
+            coords_list = ET.SubElement(zn_node, "RegionCoordinatesList")
+            for p in zn.polygon:
+                coord = ET.SubElement(coords_list, "RegionCoordinates")
+                ET.SubElement(coord, "positionX").text = str(int(p[0] * 1000))
+                ET.SubElement(coord, "positionY").text = str(1000 - int(p[1] * 1000))
+                
+            ET.SubElement(reg, "distanceUnit").text = "centimeter"
+            ET.SubElement(reg, "emissivityMode").text = "customsettings"
+            rule_idx += 1
+            
+        for i in range(rule_idx, 22):
+            reg = ET.SubElement(region_list, "ThermometryRegion")
+            ET.SubElement(reg, "id").text = str(i)
+            ET.SubElement(reg, "enabled").text = "false"
+            ET.SubElement(reg, "name").text = f"ID:{i}"
+            ET.SubElement(reg, "emissivity").text = "0.96"
+            ET.SubElement(reg, "distance").text = "400"
+            ET.SubElement(reg, "reflectiveEnable").text = "false"
+            ET.SubElement(reg, "reflectiveTemperature").text = "20.0"
+            ET.SubElement(reg, "type").text = "point"
+            
+            pt_node = ET.SubElement(reg, "Point")
+            coords = ET.SubElement(pt_node, "CalibratingCoordinates")
+            ET.SubElement(coords, "positionX").text = "0"
+            ET.SubElement(coords, "positionY").text = "0"
+            
+            ET.SubElement(reg, "distanceUnit").text = "centimeter"
+            ET.SubElement(reg, "emissivityMode").text = "customsettings"
+            
+        ET.register_namespace('', 'http://www.isapi.org/ver20/XMLSchema')
+        xml_data = ET.tostring(root, encoding='utf-8')
+        
+        url = f"http://{self.camera_ip}/ISAPI/Thermal/channels/2/thermometry/rules"
+        try:
+            if not hasattr(self, '_http_client'):
+                self._http_client = httpx.AsyncClient(timeout=5.0)
+            client = self._http_client
+            resp = await client.put(url, auth=httpx.DigestAuth(self.username, self.password), content=xml_data, headers={'Content-Type': 'application/xml'})
+            if resp.status_code == 200:
+                logger.info("[ThermalAnalyzer] Successfully synced rules for %s", self.camera_ip)
+                return True
+            else:
+                logger.warning("[ThermalAnalyzer] Failed to sync rules for %s: status %d", self.camera_ip, resp.status_code)
+        except Exception as e:
+            logger.error("[ThermalAnalyzer] Error syncing rules for %s: %s", self.camera_ip, e)
+        return False
+
+    async def _read_rules_temperatures(self, point_temps: dict[str, float], zone_results: dict[str, dict]) -> bool:
+        url = f"http://{self.camera_ip}/ISAPI/Thermal/channels/2/thermometry/1/rulesTemperatureInfo?format=json"
+        try:
+            if not hasattr(self, '_http_client'):
+                self._http_client = httpx.AsyncClient(timeout=5.0)
+            client = self._http_client
+            resp = await client.get(url, auth=httpx.DigestAuth(self.username, self.password))
+            if resp.status_code == 200:
+                data = resp.json()
+                info_list = data.get("ThermometryRulesTemperatureInfoList", {}).get("ThermometryRulesTemperatureInfo", [])
+                
+                temp_map = {}
+                for info in info_list:
+                    r_id = info.get("id")
+                    if r_id is not None:
+                        temp_map[int(r_id)] = info
+                
+                rule_idx = 1
+                for pt in self.points:
+                    info = temp_map.get(rule_idx)
+                    if info:
+                        point_temps[pt.id] = float(info.get("maxTemperature", 0.0))
+                    rule_idx += 1
+                    
+                for zn in self.zones:
+                    info = temp_map.get(rule_idx)
+                    if info:
+                        max_pt = info.get("MaxTemperaturePoint", {})
+                        px = float(max_pt.get("positionX", 0.5))
+                        py = float(max_pt.get("positionY", 0.5))
+                        zone_results[zn.id] = {
+                            "max": float(info.get("maxTemperature", 0.0)),
+                            "x": px,
+                            "y": py
+                        }
+                    rule_idx += 1
+                return True
+        except Exception as e:
+            logger.error("[ThermalAnalyzer] Error reading rules temperatures for %s: %s", self.camera_ip, e)
+        return False
 
     async def _ingest_measurements(self, point_temps: dict[str, float], zone_results: dict[str, dict]) -> None:
         """Gửi các giá trị nhiệt độ tức thời về backend."""
@@ -298,26 +484,49 @@ class ThermalAnalyzer:
             except Exception: pass
         return None
 
-    def _annotate(self, frame: np.ndarray, point_temps: dict[str, float], zone_results: dict[str, dict]) -> np.ndarray:
+    def _annotate(self, frame: np.ndarray, point_temps: dict[str, float], zone_results: dict[str, dict], use_optical_mapping: bool = False) -> np.ndarray:
         out = frame.copy()
         h, w = out.shape[:2]
         font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        def map_coords(x, y):
+            if use_optical_mapping:
+                ox = x * self.vvr_w + self.vvr_x
+                oy = y * self.vvr_h + self.vvr_y
+                return ox, oy
+            return x, y
+
         for zn in self.zones:
             res = zone_results.get(zn.id)
             if not res: continue
             temp = res["max"]
             color = (0, 0, 255) if (zn.alarm > 0 and temp >= zn.alarm) else (0, 165, 255) if (zn.pre_alarm > 0 and temp >= zn.pre_alarm) else (0, 255, 0)
-            cv2.polylines(out, [np.array([[int(p[0]*w), int(p[1]*h)] for p in zn.polygon], np.int32)], True, color, 1)
-            cv2.drawMarker(out, (int(res["x"]*w), int(res["y"]*h)), color, cv2.MARKER_CROSS, 10, 1)
-            cv2.putText(out, f"{zn.label}: {temp:.1f}C", (int(zn.polygon[0][0]*w), int(zn.polygon[0][1]*h) - 5), font, 0.45, color, 1, cv2.LINE_AA)
+            
+            mapped_poly = []
+            for p in zn.polygon:
+                mx, my = map_coords(p[0], p[1])
+                mapped_poly.append([int(mx * w), int(my * h)])
+            
+            cv2.polylines(out, [np.array(mapped_poly, np.int32)], True, color, 1)
+            
+            rx, ry = map_coords(res["x"], res["y"])
+            cv2.drawMarker(out, (int(rx * w), int(ry * h)), color, cv2.MARKER_CROSS, 10, 1)
+            
+            if mapped_poly:
+                cv2.putText(out, f"{zn.label}: {temp:.1f}C", (mapped_poly[0][0], mapped_poly[0][1] - 5), font, 0.45, color, 1, cv2.LINE_AA)
+                
         for pt in self.points:
             temp = point_temps.get(pt.id)
             if temp is None: continue
             color = (0, 0, 255) if (pt.alarm > 0 and temp >= pt.alarm) else (0, 165, 255) if (pt.pre_alarm > 0 and temp >= pt.pre_alarm) else (0, 255, 0)
-            cx, cy = int(pt.x * w), int(pt.y * h)
+            
+            mx, my = map_coords(pt.x, pt.y)
+            cx, cy = int(mx * w), int(my * h)
+            
             cv2.drawMarker(out, (cx, cy), color, cv2.MARKER_CROSS, 12, 2)
             cv2.putText(out, pt.label, (cx + 15, cy - 4), font, 0.45, color, 1, cv2.LINE_AA)
             cv2.putText(out, f"{temp:.1f}C", (cx + 15, cy + 12), font, 0.5, color, 1, cv2.LINE_AA)
+            
         return out
 
     async def _check_and_alert(self, point_temps: dict[str, float], zone_results: dict[str, dict]) -> None:

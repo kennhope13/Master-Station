@@ -114,7 +114,7 @@ export default function App() {
 
             <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><ReportsPage /></ProtectedRoute>} />
             <Route path="maintenance" element={<ProtectedRoute roles={['admin', 'manager']}><MaintenancePage /></ProtectedRoute>} />
-            <Route path="audit-log" element={<ProtectedRoute roles={['admin']} denyRestricted><AuditLogPage /></ProtectedRoute>} />
+            <Route path="audit-log" element={<ProtectedRoute roles={['admin']}><AuditLogPage /></ProtectedRoute>} />
             <Route path="multisite" element={<ProtectedRoute allowOnlyMulti><MultisitePage /></ProtectedRoute>} />
             <Route path="device-management" element={<ProtectedRoute roles={['admin']}><DeviceManagementPage /></ProtectedRoute>} />
             <Route path="device-management/:deviceId/thermal-config" element={<ProtectedRoute roles={['admin']}><ThermalConfigPage /></ProtectedRoute>} />

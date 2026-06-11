@@ -1,24 +1,24 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore } from '@/store';
-import type { Station, StationLocation, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry } from '@/types/api.types';
+import type { Station, StationLocation, AlertItem, ReportItem } from '@/types/api.types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
   Search, Map, AlertTriangle,
   X, ShieldCheck, Wifi,
   ChevronLeft, ChevronRight, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video,
-  Download, RefreshCw, Calendar, Clock, Loader2, Filter, Bell, Zap
+  Camera, Container, Download, RefreshCw, Calendar, Clock, Loader2
 } from 'lucide-react';
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
-import { fmtDateTime, fmtTimeRange } from '@/utils/format';
 
 const CentralAnalyticsLayout = lazy(() => import('@/pages/analytics/CentralAnalyticsLayout'));
 const DeviceManagementPage = lazy(() => import('@/pages/device-management/DeviceManagementPage'));
-const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView'));
 const RealtimeMonitorPage = lazy(() => import('@/pages/realtime-monitor/RealtimeMonitorPage'));
+const AuditLogPage = lazy(() => import('@/pages/audit-log/AuditLogPage'));
 const ReportsPage = lazy(() => import('@/pages/reports/ReportsPage'));
 const UserManagementPage = lazy(() => import('@/pages/user-management/UserManagementPage'));
+import './CentralReportsView.css';
 
 interface StationKpi {
   alerts: number;       // số cảnh báo đang mở
@@ -44,7 +44,7 @@ const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
   devices: 'THIẾT BỊ',
   audit_log: 'NHẬT KÝ',
   reports: 'BÁO CÁO',
-  users: 'QUẢN TRỊ NHÂN SỰ & TRẠM',
+  users: 'NGƯỜI DÙNG',
 };
 
 
@@ -98,7 +98,6 @@ export default function MultisitePage() {
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [devicePanelAction, setDevicePanelAction] = useState<'new' | null>(null);
-  const [devicesSubTab, setDevicesSubTab] = useState<'overview' | 'manage'>('overview');
   const showEmbeddedBackButton = activeTab !== 'overview' && !!selectedStationId;
 
   const activateTab = (
@@ -254,12 +253,6 @@ export default function MultisitePage() {
     });
   }, [stations, alertsByFilter, devicesByStation]);
 
-  const alertsByStation = useMemo(() => {
-    const result: Record<string, number> = {};
-    views.forEach(v => { result[v.station.id] = v.kpi.alerts; });
-    return result;
-  }, [views]);
-
   const filteredViews = useMemo(() => {
     return views.filter(v => {
       if (statusFilter === 'all') return true;
@@ -283,15 +276,6 @@ export default function MultisitePage() {
       setSelectedStationId(views[0].station.id);
     }
   }, [views, selectedStationId]);
-
-  // Reset devices sub-tab when leaving devices tab
-  useEffect(() => {
-    if (activeTab !== 'devices') setDevicesSubTab('overview');
-  }, [activeTab]);
-
-  const handleDeviceRefresh = useCallback(() => {
-    stations.forEach(s => fetchDevices(s.id));
-  }, [stations, fetchDevices]);
 
   // Global counts for all stations
   const globalStats = useMemo(() => {
@@ -665,6 +649,12 @@ export default function MultisitePage() {
             {selectedView ? selectedView.station.name : MULTISITE_TAB_TITLES[activeTab]}
           </span>
 
+          {activeTab === 'overview' && !selectedView && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', padding: '1px 6px', fontSize: 9 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--admin-success)', display: 'inline-block', animation: 'marker-pulse-red-anim 1s infinite alternate' }} />
+              <span style={{ color: 'var(--admin-success)', fontWeight: 800 }}>LIVE</span>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -831,39 +821,39 @@ export default function MultisitePage() {
 
       {/* KPI SUB-HEADER GAP - Filling the empty space below toolbar for all tabs */}
       <div style={{
-          position: 'absolute',
-          top: 40,
-          left: 0,
-          right: 0,
-          height: 34,
-          background: 'var(--admin-bg)',
-          borderBottom: '1px solid var(--admin-border)',
-          zIndex: 100,
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 16px',
-          gap: 24
-        }}>
-           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Map size={12} style={{ color: 'var(--admin-text-muted)' }} />
-              <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>TỔNG SỐ TRẠM:</span>
-              <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.totalStations}</span>
-           </div>
-           <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
-           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <AlertTriangle size={12} style={{ color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }} />
-              <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>CẢNH BÁO:</span>
-              <span style={{ fontSize: '.75rem', fontWeight: 900, color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }}>{globalStats.totalAlerts}</span>
-           </div>
-           <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
-           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Wifi size={12} style={{ color: 'var(--admin-text-muted)' }} />
-              <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>THIẾT BỊ ONLINE:</span>
-              <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.onlineDevices} / {globalStats.totalDevices}</span>
-           </div>
-           
-           <div style={{ flex: 1 }} />
-      </div>
+        position: 'absolute',
+        top: 40,
+        left: 0,
+        right: 0,
+        height: 34,
+        background: 'var(--admin-bg)',
+        borderBottom: '1px solid var(--admin-border)',
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 16px',
+        gap: 24
+      }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Map size={12} style={{ color: 'var(--admin-text-muted)' }} />
+            <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>TỔNG SỐ TRẠM:</span>
+            <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.totalStations}</span>
+         </div>
+         <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
+         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertTriangle size={12} style={{ color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }} />
+            <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>CẢNH BÁO:</span>
+            <span style={{ fontSize: '.75rem', fontWeight: 900, color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }}>{globalStats.totalAlerts}</span>
+         </div>
+         <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
+         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Wifi size={12} style={{ color: 'var(--admin-text-muted)' }} />
+            <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>THIẾT BỊ ONLINE:</span>
+            <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.onlineDevices} / {globalStats.totalDevices}</span>
+         </div>
+         
+         <div style={{ flex: 1 }} />
+         </div>
 
       {activeTab === 'analytics' && (
         <div
@@ -894,32 +884,19 @@ export default function MultisitePage() {
             right: 0,
             bottom: 0,
             zIndex: 2,
-            overflow: 'hidden',
+            overflow: 'auto',
             background: 'var(--admin-bg, #0b1220)',
             padding: 0
           }}
         >
           <Suspense fallback={null}>
-            {devicesSubTab === 'manage' ? (
-              <DeviceManagementPage
-                initialAction={devicePanelAction}
-                onInitialActionHandled={() => setDevicePanelAction(null)}
-                embeddedMode="central"
-                stationIdOverride={selectedStationId}
-                onStationIdChange={id => setSelectedStationId(id || null)}
-                onBack={() => { setDevicesSubTab('overview'); handleDeviceRefresh(); }}
-              />
-            ) : (
-              <CentralDeviceView
-                stations={stations}
-                devicesByStation={devicesByStation}
-                selectedStationId={selectedStationId}
-                onSelectStation={id => setSelectedStationId(id)}
-                onRefresh={handleDeviceRefresh}
-                alertsByStation={alertsByStation}
-                onAddDevice={() => { setDevicesSubTab('manage'); setDevicePanelAction('new'); }}
-              />
-            )}
+            <DeviceManagementPage
+              initialAction={devicePanelAction}
+              onInitialActionHandled={() => setDevicePanelAction(null)}
+              embeddedMode="central"
+              stationIdOverride={selectedStationId}
+              onStationIdChange={setSelectedStationId}
+            />
           </Suspense>
         </div>
       )}
@@ -962,7 +939,9 @@ export default function MultisitePage() {
             padding: 0
           }}
         >
-          <CentralLogView stations={stations} />
+          <Suspense fallback={null}>
+            <AuditLogPage embeddedMode="central" />
+          </Suspense>
         </div>
       )}
 
@@ -980,7 +959,12 @@ export default function MultisitePage() {
             padding: 0
           }}
         >
-          <CentralReportsView stations={stations} views={views} globalStats={globalStats} selectedStationId={selectedStationId} />
+          <CentralReportsView
+            stations={stations}
+            views={views}
+            globalStats={globalStats}
+            selectedStationId={selectedStationId}
+          />
         </div>
       )}
 
@@ -1524,583 +1508,321 @@ export default function MultisitePage() {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────
-   CentralReportsView — tab Báo cáo đa trạm
-   Chỉ hiển thị: nút tạo nhanh + dropdown trạm + bảng lịch sử
-   ───────────────────────────────────────────────────────────── */
 function CentralReportsView({
   stations, views, globalStats, selectedStationId,
 }: {
   stations: Station[];
   views: StationView[];
-  globalStats: { totalStations: number; totalDevices: number; onlineDevices: number; totalAlerts: number; totalCameras?: number };
+  globalStats: { totalStations: number; totalDevices: number; onlineDevices: number; totalAlerts: number; totalCameras: number };
   selectedStationId: string | null;
 }) {
-  const S = {
-    // card
-    card: { background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3 } as React.CSSProperties,
-    // text
-    muted: { color: 'var(--admin-text-muted)' } as React.CSSProperties,
-    label: { fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' as const },
-    // buttons
-    btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
-    btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
-    btnPrimary: { height: 26, padding: '0 10px', borderRadius: 3, border: 'none', background: 'var(--admin-accent)', color: '#fff', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
-    // dropdown
-    dropdown: { height: 28, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 180 } as React.CSSProperties,
-    dropdownMenu: { position: 'fixed', zIndex: 9999, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, maxHeight: 240, overflow: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.45)', minWidth: 180 } as React.CSSProperties,
-    dropdownItem: (active: boolean) => ({ padding: '5px 10px', fontSize: '.65rem', cursor: 'pointer', color: active ? 'var(--admin-accent)' : 'var(--admin-text)', background: active ? 'var(--admin-layer-3)' : 'transparent', fontWeight: active ? 700 : 400 } as React.CSSProperties),
-    // table
-    th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
-    td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
-    pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
-    pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 1, background: c, flexShrink: 0 } as React.CSSProperties),
-    pillLbl: { fontSize: '.7rem', fontWeight: 700 } as React.CSSProperties,
-    // misc
-    row: { display: 'flex', alignItems: 'center', gap: 8 } as React.CSSProperties,
-    flex1: { flex: 1 } as React.CSSProperties,
-    empty: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', gap: 8, padding: '48px 24px', color: 'var(--admin-text-muted)', opacity: .5, textAlign: 'center' as const },
-    spin: { animation: 'crv-spin 1s linear infinite' } as React.CSSProperties,
-  };
-
   const [scopeStationId, setScopeStationId] = useState(selectedStationId || '');
   const [history, setHistory] = useState<ReportItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState<string | null>(null);
-  const [filter, setFilter] = useState('all');
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [generatingType, setGeneratingType] = useState<string | null>(null);
+  const [stationSearch, setStationSearch] = useState('');
+  const [historyFilter, setHistoryFilter] = useState('all');
+  const [stationMenuOpen, setStationMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
+  const stationBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { if (selectedStationId) setScopeStationId(selectedStationId); }, [selectedStationId]);
 
-  const scopeLabel = useMemo(() => {
-    const v = views.find(x => x.station.id === scopeStationId);
-    return v ? v.station.name : `Toàn bộ hệ thống (${views.length} trạm)`;
-  }, [views, scopeStationId]);
+  const scopeView = useMemo(() => views.find(v => v.station.id === scopeStationId) || null, [views, scopeStationId]);
+  const scopeLabel = scopeView?.station.name || 'Toàn bộ hệ thống';
 
-  const load = async () => {
-    setLoading(true);
+  const summary = useMemo(() => {
+    if (scopeView) return { stationCount: 1, devices: scopeView.kpi.devicesTotal, online: scopeView.kpi.devicesOnline, alerts: scopeView.kpi.alerts };
+    return { stationCount: globalStats.totalStations, devices: globalStats.totalDevices, online: globalStats.onlineDevices, alerts: globalStats.totalAlerts };
+  }, [globalStats, scopeView]);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
     try {
       const items = await stationApi.getReports(scopeStationId || undefined);
       setHistory(items.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()));
-    } catch { setHistory([]); } finally { setLoading(false); }
+    } catch { setHistory([]); } finally { setHistoryLoading(false); }
   };
-  useEffect(() => { load(); }, [scopeStationId]);
+  useEffect(() => { loadHistory(); }, [scopeStationId]);
 
-  const gen = async (type: 'daily' | 'monthly' | 'event') => {
+  const generateQuickReport = async (type: 'daily' | 'monthly' | 'event') => {
     const now = new Date(), from = new Date(now);
     if (type === 'daily') from.setDate(now.getDate() - 1);
     if (type === 'monthly') from.setDate(now.getDate() - 30);
     if (type === 'event') from.setDate(now.getDate() - 7);
-    setGenerating(type);
-    try { await stationApi.generateReport({ stationId: scopeStationId || undefined, type, from: from.toISOString(), to: now.toISOString() }); await load(); }
-    catch { alert('Không thể tạo báo cáo.'); }
-    finally { setGenerating(null); }
-  };
-
-  const dl = async (r: ReportItem) => {
+    setGeneratingType(type);
     try {
-      const blob = await stationApi.downloadReport(r.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `BaoCao_${r.type}_${r.generatedAt.slice(0,10)}.pdf`; a.click();
-      URL.revokeObjectURL(url);
-    } catch { alert('Không thể tải.'); }
+      await stationApi.generateReport({ stationId: scopeStationId || undefined, type, from: from.toISOString(), to: now.toISOString() });
+      await loadHistory();
+    } catch { alert('Không thể tạo báo cáo.'); } finally { setGeneratingType(null); }
   };
 
-  const del = async (id: string) => { try { await stationApi.deleteReport(id); load(); } catch {} };
+  const downloadReportFile = async (report: ReportItem) => {
+    try {
+      const blob = await stationApi.downloadReport(report.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `BaoCao_${report.type}_${report.generatedAt.slice(0, 10)}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert('Không thể tải báo cáo.'); }
+  };
 
-  const tl = (t: string) => t === 'daily' ? 'Hàng ngày' : t === 'monthly' ? 'Hàng tháng' : 'Sự cố';
-  const tc = (t: string) => t === 'daily' ? 'var(--admin-accent)' : t === 'monthly' ? '#a855f7' : '#f97316';
+  const deleteReportItem = async (id: string) => { try { await stationApi.deleteReport(id); loadHistory(); } catch {} };
 
-  const filtered = useMemo(() => filter === 'all' ? history : history.filter(r => r.type === filter), [history, filter]);
+  const exportAlertsCsv = async () => {
+    try {
+      const blob = await stationApi.exportAlertsCsv({ status: 'open' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url;
+      a.download = `CanhBao_DaTram_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { alert('Không thể xuất CSV.'); }
+  };
 
-  const types: Array<{ t: 'daily'|'monthly'|'event'; title: string; icon: React.ReactNode; c: string }> = [
-    { t: 'daily', title: 'Báo cáo ngày', icon: <Clock size={12} />, c: 'var(--admin-accent)' },
-    { t: 'monthly', title: 'Báo cáo tháng', icon: <Calendar size={12} />, c: '#a855f7' },
-    { t: 'event', title: 'Báo cáo sự cố', icon: <AlertTriangle size={12} />, c: '#f97316' },
+  const filteredViews = useMemo(() => {
+    if (!stationSearch) return views;
+    return views.filter(v => v.station.name.toLowerCase().includes(stationSearch.toLowerCase()));
+  }, [views, stationSearch]);
+
+  const typeLabel = (t: string) => t === 'daily' ? 'Hàng ngày' : t === 'monthly' ? 'Hàng tháng' : 'Sự cố';
+  const typeColor = (t: string) => t === 'daily' ? 'var(--admin-accent)' : t === 'monthly' ? '#a855f7' : '#f97316';
+  const filteredHistory = useMemo(() => historyFilter === 'all' ? history : history.filter(r => r.type === historyFilter), [history, historyFilter]);
+
+  const reportCards = [
+    { type: 'daily' as const, title: 'Báo cáo ngày', icon: <Clock size={12} />, color: 'var(--admin-accent)' },
+    { type: 'monthly' as const, title: 'Báo cáo tháng', icon: <Calendar size={12} />, color: '#a855f7' },
+    { type: 'event' as const, title: 'Báo cáo sự cố', icon: <AlertTriangle size={12} />, color: '#f97316' },
   ];
 
   return (
-    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
+    <div className="crv-page" style={{ padding: '10px 16px', gap: 10 }}>
 
-      {/* ── Generate bar ──────────────────────────────────── */}
-      <div style={{ ...S.card, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={S.label}>Tạo báo cáo nhanh</span>
-        {types.map(x => (
-          <button key={x.t} style={generating === x.t ? S.btnActive(x.c) : S.btn}
-            disabled={!!generating}
-            onClick={() => !generating && gen(x.t)}>
-            {generating === x.t ? <Loader2 size={12} style={S.spin} /> : <span style={{ color: x.c, display: 'flex' }}>{x.icon}</span>}
-            {generating === x.t ? 'Đang tạo...' : x.title}
+      {/* Quick generate */}
+      <div className="crv-gen" style={{ padding: '6px 12px', borderRadius: 3 }}>
+        <span className="crv-gen-lbl">Tạo nhanh:</span>
+        <div className="crv-gen-sep" />
+        {reportCards.map(card => (
+          <button key={card.type} className={`crv-gen-btn ${generatingType === card.type ? 'generating' : ''}`}
+            style={{ '--crv-color': card.color } as React.CSSProperties}
+            disabled={!!generatingType}
+            onClick={() => !generatingType && generateQuickReport(card.type)}>
+            <span className="crv-gen-dot" />
+            {generatingType === card.type
+              ? <><Loader2 size={12} className="crv-spin" /> Đang tạo...</>
+              : <>{card.icon && <span style={{ color: card.color, display: 'flex' }}>{card.icon}</span>} {card.title}</>}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <button className="btn-industrial btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 28 }} onClick={loadHistory}>
+          <RefreshCw size={11} />
+        </button>
+      </div>
+
+      {/* Scope + filters */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Phạm vi</span>
+          <div style={{ position: 'relative' }}>
+            {stationMenuOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setStationMenuOpen(false)} />}
+            <button ref={stationBtnRef} className="crv-station-btn" style={{ width: 200, height: 30, fontSize: '.65rem' }}
+              onClick={() => {
+                const r = stationBtnRef.current?.getBoundingClientRect();
+                if (r) setMenuPos({ top: r.bottom, left: r.left, width: r.width });
+                setStationMenuOpen(o => !o);
+              }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scopeLabel}</span>
+              <span style={{ flexShrink: 0, opacity: 0.5, fontSize: '.6rem' }}>▾</span>
+            </button>
+            {stationMenuOpen && (
+              <div className="crv-station-menu" style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}>
+                <div className={`crv-station-opt ${!scopeStationId ? 'active' : ''}`} onClick={() => { setScopeStationId(''); setStationMenuOpen(false); }}>
+                  Toàn bộ hệ thống ({views.length} trạm)
+                </div>
+                {views.map(v => (
+                  <div key={v.station.id} className={`crv-station-opt ${scopeStationId === v.station.id ? 'active' : ''}`}
+                    onClick={() => { setScopeStationId(v.station.id); setStationMenuOpen(false); }}>
+                    {(v.station.code ? `${v.station.code} · ` : '') + v.station.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>{filteredHistory.length} báo cáo</span>
+        {(['all', 'daily', 'monthly', 'event'] as const).map(f => (
+          <button key={f} className={`crv-filter-btn ${historyFilter === f ? 'active' : ''}`} onClick={() => setHistoryFilter(f)}>
+            {f === 'all' ? 'Tất cả' : typeLabel(f)}
           </button>
         ))}
       </div>
 
-      {/* ── Scope + filters ───────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ position: 'relative' }}>
-          {menuOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setMenuOpen(false)} />}
-          <button ref={btnRef} style={S.dropdown} onClick={() => {
-            const r = btnRef.current?.getBoundingClientRect();
-            if (r) setMenuPos({ top: r.bottom + 2, left: r.left, width: r.width });
-            setMenuOpen(o => !o);
-          }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scopeLabel}</span>
-            <span style={{ fontSize: '.55rem', opacity: .4 }}>▾</span>
-          </button>
-          {menuOpen && (
-            <div style={{ ...S.dropdownMenu, top: menuPos.top, left: menuPos.left, width: Math.max(menuPos.width, 200) }}>
-              <div style={S.dropdownItem(!scopeStationId)} onClick={() => { setScopeStationId(''); setMenuOpen(false); }}>
+      {/* Table */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div className="crv-table-wrap">
+          {historyLoading ? (
+            <div className="crv-empty"><Loader2 size={26} className="crv-spin" style={{ color: 'var(--admin-accent)', opacity: 1 }} /><p>Đang tải...</p></div>
+          ) : filteredHistory.length === 0 ? (
+            <div className="crv-empty"><FileText size={38} /><p>{history.length === 0 ? 'Chưa có báo cáo nào.' : 'Không có báo cáo phù hợp.'}</p></div>
+          ) : (
+            <table className="crv-table">
+              <thead><tr>
+                <th style={{ width: 100 }}>Loại</th><th>Trạm</th><th style={{ width: 170 }}>Kỳ báo cáo</th><th style={{ width: 130 }}>Ngày tạo</th><th style={{ width: 90, textAlign: 'right' }}></th>
+              </tr></thead>
+              <tbody>
+                {filteredHistory.map(item => (
+                  <tr key={item.id}>
+                    <td><div className="crv-type-pill"><span className="crv-type-bar" style={{ background: typeColor(item.type) }} /><span className="crv-type-lbl">{typeLabel(item.type)}</span></div></td>
+                    <td>{stations.find(s => s.id === item.stationId)?.name || <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Toàn hệ thống</span>}</td>
+                    <td style={{ color: 'var(--admin-text-muted)', fontFamily: 'monospace', fontSize: '.68rem' }}>
+                      {item.periodFrom ? new Date(item.periodFrom).toLocaleDateString('vi-VN') : '--'}
+                      {' → '}{item.periodTo ? new Date(item.periodTo).toLocaleDateString('vi-VN') : '--'}
+                    </td>
+                    <td style={{ color: 'var(--admin-text-muted)', fontSize: '.72rem' }}>{new Date(item.generatedAt).toLocaleString('vi-VN')}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {item.fileUrl && (
+                        <button className="btn-industrial btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginRight: 6 }} onClick={() => downloadReportFile(item)}>
+                          <Download size={11} /> PDF
+                        </button>
+                      )}
+                      <button className="crv-del-btn" onClick={() => deleteReportItem(item.id)} title="Xóa"><X size={12} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+          {stationMenuOpen && (
+            <div className="crv-station-menu" style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}>
+              <div className={`crv-station-opt ${!scopeStationId ? 'active' : ''}`} onClick={() => { setScopeStationId(''); setStationMenuOpen(false); }}>
                 Toàn bộ hệ thống ({views.length} trạm)
               </div>
               {views.map(v => (
-                <div key={v.station.id} style={S.dropdownItem(scopeStationId === v.station.id)}
-                  onClick={() => { setScopeStationId(v.station.id); setMenuOpen(false); }}>
-                  {(v.station.code ? v.station.code + ' · ' : '') + v.station.name}
+                <div key={v.station.id} className={`crv-station-opt ${scopeStationId === v.station.id ? 'active' : ''}`}
+                  onClick={() => { setScopeStationId(v.station.id); setStationMenuOpen(false); }}>
+                  {(v.station.code ? `${v.station.code} · ` : '') + v.station.name}
                 </div>
               ))}
             </div>
           )}
         </div>
-        <div style={S.flex1} />
-        <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{filtered.length} báo cáo</span>
-        {(['all','daily','monthly','event'] as const).map(f => (
-          <button key={f} style={filter === f ? S.btnActive('var(--admin-accent)') : S.btn}
-            onClick={() => setFilter(f)}>
-            {f === 'all' ? 'Tất cả' : tl(f)}
-          </button>
-        ))}
-      </div>
 
-      {/* ── Table ─────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
-        {loading ? (
-          <div style={S.empty}><Loader2 size={22} style={{ ...S.spin, color: 'var(--admin-accent)', opacity: 1 }} /><p>Đang tải...</p></div>
-        ) : filtered.length === 0 ? (
-          <div style={S.empty}><FileText size={32} /><p>{history.length === 0 ? 'Chưa có báo cáo nào. Nhấn nút tạo bên trên.' : 'Không có báo cáo phù hợp.'}</p></div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>
-              <th style={S.th}>Loại</th><th style={S.th}>Trạm</th><th style={S.th}>Kỳ báo cáo</th><th style={S.th}>Ngày tạo</th><th style={{ ...S.th, textAlign: 'right', width: 80 }}></th>
-            </tr></thead>
-            <tbody>
-              {filtered.map(r => {
-                const sname = stations.find(s => s.id === r.stationId)?.name;
-                const c = tc(r.type);
-                return (
-                  <tr key={r.id} style={{ cursor: 'default' }}>
-                    <td style={S.td}><div style={S.pill(c)}><span style={S.pillBar(c)} /><span style={S.pillLbl}>{tl(r.type)}</span></div></td>
-                    <td style={S.td}>{sname || <span style={{ ...S.muted, fontStyle: 'italic' }}>Toàn hệ thống</span>}</td>
-                    <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.65rem', ...S.muted }}>
-                      {r.periodFrom ? new Date(r.periodFrom).toLocaleDateString('vi-VN') : '--'}
-                      {' → '}{r.periodTo ? new Date(r.periodTo).toLocaleDateString('vi-VN') : '--'}
-                    </td>
-                    <td style={{ ...S.td, ...S.muted, fontSize: '.68rem' }}>{new Date(r.generatedAt).toLocaleString('vi-VN')}</td>
-                    <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {r.fileUrl && (
-                        <button style={S.btn} onClick={() => dl(r)}><Download size={12} /> PDF</button>
-                      )}
-                      <button style={{ ...S.btn, borderColor: 'transparent', background: 'transparent', opacity: .3, marginLeft: 4, padding: '0 5px' }}
-                        onClick={() => del(r.id)} title="Xóa"><X size={12} /></button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* keyframe for spinner */}
-      <style>{`@keyframes crv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────
-   CentralLogView — tab Nhật ký đa trạm
-   Gộp 4 loại log (audit, login, notify, rule-trigger) từ tất cả
-   trạm, hiển thị dạng bảng nhất quán với theme admin/industrial.
-   ───────────────────────────────────────────────────────────── */
-
-type LogType = 'all' | 'audit' | 'login' | 'notify' | 'rule';
-type TimeRange = 'today' | '7d' | '30d' | 'all';
-
-interface MergedLogItem {
-  id: string;
-  ts: string;
-  type: LogType;
-  stationId?: string;
-  stationName?: string;
-  action: string;
-  detail: string;
-  user: string;
-  entityType?: string;
-  ipAddress?: string;
-  oldValue?: string | null;
-  newValue?: string | null;
-  channel?: string;
-  recipient?: string;
-  status?: string;
-  ruleName?: string;
-  deviceName?: string;
-  valueAtTrigger?: number;
-  conditionSnapshot?: string;
-}
-
-const LOG_TYPE_LABELS: Record<LogType, string> = {
-  all: 'TẤT CẢ',
-  audit: 'HÀNH ĐỘNG',
-  login: 'ĐĂNG NHẬP',
-  notify: 'THÔNG BÁO',
-  rule: 'KÍCH HOẠT',
-};
-
-const LOG_TYPE_COLORS: Record<LogType, string> = {
-  all: 'var(--admin-text-muted)',
-  audit: 'var(--admin-accent)',
-  login: '#22c55e',
-  notify: '#f59e0b',
-  rule: '#ef4444',
-};
-
-function CentralLogView({ stations }: { stations: Station[] }) {
-  const [logType, setLogType] = useState<LogType>('all');
-  const [timeRange, setTimeRange] = useState<TimeRange>('today');
-  const [scopeStationId, setScopeStationId] = useState('');
-  const [searchText, setSearchText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [logs, setLogs] = useState<MergedLogItem[]>([]);
-  const [selectedLog, setSelectedLog] = useState<MergedLogItem | null>(null);
-  const [showDetail, setShowDetail] = useState(true);
-
-  const dates = useMemo(() => fmtTimeRange(timeRange === 'all' ? '30d' : timeRange), [timeRange]);
-
-  const loadLogs = useCallback(async () => {
-    setLoading(true);
-    const from = timeRange === 'all' ? undefined : dates.from ? new Date(dates.from).toISOString() : undefined;
-    const to = timeRange === 'all' ? undefined : dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
-    const sid = scopeStationId || undefined;
-    try {
-      const [audit, login, notify, rule] = await Promise.all([
-        stationApi.getAuditLogs({ from, to, stationId: sid, limit: 500 }),
-        stationApi.getLoginLogs({ from, to, stationId: sid }),
-        stationApi.getNotifyLogs({ from, to, stationId: sid }),
-        stationApi.getRuleTriggerLogs({ from, to, stationId: sid }),
-      ]);
-
-      const merged: MergedLogItem[] = [
-        ...audit.map(l => ({
-          id: l.id, ts: l.ts, type: 'audit' as LogType,
-          stationId: l.stationId, stationName: l.stationName,
-          action: l.action, detail: l.entityType || 'SYS',
-          user: l.fullName || l.username || 'system',
-          entityType: l.entityType, ipAddress: l.ipAddress,
-          oldValue: l.oldValue, newValue: l.newValue,
-        })),
-        ...login.map(l => ({
-          id: l.id, ts: l.ts, type: 'login' as LogType,
-          stationId: l.stationId, stationName: l.stationName,
-          action: l.action, detail: 'LOGIN',
-          user: l.username || 'system',
-          ipAddress: l.ipAddress,
-        })),
-        ...notify.map(l => ({
-          id: l.id, ts: l.sentAt, type: 'notify' as LogType,
-          stationId: l.stationId, stationName: l.stationName,
-          action: l.channel, detail: l.recipient,
-          user: 'system', channel: l.channel, recipient: l.recipient,
-          status: l.status,
-        })),
-        ...rule.map(l => ({
-          id: l.id, ts: l.triggeredAt, type: 'rule' as LogType,
-          stationId: l.stationId, stationName: l.stationName,
-          action: l.ruleName || l.ruleId, detail: l.deviceName || l.deviceId || '',
-          user: 'system', ruleName: l.ruleName, deviceName: l.deviceName,
-          valueAtTrigger: l.valueAtTrigger, conditionSnapshot: l.conditionSnapshot,
-        })),
-      ].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
-
-      setLogs(merged);
-    } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [dates, scopeStationId, timeRange]);
-
-  useEffect(() => { loadLogs(); }, [loadLogs]);
-
-  const filtered = useMemo(() => {
-    let source = logType === 'all' ? logs : logs.filter(l => l.type === logType);
-    if (!searchText) return source;
-    const q = searchText.toLowerCase();
-    return source.filter(l =>
-      l.action.toLowerCase().includes(q) ||
-      l.detail.toLowerCase().includes(q) ||
-      l.user.toLowerCase().includes(q) ||
-      (l.stationName || '').toLowerCase().includes(q)
-    );
-  }, [logs, logType, searchText]);
-
-  const S = {
-    toolbar: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', flexShrink: 0, flexWrap: 'wrap' as const },
-    btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
-    btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
-    dropdown: { height: 28, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 160 } as React.CSSProperties,
-    input: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', minWidth: 160 } as React.CSSProperties,
-    th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
-    td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
-    pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
-    pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 1, background: c, flexShrink: 0 } as React.CSSProperties),
-    pillLbl: { fontSize: '.7rem', fontWeight: 600 } as React.CSSProperties,
-    muted: { color: 'var(--admin-text-muted)' } as React.CSSProperties,
-    empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, height: '100%', color: 'var(--admin-text-muted)', opacity: 0.5 } as React.CSSProperties,
-    spin: { animation: 'crv-spin 1s linear infinite' } as React.CSSProperties,
-  };
-
-  const LogTypeIcon = ({ type }: { type: LogType }) => {
-    switch (type) {
-      case 'audit': return <FileText size={12} />;
-      case 'login': return <LogIn size={12} />;
-      case 'notify': return <Bell size={12} />;
-      case 'rule': return <Zap size={12} />;
-      default: return <FileText size={12} />;
-    }
-  };
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--admin-bg)' }}>
-      {/* ── Toolbar ─────────────────────────────────────────── */}
-      <div style={S.toolbar}>
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>LOẠI</span>
-        {(Object.keys(LOG_TYPE_LABELS) as LogType[]).map(t => (
-          <button key={t} style={logType === t ? S.btnActive(LOG_TYPE_COLORS[t]) : S.btn}
-            onClick={() => setLogType(t)}>
-            <LogTypeIcon type={t} />
-            {LOG_TYPE_LABELS[t]}
-          </button>
-        ))}
-
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
-
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>THỜI GIAN</span>
-        {(Object.entries({ today: 'HÔM NAY', '7d': '7 NGÀY', '30d': '30 NGÀY', all: 'TẤT CẢ' }) as [TimeRange, string][]).map(([v, label]) => (
-          <button key={v} style={timeRange === v ? S.btnActive('var(--admin-accent)') : S.btn}
-            onClick={() => setTimeRange(v)}>
-            <Clock size={10} />{label}
-          </button>
-        ))}
-
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
-
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TRẠM</span>
-        <select style={S.dropdown} value={scopeStationId} onChange={e => setScopeStationId(e.target.value)}>
-          <option value="">TẤT CẢ TRẠM ({stations.length})</option>
-          {stations.map(s => (
-            <option key={s.id} value={s.id}>{(s.code ? s.code + ' · ' : '') + s.name}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, paddingLeft: 10, borderLeft: '1px solid var(--admin-border)' }}>
+          <span className="crv-stat-chip">TRẠM <b>{summary.stationCount}</b></span>
+          <span className="crv-stat-chip">ONLINE <b style={{ color: summary.online === summary.devices ? 'var(--admin-success)' : '#f59e0b' }}>{summary.online}/{summary.devices}</b></span>
+          <span className="crv-stat-chip">CẢNH BÁO <b style={{ color: summary.alerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }}>{summary.alerts}</b></span>
+          <span className="crv-stat-chip">BÁO CÁO <b>{history.length}</b></span>
+        </div>
 
         <div style={{ flex: 1 }} />
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-layer-2)', borderRadius: 3, border: '1px solid var(--admin-border)', padding: '0 8px' }}>
-          <Search size={12} style={S.muted} />
-          <input type="text" placeholder="TÌM KIẾM..." value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            style={{ ...S.input, border: 'none', background: 'transparent', minWidth: 140, padding: 0 }} />
-          {searchText && <X size={12} style={{ ...S.muted, cursor: 'pointer' }} onClick={() => setSearchText('')} />}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn-industrial btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 28 }} onClick={loadHistory}>
+            <RefreshCw size={11} /> Làm mới
+          </button>
+          <button className="btn-industrial btn-primary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, height: 28 }} onClick={exportAlertsCsv}>
+            <Download size={11} /> Xuất CSV
+          </button>
         </div>
-
-        <button style={S.btn} onClick={loadLogs} title="Tải lại">
-          <RefreshCw size={12} className={loading ? 'spin' : ''} />
-        </button>
-
-        <span style={{ fontSize: '.6rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
-          {filtered.length} dòng
-        </span>
       </div>
 
-      {/* ── Per-station summary strip ──────────────────────── */}
-      {!scopeStationId && logs.length > 0 && (
-        <div style={{
-          display: 'flex', gap: 8, padding: '6px 12px',
-          background: 'var(--admin-panel)', borderBottom: '1px solid var(--admin-border)',
-          overflowX: 'auto', flexShrink: 0, alignItems: 'center'
-        }}>
-          <span style={{ fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '.08em', flexShrink: 0 }}>THEO TRẠM:</span>
-          {(() => {
-            const counts: Record<string, { name: string; count: number }> = {};
-            logs.forEach(l => {
-              const key = l.stationId || '_system';
-              if (!counts[key]) counts[key] = { name: l.stationName || 'Hệ thống', count: 0 };
-              counts[key].count++;
-            });
-            return Object.entries(counts)
-              .sort((a, b) => b[1].count - a[1].count)
-              .slice(0, 8)
-              .map(([sid, info]) => (
-                <span key={sid} onClick={() => setScopeStationId(sid === '_system' ? '' : sid)}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: '2px 8px', borderRadius: 3,
-                    background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
-                    fontSize: '.58rem', fontWeight: 700, color: 'var(--admin-text)',
-                    cursor: 'pointer', whiteSpace: 'nowrap',
-                    transition: 'border-color .15s'
-                  }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--admin-accent)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--admin-border)'}
-                >
-                  <span style={{ color: 'var(--admin-accent)', fontWeight: 900 }}>{info.count}</span>
-                  {info.name.length > 14 ? info.name.slice(0, 14) + '…' : info.name}
-                </span>
-              ));
-          })()}
-        </div>
-      )}
+      <div className="crv-gen">
+        <span className="crv-gen-lbl">Tạo báo cáo nhanh:</span>
+        <div className="crv-gen-sep" />
+        {reportCards.map(card => (
+          <button key={card.type} className={`crv-gen-btn ${generatingType === card.type ? 'generating' : ''}`}
+            style={{ '--crv-color': card.color } as React.CSSProperties}
+            disabled={!!generatingType}
+            onClick={() => !generatingType && generateQuickReport(card.type)}>
+            <span className="crv-gen-dot" />
+            {generatingType === card.type
+              ? <><Loader2 size={12} className="crv-spin" /> Đang tạo...</>
+              : <>{card.icon && <span style={{ color: card.color, display: 'flex' }}>{card.icon}</span>} {card.title}</>}
+          </button>
+        ))}
+      </div>
 
-      {/* ── Body: table + detail panel ──────────────────────── */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-        {/* Table */}
-        <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minWidth: 0 }}>
-          {loading ? (
-            <div style={S.empty}><Loader2 size={22} style={{ ...S.spin, color: 'var(--admin-accent)', opacity: 1 }} /><p>Đang tải nhật ký...</p></div>
-          ) : filtered.length === 0 ? (
-            <div style={S.empty}><FileText size={32} /><p>{logs.length === 0 ? 'Chưa có dữ liệu nhật ký. Nhấn nút tải lại.' : 'Không có kết quả phù hợp.'}</p></div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>
-                <th style={{ ...S.th, width: 140 }}>THỜI GIAN</th>
-                <th style={{ ...S.th, width: 100 }}>TRẠM</th>
-                <th style={{ ...S.th, width: 100 }}>LOẠI</th>
-                <th style={S.th}>NỘI DUNG</th>
-                <th style={{ ...S.th, width: 130 }}>NGƯỜI DÙNG</th>
-              </tr></thead>
-              <tbody>
-                {filtered.map(l => {
-                  const c = LOG_TYPE_COLORS[l.type];
-                  const isSelected = selectedLog?.id === l.id;
-                  return (
-                    <tr key={l.id}
-                      onClick={() => setSelectedLog(isSelected ? null : l)}
-                      style={{
-                        cursor: 'pointer',
-                        background: isSelected ? 'var(--admin-layer-2)' : 'transparent',
-                      }}>
-                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.62rem', ...S.muted }}>
-                        {fmtDateTime(l.ts)}
+      <div className="crv-main">
+        <div className="crv-slist">
+          <div className="crv-slist-hd"><Map size={11} /><span>Phạm vi</span></div>
+          <div className="crv-slist-search">
+            <Search size={11} />
+            <input type="text" placeholder="Tìm trạm..." value={stationSearch} onChange={e => setStationSearch(e.target.value)} />
+          </div>
+          <div className="crv-slist-body">
+            <div className={`crv-sitem ${!scopeStationId ? 'active' : ''}`} onClick={() => setScopeStationId('')}>
+              <div className="crv-sitem-dot" style={{ background: 'var(--admin-accent)' }} />
+              <div className="crv-sitem-info"><span className="n">Toàn bộ hệ thống</span><span className="s">{views.length} trạm</span></div>
+            </div>
+            {filteredViews.map(view => {
+              const active = scopeStationId === view.station.id;
+              return (
+                <div key={view.station.id} className={`crv-sitem ${active ? 'active' : ''}`} onClick={() => setScopeStationId(view.station.id)}>
+                  <div className="crv-sitem-dot" style={{ background: view.kpi.devicesOnline > 0 ? '#10b981' : '#6b7280', boxShadow: view.kpi.devicesOnline > 0 ? '0 0 4px #10b981' : 'none' }} />
+                  <div className="crv-sitem-info">
+                    <span className="n">{view.station.name}</span>
+                    <span className="s">{view.station.code || view.station.id.slice(0, 8).toUpperCase()}{' · '}{view.kpi.devicesOnline}/{view.kpi.devicesTotal}</span>
+                  </div>
+                  {view.kpi.alerts > 0 && <span className="crv-sitem-badge">{view.kpi.alerts}</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="crv-content">
+          <div className="crv-content-hd">
+            <span className="crv-content-hd-title">Lịch sử báo cáo</span>
+            <span className="crv-count-badge">{filteredHistory.length}</span>
+            <span className="crv-scope-label">· {scopeStationId ? scopeLabel : 'Toàn hệ thống'}</span>
+            <div style={{ flex: 1 }} />
+            {(['all', 'daily', 'monthly', 'event'] as const).map(f => (
+              <button key={f} className={`crv-filter-btn ${historyFilter === f ? 'active' : ''}`} onClick={() => setHistoryFilter(f)}>
+                {f === 'all' ? 'Tất cả' : typeLabel(f)}
+              </button>
+            ))}
+          </div>
+
+          <div className="crv-table-wrap">
+            {historyLoading ? (
+              <div className="crv-empty"><Loader2 size={26} className="crv-spin" style={{ color: 'var(--admin-accent)', opacity: 1 }} /><p>Đang tải...</p></div>
+            ) : filteredHistory.length === 0 ? (
+              <div className="crv-empty"><FileText size={38} /><p>{history.length === 0 ? 'Chưa có báo cáo nào.' : 'Không có báo cáo phù hợp.'}</p></div>
+            ) : (
+              <table className="crv-table">
+                <thead><tr>
+                  <th>Loại</th><th>Trạm / Phạm vi</th><th>Kỳ báo cáo</th><th>Ngày tạo</th><th style={{ textAlign: 'right' }}></th>
+                </tr></thead>
+                <tbody>
+                  {filteredHistory.map(item => (
+                    <tr key={item.id}>
+                      <td><div className="crv-type-pill"><span className="crv-type-bar" style={{ background: typeColor(item.type) }} /><span className="crv-type-lbl">{typeLabel(item.type)}</span></div></td>
+                      <td>{stations.find(s => s.id === item.stationId)?.name || <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Toàn hệ thống</span>}</td>
+                      <td style={{ color: 'var(--admin-text-muted)', fontFamily: 'monospace', fontSize: '.7rem' }}>
+                        {item.periodFrom ? new Date(item.periodFrom).toLocaleDateString('vi-VN') : '--'}
+                        {' → '}{item.periodTo ? new Date(item.periodTo).toLocaleDateString('vi-VN') : '--'}
                       </td>
-                      <td style={S.td}>
-                        <span style={{ fontSize: '.62rem', fontWeight: 600 }}>
-                          {l.stationName || <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span>}
-                        </span>
-                      </td>
-                      <td style={S.td}>
-                        <div style={S.pill(c)}>
-                          <span style={S.pillBar(c)} />
-                          <span style={S.pillLbl}>{LOG_TYPE_LABELS[l.type]}</span>
-                        </div>
-                      </td>
-                      <td style={S.td}>
-                        <span style={{ fontWeight: 700, fontSize: '.68rem' }}>{l.action}</span>
-                        {l.detail && <span style={{ ...S.muted, fontSize: '.58rem', marginLeft: 6 }}>{l.detail}</span>}
-                      </td>
-                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.6rem', ...S.muted }}>
-                        {l.user.toUpperCase()}
+                      <td style={{ color: 'var(--admin-text-muted)', fontSize: '.75rem' }}>{new Date(item.generatedAt).toLocaleString('vi-VN')}</td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {item.fileUrl && (
+                          <button className="btn-industrial btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginRight: 6 }} onClick={() => downloadReportFile(item)}>
+                            <Download size={11} /> PDF
+                          </button>
+                        )}
+                        <button className="crv-del-btn" onClick={() => deleteReportItem(item.id)} title="Xóa"><X size={12} /></button>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {/* Detail panel */}
-        {selectedLog && (
-          <aside style={{
-            width: showDetail ? 320 : 28,
-            background: 'var(--admin-panel)',
-            border: '1px solid var(--admin-border)',
-            borderRadius: 3,
-            marginLeft: 6,
-            display: 'flex',
-            flexDirection: 'column',
-            transition: 'width .2s',
-            overflow: 'hidden',
-            flexShrink: 0,
-          }}>
-            <button
-              onClick={() => setShowDetail(!showDetail)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px',
-                border: 'none', background: 'var(--admin-layer-1)',
-                color: 'var(--admin-text)', cursor: 'pointer',
-                fontSize: '.58rem', fontWeight: 900, letterSpacing: '.08em',
-                borderBottom: '1px solid var(--admin-border)',
-              }}>
-              {showDetail ? <ChevronRight size={10} /> : <ChevronLeft size={10} />}
-              {showDetail && 'CHI TIẾT'}
-            </button>
-            {showDetail && (
-              <div style={{ flex: 1, overflow: 'auto', padding: 10 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <DetailRow label="THỜI GIAN" value={fmtDateTime(selectedLog.ts)} />
-                  <DetailRow label="TRẠM" value={selectedLog.stationName || '—'} />
-                  <DetailRow label="LOẠI" value={LOG_TYPE_LABELS[selectedLog.type]} />
-                  <DetailRow label="HÀNH ĐỘNG" value={selectedLog.action} />
-                  <DetailRow label="CHI TIẾT" value={selectedLog.detail} />
-                  <DetailRow label="NGƯỜI DÙNG" value={selectedLog.user} />
-                  {selectedLog.ipAddress && <DetailRow label="IP" value={selectedLog.ipAddress} />}
-                  {selectedLog.entityType && <DetailRow label="ĐỐI TƯỢNG" value={selectedLog.entityType} />}
-                  {selectedLog.channel && <DetailRow label="KÊNH" value={selectedLog.channel} />}
-                  {selectedLog.recipient && <DetailRow label="NGƯỜI NHẬN" value={selectedLog.recipient} />}
-                  {selectedLog.status && <DetailRow label="TRẠNG THÁI" value={selectedLog.status} />}
-                  {selectedLog.ruleName && <DetailRow label="RULE" value={selectedLog.ruleName} />}
-                  {selectedLog.deviceName && <DetailRow label="THIẾT BỊ" value={selectedLog.deviceName} />}
-                  {selectedLog.valueAtTrigger != null && <DetailRow label="GIÁ TRỊ" value={String(selectedLog.valueAtTrigger)} />}
-                  {selectedLog.conditionSnapshot && (
-                    <div>
-                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>ĐIỀU KIỆN</div>
-                      <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 100, margin: 0 }}>
-                        {selectedLog.conditionSnapshot}
-                      </pre>
-                    </div>
-                  )}
-                  {(selectedLog.oldValue || selectedLog.newValue) && (
-                    <div>
-                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>THAY ĐỔI</div>
-                      {selectedLog.oldValue && (
-                        <div style={{ marginBottom: 4 }}>
-                          <span style={{ fontSize: '.5rem', color: '#ef4444', fontWeight: 700 }}>CŨ</span>
-                          <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 80, margin: '2px 0 0' }}>
-                            {typeof selectedLog.oldValue === 'string' ? selectedLog.oldValue : JSON.stringify(selectedLog.oldValue, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      {selectedLog.newValue && (
-                        <div>
-                          <span style={{ fontSize: '.5rem', color: '#22c55e', fontWeight: 700 }}>MỚI</span>
-                          <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 80, margin: '2px 0 0' }}>
-                            {typeof selectedLog.newValue === 'string' ? selectedLog.newValue : JSON.stringify(selectedLog.newValue, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             )}
-          </aside>
-        )}
+          </div>
+        </div>
       </div>
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: '.65rem', fontWeight: 600, color: 'var(--admin-text)' }}>{value}</div>
     </div>
   );
 }

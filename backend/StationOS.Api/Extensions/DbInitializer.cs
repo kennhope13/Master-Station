@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using StationOS.Data;
 using StationOS.Services.Auth;
 using StationOS.Services.Devices;
@@ -14,6 +15,10 @@ public static class DbInitializer
         using var scope = app.Services.CreateScope();
         var services = scope.ServiceProvider;
         var db = services.GetRequiredService<AppDbContext>();
+        var config = services.GetRequiredService<IConfiguration>();
+
+        // 0. Tự động tạo database nếu chưa tồn tại (PostgreSQL)
+        await EnsureDatabaseCreatedAsync(config);
 
         // 1. Tạo extension TimescaleDB TRƯỚC khi migrate (cần thiết cho hypertable)
         try
@@ -42,6 +47,7 @@ public static class DbInitializer
 
         // Đảm bảo các cột được thêm vào kể cả khi migration đã bị đánh dấu "applied" mà DDL chưa chạy
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Rules"" ADD COLUMN IF NOT EXISTS ""RuleSet"" text;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ApiUrl"" text;");
 
         var authService = services.GetRequiredService<AuthService>();
         await authService.SeedAdminIfNotExistsAsync();   // Chỉ giữ admin user — không seed thêm data nào
@@ -367,5 +373,37 @@ public static class DbInitializer
         }
         await db.SaveChangesAsync();
         Console.WriteLine("[Startup] Đã seed 20 rules nhiệt độ camera (P1-P20)");
+    }
+
+    // Tự động tạo database PostgreSQL nếu chưa tồn tại
+    private static async Task EnsureDatabaseCreatedAsync(IConfiguration config)
+    {
+        var connStr = config.GetConnectionString("Default");
+        if (string.IsNullOrEmpty(connStr)) return;
+
+        var builder = new NpgsqlConnectionStringBuilder(connStr);
+        var dbName  = builder.Database;
+        if (string.IsNullOrEmpty(dbName)) return;
+
+        // Kết nối vào database mặc định "postgres" để tạo database mới
+        builder.Database = "postgres";
+        try
+        {
+            await using var conn = new NpgsqlConnection(builder.ConnectionString);
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"SELECT 1 FROM pg_database WHERE datname = '{dbName}'";
+            var exists = await cmd.ExecuteScalarAsync();
+            if (exists == null)
+            {
+                cmd.CommandText = $"CREATE DATABASE \"{dbName}\"";
+                await cmd.ExecuteNonQueryAsync();
+                Console.WriteLine($"[Startup] Đã tạo database '{dbName}'");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Startup] Không thể tự tạo database (bỏ qua): {ex.Message}");
+        }
     }
 }

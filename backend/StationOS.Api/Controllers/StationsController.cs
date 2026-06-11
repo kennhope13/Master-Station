@@ -69,6 +69,7 @@ public class StationsController : ControllerBase
             Name     = req.Name,
             Code     = req.Code,
             Location = req.Location,
+            ApiUrl   = req.ApiUrl,
             Status   = "active"
         };
         _db.Stations.Add(station);
@@ -90,6 +91,7 @@ public class StationsController : ControllerBase
         station.Name     = req.Name;
         station.Code     = req.Code;
         station.Location = req.Location;
+        station.ApiUrl   = req.ApiUrl;
         if (!string.IsNullOrWhiteSpace(req.Status))
             station.Status = req.Status;
 
@@ -123,4 +125,5 @@ public class StationsController : ControllerBase
 /// <param name="Code">Mã trạm.</param>
 /// <param name="Location">Vị trí dạng JSON {"lat","lng","address"}.</param>
 /// <param name="Status">Trạng thái: active | inactive | maintenance.</param>
-public record StationRequest(string Name, string? Code, string? Location, string? Status);
+/// <param name="ApiUrl">URL API của trạm con (để trạm tổng kết nối vào). Ví dụ: http://192.168.1.100:5000</param>
+public record StationRequest(string Name, string? Code, string? Location, string? Status, string? ApiUrl);

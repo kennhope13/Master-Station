@@ -15,7 +15,6 @@ import { fmtDateTime, fmtTimeRange } from '@/utils/format';
 
 const CentralAnalyticsLayout = lazy(() => import('@/pages/analytics/CentralAnalyticsLayout'));
 const DeviceManagementPage = lazy(() => import('@/pages/device-management/DeviceManagementPage'));
-const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView'));
 const RealtimeMonitorPage = lazy(() => import('@/pages/realtime-monitor/RealtimeMonitorPage'));
 const ReportsPage = lazy(() => import('@/pages/reports/ReportsPage'));
 const UserManagementPage = lazy(() => import('@/pages/user-management/UserManagementPage'));
@@ -44,7 +43,7 @@ const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
   devices: 'THIẾT BỊ',
   audit_log: 'NHẬT KÝ',
   reports: 'BÁO CÁO',
-  users: 'QUẢN TRỊ NHÂN SỰ & TRẠM',
+  users: 'NGƯỜI DÙNG',
 };
 
 
@@ -98,7 +97,6 @@ export default function MultisitePage() {
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [devicePanelAction, setDevicePanelAction] = useState<'new' | null>(null);
-  const [devicesSubTab, setDevicesSubTab] = useState<'overview' | 'manage'>('overview');
   const showEmbeddedBackButton = activeTab !== 'overview' && !!selectedStationId;
 
   const activateTab = (
@@ -254,12 +252,6 @@ export default function MultisitePage() {
     });
   }, [stations, alertsByFilter, devicesByStation]);
 
-  const alertsByStation = useMemo(() => {
-    const result: Record<string, number> = {};
-    views.forEach(v => { result[v.station.id] = v.kpi.alerts; });
-    return result;
-  }, [views]);
-
   const filteredViews = useMemo(() => {
     return views.filter(v => {
       if (statusFilter === 'all') return true;
@@ -283,15 +275,6 @@ export default function MultisitePage() {
       setSelectedStationId(views[0].station.id);
     }
   }, [views, selectedStationId]);
-
-  // Reset devices sub-tab when leaving devices tab
-  useEffect(() => {
-    if (activeTab !== 'devices') setDevicesSubTab('overview');
-  }, [activeTab]);
-
-  const handleDeviceRefresh = useCallback(() => {
-    stations.forEach(s => fetchDevices(s.id));
-  }, [stations, fetchDevices]);
 
   // Global counts for all stations
   const globalStats = useMemo(() => {
@@ -665,6 +648,12 @@ export default function MultisitePage() {
             {selectedView ? selectedView.station.name : MULTISITE_TAB_TITLES[activeTab]}
           </span>
 
+          {activeTab === 'overview' && !selectedView && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', padding: '1px 6px', fontSize: 9 }}>
+              <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--admin-success)', display: 'inline-block', animation: 'marker-pulse-red-anim 1s infinite alternate' }} />
+              <span style={{ color: 'var(--admin-success)', fontWeight: 800 }}>LIVE</span>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -831,39 +820,39 @@ export default function MultisitePage() {
 
       {/* KPI SUB-HEADER GAP - Filling the empty space below toolbar for all tabs */}
       <div style={{
-          position: 'absolute',
-          top: 40,
-          left: 0,
-          right: 0,
-          height: 34,
-          background: 'var(--admin-bg)',
-          borderBottom: '1px solid var(--admin-border)',
-          zIndex: 100,
-          display: 'flex',
-          alignItems: 'center',
-          padding: '0 16px',
-          gap: 24
-        }}>
-           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Map size={12} style={{ color: 'var(--admin-text-muted)' }} />
-              <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>TỔNG SỐ TRẠM:</span>
-              <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.totalStations}</span>
-           </div>
-           <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
-           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <AlertTriangle size={12} style={{ color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }} />
-              <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>CẢNH BÁO:</span>
-              <span style={{ fontSize: '.75rem', fontWeight: 900, color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }}>{globalStats.totalAlerts}</span>
-           </div>
-           <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
-           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Wifi size={12} style={{ color: 'var(--admin-text-muted)' }} />
-              <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>THIẾT BỊ ONLINE:</span>
-              <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.onlineDevices} / {globalStats.totalDevices}</span>
-           </div>
-           
-           <div style={{ flex: 1 }} />
-      </div>
+        position: 'absolute',
+        top: 40,
+        left: 0,
+        right: 0,
+        height: 34,
+        background: 'var(--admin-bg)',
+        borderBottom: '1px solid var(--admin-border)',
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        padding: '0 16px',
+        gap: 24
+      }}>
+         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Map size={12} style={{ color: 'var(--admin-text-muted)' }} />
+            <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>TỔNG SỐ TRẠM:</span>
+            <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.totalStations}</span>
+         </div>
+         <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
+         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertTriangle size={12} style={{ color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }} />
+            <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>CẢNH BÁO:</span>
+            <span style={{ fontSize: '.75rem', fontWeight: 900, color: globalStats.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }}>{globalStats.totalAlerts}</span>
+         </div>
+         <div style={{ width: 1, height: 16, background: 'var(--admin-border)' }} />
+         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Wifi size={12} style={{ color: 'var(--admin-text-muted)' }} />
+            <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>THIẾT BỊ ONLINE:</span>
+            <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.onlineDevices} / {globalStats.totalDevices}</span>
+         </div>
+         
+         <div style={{ flex: 1 }} />
+         </div>
 
       {activeTab === 'analytics' && (
         <div
@@ -894,32 +883,20 @@ export default function MultisitePage() {
             right: 0,
             bottom: 0,
             zIndex: 2,
-            overflow: 'hidden',
+            overflow: 'auto',
             background: 'var(--admin-bg, #0b1220)',
             padding: 0
           }}
         >
           <Suspense fallback={null}>
-            {devicesSubTab === 'manage' ? (
-              <DeviceManagementPage
-                initialAction={devicePanelAction}
-                onInitialActionHandled={() => setDevicePanelAction(null)}
-                embeddedMode="central"
-                stationIdOverride={selectedStationId}
-                onStationIdChange={id => setSelectedStationId(id || null)}
-                onBack={() => { setDevicesSubTab('overview'); handleDeviceRefresh(); }}
-              />
-            ) : (
-              <CentralDeviceView
-                stations={stations}
-                devicesByStation={devicesByStation}
-                selectedStationId={selectedStationId}
-                onSelectStation={id => setSelectedStationId(id)}
-                onRefresh={handleDeviceRefresh}
-                alertsByStation={alertsByStation}
-                onAddDevice={() => { setDevicesSubTab('manage'); setDevicePanelAction('new'); }}
-              />
-            )}
+            <DeviceManagementPage
+              initialAction={devicePanelAction}
+              onInitialActionHandled={() => setDevicePanelAction(null)}
+              embeddedMode="central"
+              stationIdOverride={selectedStationId}
+              onStationIdChange={setSelectedStationId}
+              allDevicesByStation={devicesByStation}
+            />
           </Suspense>
         </div>
       )}

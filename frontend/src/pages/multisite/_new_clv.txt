@@ -1,0 +1,561 @@
+ 
+/* ─────────────────────────────────────────────────────────────
+   CentralLogView — tab Nhật ký đa trạm
+   Gộp 4 loại log (audit, login, notify, rule-trigger) từ tất cả
+   trạm, hiển thị bảng nhất quán theme admin/industrial.
+   Phân trang, sắp xếp, xuất CSV, tự động làm mới, thống kê.
+   ───────────────────────────────────────────────────────────── */
+
+type LogType = 'all' | 'audit' | 'login' | 'notify' | 'rule';
+type TimeRange = 'today' | '7d' | '30d' | 'custom' | 'all';
+type SortField = 'ts' | 'type' | 'stationName' | 'action' | 'user';
+type SortDir = 'asc' | 'desc';
+
+interface MergedLogItem {
+  id: string;
+  ts: string;
+  type: LogType;
+  stationId?: string;
+  stationName?: string;
+  action: string;
+  detail: string;
+  user: string;
+  entityType?: string;
+  ipAddress?: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+  channel?: string;
+  recipient?: string;
+  status?: string;
+  ruleName?: string;
+  deviceName?: string;
+  valueAtTrigger?: number;
+  conditionSnapshot?: string;
+}
+
+const LOG_TYPE_LABELS: Record<LogType, string> = {
+  all: 'TẤT CẢ',
+  audit: 'HÀNH ĐỘNG',
+  login: 'ĐĂNG NHẬP',
+  notify: 'THÔNG BÁO',
+  rule: 'KÍCH HOẠT',
+};
+
+const LOG_TYPE_COLORS: Record<LogType, string> = {
+  all: 'var(--admin-text-muted)',
+  audit: 'var(--admin-accent)',
+  login: '#22c55e',
+  notify: '#f59e0b',
+  rule: '#ef4444',
+};
+
+const LOG_TYPE_ICONS: Record<LogType, string> = {
+  all: '📋',
+  audit: '📝',
+  login: '🔑',
+  notify: '🔔',
+  rule: '⚡',
+};
+
+const PAGE_SIZE = 25;
+const REFRESH_INTERVAL_S = 15;
+
+function CentralLogView({ stations }: { stations: Station[] }) {
+  const [logType, setLogType] = useState<LogType>('all');
+  const [timeRange, setTimeRange] = useState<TimeRange>('today');
+  const [scopeStationId, setScopeStationId] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [logs, setLogs] = useState<MergedLogItem[]>([]);
+  const [selectedLog, setSelectedLog] = useState<MergedLogItem | null>(null);
+  const [showDetail, setShowDetail] = useState(true);
+  const [page, setPage] = useState(1);
+  const [sortField, setSortField] = useState<SortField>('ts');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const dates = useMemo(() => {
+    if (timeRange === 'custom') {
+      return { from: dateFrom, to: dateTo };
+    }
+    return fmtTimeRange(timeRange === 'all' ? '30d' : timeRange);
+  }, [timeRange, dateFrom, dateTo]);
+
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    const from = timeRange === 'all' ? undefined : dates.from ? new Date(dates.from).toISOString() : undefined;
+    const to = timeRange === 'all' ? undefined : dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
+    const sid = scopeStationId || undefined;
+    try {
+      const [audit, login, notify, rule] = await Promise.all([
+        stationApi.getAuditLogs({ from, to, stationId: sid, limit: 2000 }),
+        stationApi.getLoginLogs({ from, to, stationId: sid }),
+        stationApi.getNotifyLogs({ from, to, stationId: sid }),
+        stationApi.getRuleTriggerLogs({ from, to, stationId: sid }),
+      ]);
+
+      const merged: MergedLogItem[] = [
+        ...audit.map(l => ({
+          id: l.id, ts: l.ts, type: 'audit' as LogType,
+          stationId: l.stationId, stationName: l.stationName,
+          action: l.action, detail: l.entityType || 'SYS',
+          user: l.fullName || l.username || 'system',
+          entityType: l.entityType, ipAddress: l.ipAddress,
+          oldValue: l.oldValue, newValue: l.newValue,
+        })),
+        ...login.map(l => ({
+          id: l.id, ts: l.ts, type: 'login' as LogType,
+          stationId: l.stationId, stationName: l.stationName,
+          action: l.action, detail: 'LOGIN',
+          user: l.username || 'system',
+          ipAddress: l.ipAddress,
+        })),
+        ...notify.map(l => ({
+          id: l.id, ts: l.sentAt, type: 'notify' as LogType,
+          stationId: l.stationId, stationName: l.stationName,
+          action: l.channel, detail: l.recipient,
+          user: 'system', channel: l.channel, recipient: l.recipient,
+          status: l.status,
+        })),
+        ...rule.map(l => ({
+          id: l.id, ts: l.triggeredAt, type: 'rule' as LogType,
+          stationId: l.stationId, stationName: l.stationName,
+          action: l.ruleName || l.ruleId, detail: l.deviceName || l.deviceId || '',
+          user: 'system', ruleName: l.ruleName, deviceName: l.deviceName,
+          valueAtTrigger: l.valueAtTrigger, conditionSnapshot: l.conditionSnapshot,
+        })),
+      ];
+
+      setLogs(merged.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime()));
+      setPage(1);
+    } catch (e) { console.error('[CentralLogView] load error:', e); } finally { setLoading(false); }
+  }, [dates, scopeStationId, timeRange, dateFrom, dateTo]);
+
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  /* auto refresh */
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(loadLogs, REFRESH_INTERVAL_S * 1000);
+    return () => clearInterval(id);
+  }, [autoRefresh, loadLogs]);
+
+  /* ── Statistics ───────────────────────────────────────────── */
+  const stats = useMemo(() => {
+    const counts = { total: logs.length, audit: 0, login: 0, notify: 0, rule: 0 };
+    logs.forEach(l => { if (l.type in counts) (counts as any)[l.type]++; });
+    return counts;
+  }, [logs]);
+
+  /* ── Filter + sort + paginate ─────────────────────────────── */
+  const filtered = useMemo(() => {
+    let source = logs;
+    if (logType !== 'all') source = source.filter(l => l.type === logType);
+    if (!searchText) return source;
+    const q = searchText.toLowerCase();
+    return source.filter(l =>
+      l.action.toLowerCase().includes(q) ||
+      l.detail.toLowerCase().includes(q) ||
+      l.user.toLowerCase().includes(q) ||
+      (l.stationName || '').toLowerCase().includes(q)
+    );
+  }, [logs, logType, searchText]);
+
+  const sorted = useMemo(() => {
+    const data = [...filtered];
+    data.sort((a, b) => {
+      let va: any, vb: any;
+      switch (sortField) {
+        case 'ts': va = new Date(a.ts).getTime(); vb = new Date(b.ts).getTime(); break;
+        case 'type': va = a.type; vb = b.type; break;
+        case 'stationName': va = a.stationName || ''; vb = b.stationName || ''; break;
+        case 'action': va = a.action; vb = b.action; break;
+        case 'user': va = a.user; vb = b.user; break;
+        default: return 0;
+      }
+      if (va < vb) return sortDir === 'asc' ? -1 : 1;
+      if (va > vb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return data;
+  }, [filtered, sortField, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const paged = useMemo(() => sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [sorted, page]);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [totalPages, page]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
+    else { setSortField(field); setSortDir('desc'); }
+  };
+
+  /* ── CSV export ───────────────────────────────────────────── */
+  const exportCSV = useCallback(() => {
+    setExporting(true);
+    try {
+      const headers = ['Thời gian', 'Trạm', 'Loại', 'Hành động', 'Chi tiết', 'Người dùng', 'IP', 'Đối tượng', 'Kênh', 'Người nhận', 'Trạng thái', 'Rule', 'Thiết bị', 'Giá trị', 'Cũ', 'Mới'];
+      const rows = sorted.map(l => [
+        fmtDateTime(l.ts), l.stationName || '', LOG_TYPE_LABELS[l.type], l.action, l.detail, l.user,
+        l.ipAddress || '', l.entityType || '', l.channel || '', l.recipient || '', l.status || '',
+        l.ruleName || '', l.deviceName || '',
+        l.valueAtTrigger != null ? String(l.valueAtTrigger) : '',
+        typeof l.oldValue === 'string' ? l.oldValue : (l.oldValue ? JSON.stringify(l.oldValue) : ''),
+        typeof l.newValue === 'string' ? l.newValue : (l.newValue ? JSON.stringify(l.newValue) : ''),
+      ]);
+      const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `nhat-ky-da-tram-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    } finally { setExporting(false); }
+  }, [sorted]);
+
+  const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text).catch(() => {}); };
+
+  /* ── Styles ───────────────────────────────────────────────── */
+  const S = {
+    toolbar: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', flexShrink: 0, flexWrap: 'wrap' as const, minHeight: 40 },
+    btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
+    btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
+    btnActivePulse: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap', animation: 'clv-pulse 2s infinite' } as React.CSSProperties),
+    dropdown: { height: 28, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, cursor: 'pointer', outline: 'none', minWidth: 160 } as React.CSSProperties,
+    input: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none' } as React.CSSProperties,
+    dateInput: { height: 26, padding: '0 6px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.58rem', fontWeight: 600, outline: 'none', width: 110, fontFamily: 'monospace' } as React.CSSProperties,
+    th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
+    thSortable: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const, cursor: 'pointer', userSelect: 'none' as const } as React.CSSProperties,
+    td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
+    pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
+    pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 1, background: c, flexShrink: 0 } as React.CSSProperties),
+    pillLbl: { fontSize: '.7rem', fontWeight: 600 } as React.CSSProperties,
+    muted: { color: 'var(--admin-text-muted)' } as React.CSSProperties,
+    empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, height: '100%', color: 'var(--admin-text-muted)', opacity: 0.5 } as React.CSSProperties,
+    spin: { animation: 'clv-spin 1s linear infinite' } as React.CSSProperties,
+    sep: { width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px', flexShrink: 0 } as React.CSSProperties,
+    label: { fontSize: '.55rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', flexShrink: 0 } as React.CSSProperties,
+    statCard: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 3, background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', minWidth: 110, flexShrink: 0, cursor: 'pointer', transition: 'border-color .15s' } as React.CSSProperties,
+    statNum: { fontSize: '1.1rem', fontWeight: 900, fontFamily: 'monospace' } as React.CSSProperties,
+    statLabel: { fontSize: '.55rem', fontWeight: 700, color: 'var(--admin-text-muted)', letterSpacing: '.04em' } as React.CSSProperties,
+  };
+
+  const sortIcon = (field: SortField) => {
+    if (sortField !== field) return <span style={{ opacity: 0.2, marginLeft: 2 }}>&#x2195;</span>;
+    return <span style={{ marginLeft: 2 }}>{sortDir === 'asc' ? '&#x2191;' : '&#x2193;'}</span>;
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--admin-bg)' }}>
+      {/* ── Statistics summary cards ──────────────────────────── */}
+      {!loading && logs.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, padding: '8px 12px', background: 'var(--admin-panel)', borderBottom: '1px solid var(--admin-border)', overflowX: 'auto', flexShrink: 0, alignItems: 'center' }}>
+          <span style={S.label}>THỐNG KÊ</span>
+          {([
+            { k: 'total',   title: 'Tổng',      color: 'var(--admin-accent)',  icon: LOG_TYPE_ICONS.all },
+            { k: 'audit',   title: 'Hành động',  color: LOG_TYPE_COLORS.audit, icon: LOG_TYPE_ICONS.audit },
+            { k: 'login',   title: 'Đăng nhập',  color: LOG_TYPE_COLORS.login, icon: LOG_TYPE_ICONS.login },
+            { k: 'notify',  title: 'Thông báo',  color: LOG_TYPE_COLORS.notify, icon: LOG_TYPE_ICONS.notify },
+            { k: 'rule',    title: 'Kích hoạt',  color: LOG_TYPE_COLORS.rule, icon: LOG_TYPE_ICONS.rule },
+          ] as const).map(({ k, title, color, icon }) => (
+            <button key={k}
+              onClick={() => { setLogType(k === 'total' ? 'all' : k); setPage(1); }}
+              style={{
+                ...S.statCard,
+                borderColor: logType === (k === 'total' ? 'all' : k) ? color : 'var(--admin-border)',
+              }}>
+              <span style={{ fontSize: '1rem' }}>{icon}</span>
+              <div>
+                <div style={{ ...S.statNum, color }}>{(stats as any)[k]}</div>
+                <div style={S.statLabel}>{title}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Toolbar ───────────────────────────────────────────── */}
+      <div style={S.toolbar}>
+        <span style={S.label}>LOẠI</span>
+        {(Object.keys(LOG_TYPE_LABELS) as LogType[]).map(t => (
+          <button key={t} style={logType === t ? S.btnActive(LOG_TYPE_COLORS[t]) : S.btn}
+            onClick={() => setLogType(t)}>
+            {LOG_TYPE_LABELS[t]}
+          </button>
+        ))}
+
+        <div style={S.sep} />
+
+        <span style={S.label}>THỜI GIAN</span>
+        {(Object.entries({ today: 'HÔM NAY', '7d': '7 NGÀY', '30d': '30 NGÀY', custom: 'TÙY CHỈNH', all: 'TẤT CẢ' }) as [TimeRange, string][]).map(([v, title]) => (
+          <button key={v} style={timeRange === v ? S.btnActive('var(--admin-accent)') : S.btn}
+            onClick={() => setTimeRange(v)}>
+            {title}
+          </button>
+        ))}
+
+        {timeRange === 'custom' && (
+          <>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={S.dateInput} />
+            <span style={{ ...S.muted, fontSize: '.6rem', fontWeight: 700 }}>&rarr;</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={S.dateInput} />
+            <button style={S.btn} onClick={loadLogs}>&#xC1;p dụng</button>
+          </>
+        )}
+
+        <div style={S.sep} />
+
+        <span style={S.label}>TRẠM</span>
+        <select style={S.dropdown} value={scopeStationId} onChange={e => setScopeStationId(e.target.value)}>
+          <option value="">TẤT CẢ TRẠM ({stations.length})</option>
+          {stations.map(s => (
+            <option key={s.id} value={s.id}>{(s.code ? s.code + ' \u00B7 ' : '') + s.name}</option>
+          ))}
+        </select>
+
+        <div style={{ flex: 1 }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-layer-2)', borderRadius: 3, border: '1px solid var(--admin-border)', padding: '0 8px' }}>
+          <Search size={12} style={S.muted} />
+          <input type="text" placeholder="TÌM KIẾM..." value={searchText}
+            onChange={e => { setSearchText(e.target.value); setPage(1); }}
+            style={{ ...S.input, border: 'none', background: 'transparent', minWidth: 140, padding: 0 }} />
+          {searchText && <X size={12} style={{ ...S.muted, cursor: 'pointer' }} onClick={() => { setSearchText(''); setPage(1); }} />}
+        </div>
+
+        <button style={S.btn} onClick={loadLogs} title="Tải lại" disabled={loading}>
+          <RefreshCw size={12} style={loading ? S.spin : undefined} />
+        </button>
+
+        <button
+          style={autoRefresh ? S.btnActivePulse('#22c55e') : S.btn}
+          onClick={() => setAutoRefresh(v => !v)}
+          title={`Tự động làm mới mỗi ${REFRESH_INTERVAL_S}s`}
+        >
+          <Radio size={11} />
+          {autoRefresh ? 'ĐANG LIVE' : 'LIVE'}
+        </button>
+
+        <button style={S.btn} onClick={exportCSV} title="Xuất CSV" disabled={exporting || sorted.length === 0}>
+          <Download size={12} />
+          CSV
+        </button>
+
+        <span style={{ fontSize: '.6rem', fontWeight: 600, color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>
+          {sorted.length} dòng
+        </span>
+      </div>
+
+      {/* ── Per-station breakdown strip ────────────────────────── */}
+      {!scopeStationId && logs.length > 0 && stations.length > 1 && (
+        <div style={{
+          display: 'flex', gap: 6, padding: '5px 12px',
+          background: 'var(--admin-panel)', borderBottom: '1px solid var(--admin-border)',
+          overflowX: 'auto', flexShrink: 0, alignItems: 'center'
+        }}>
+          <span style={S.label}>THEO TRẠM:</span>
+          {(() => {
+            const counts: Record<string, { name: string; count: number }> = {};
+            logs.forEach(l => {
+              const key = l.stationId || '_system';
+              if (!counts[key]) counts[key] = { name: l.stationName || 'Hệ thống', count: 0 };
+              counts[key].count++;
+            });
+            return Object.entries(counts)
+              .sort((a, b) => b[1].count - a[1].count)
+              .slice(0, 8)
+              .map(([sid, info]) => {
+                const isActive = scopeStationId === sid || (!scopeStationId && sid === '_system');
+                return (
+                <span key={sid} onClick={() => setScopeStationId(sid === '_system' ? '' : sid)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '3px 10px', borderRadius: 3,
+                    background: isActive ? 'var(--admin-layer-3)' : 'var(--admin-layer-2)',
+                    border: `1px solid ${isActive ? 'var(--admin-accent)' : 'var(--admin-border)'}`,
+                    fontSize: '.58rem', fontWeight: 700, color: 'var(--admin-text)',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                    transition: 'border-color .15s'
+                  }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--admin-accent)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = isActive ? 'var(--admin-accent)' : 'var(--admin-border)'}
+                >
+                  <span style={{ color: 'var(--admin-accent)', fontWeight: 900, fontFamily: 'monospace' }}>{info.count}</span>
+                  {info.name.length > 14 ? info.name.slice(0, 14) + '\u2026' : info.name}
+                </span>
+                );
+              });
+          })()}
+        </div>
+      )}
+
+      {/* ── Body: table + detail panel ────────────────────────── */}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        {/* Table */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minWidth: 0 }}>
+          <div style={{ flex: 1, overflow: 'auto' }}>
+          {loading ? (
+            <div style={S.empty}><Loader2 size={22} style={{ ...S.spin, color: 'var(--admin-accent)', opacity: 1 }} /><p>Đang tải nhật ký...</p></div>
+          ) : sorted.length === 0 ? (
+            <div style={S.empty}><FileText size={32} /><p>{logs.length === 0 ? 'Chưa có dữ liệu nhật ký. Nhấn "Tải lại".' : 'Không có kết quả phù hợp.'}</p></div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead><tr>
+                <th style={{ ...S.thSortable, width: 140 }} onClick={() => handleSort('ts')}>THỜI GIAN {sortIcon('ts')}</th>
+                <th style={{ ...S.thSortable, width: 110 }} onClick={() => handleSort('stationName')}>TRẠM {sortIcon('stationName')}</th>
+                <th style={{ ...S.thSortable, width: 110 }} onClick={() => handleSort('type')}>LOẠI {sortIcon('type')}</th>
+                <th style={{ ...S.thSortable, width: 120 }} onClick={() => handleSort('action')}>HÀNH ĐỘNG {sortIcon('action')}</th>
+                <th style={S.th}>CHI TIẾT</th>
+                <th style={{ ...S.thSortable, width: 130 }} onClick={() => handleSort('user')}>NGƯỜI DÙNG {sortIcon('user')}</th>
+              </tr></thead>
+              <tbody>
+                {paged.map((l, i) => {
+                  const c = LOG_TYPE_COLORS[l.type];
+                  const isSelected = selectedLog?.id === l.id;
+                  return (
+                    <tr key={l.id}
+                      onClick={() => setSelectedLog(isSelected ? null : l)}
+                      style={{
+                        cursor: 'pointer', transition: 'background .1s',
+                        background: isSelected ? 'var(--admin-layer-2)' : (i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.012)'),
+                      }}>
+                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.62rem', ...S.muted }}>
+                        {fmtDateTime(l.ts)}
+                      </td>
+                      <td style={{ ...S.td }}>
+                        <span style={{ fontSize: '.62rem', fontWeight: 600, color: 'var(--admin-text)' }}>
+                          {l.stationName || <span style={{ ...S.muted, fontStyle: 'italic' }}>&mdash;</span>}
+                        </span>
+                      </td>
+                      <td style={{ ...S.td }}>
+                        <div style={S.pill(c)}>
+                          <span style={S.pillBar(c)} />
+                          <span style={{ ...S.pillLbl, fontSize: '.62rem' }}>{LOG_TYPE_LABELS[l.type]}</span>
+                        </div>
+                      </td>
+                      <td style={{ ...S.td }}>
+                        <span style={{ fontWeight: 700, fontSize: '.68rem' }}>{l.action}</span>
+                      </td>
+                      <td style={{ ...S.td, ...S.muted, fontSize: '.6rem' }}>{l.detail}</td>
+                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.6rem', ...S.muted }}>
+                        {l.user.length > 16 ? l.user.slice(0, 16) + '\u2026' : l.user.toUpperCase()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          </div>
+
+          {/* ── Pagination bar ─────────────────────────────────── */}
+          {sorted.length > PAGE_SIZE && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '6px 12px', borderTop: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)', flexShrink: 0 }}>
+              <button style={S.btn} onClick={() => setPage(1)} disabled={page === 1}>{'\u00AB'}</button>
+              <button style={S.btn} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}><ChevronLeft size={12} /></button>
+              <span style={{ fontSize: '.6rem', fontWeight: 600, color: 'var(--admin-text-muted)', minWidth: 80, textAlign: 'center', fontFamily: 'monospace' }}>
+                {page} / {totalPages}
+              </span>
+              <button style={S.btn} onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}><ChevronRight size={12} /></button>
+              <button style={S.btn} onClick={() => setPage(totalPages)} disabled={page === totalPages}>{'\u00BB'}</button>
+              <span style={{ fontSize: '.55rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
+                {(page - 1) * PAGE_SIZE + 1}&ndash;{Math.min(page * PAGE_SIZE, sorted.length)} / {sorted.length}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* ── Detail panel ─────────────────────────────────────── */}
+        {selectedLog && (
+          <aside style={{
+            width: showDetail ? 340 : 28,
+            background: 'var(--admin-panel)',
+            border: '1px solid var(--admin-border)',
+            borderRadius: 3,
+            marginLeft: 6,
+            display: 'flex', flexDirection: 'column',
+            transition: 'width .2s', overflow: 'hidden', flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)' }}>
+            <button onClick={() => setShowDetail(!showDetail)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px', border: 'none', background: 'transparent', color: 'var(--admin-text)', cursor: 'pointer', fontSize: '.58rem', fontWeight: 900, letterSpacing: '.08em', flex: 1 }}>
+              {showDetail ? <ChevronRight size={10} /> : <ChevronLeft size={10} />}
+              {showDetail && <span style={{ color: LOG_TYPE_COLORS[selectedLog.type] }}>{LOG_TYPE_LABELS[selectedLog.type]}</span>}
+            </button>
+              {showDetail && (
+                <button onClick={() => setSelectedLog(null)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: 'none', background: 'transparent', color: 'var(--admin-text-muted)', cursor: 'pointer', fontSize: '.7rem' }}>
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {showDetail && (
+              <div style={{ flex: 1, overflow: 'auto', padding: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <DetailRow label="THỜI GIAN" value={fmtDateTime(selectedLog.ts)} />
+                  <DetailRow label="TRẠM" value={selectedLog.stationName || '\u2014'} />
+                  <DetailRow label="LOẠI" value={LOG_TYPE_LABELS[selectedLog.type]} color={LOG_TYPE_COLORS[selectedLog.type]} />
+                  <DetailRow label="HÀNH ĐỘNG" value={selectedLog.action} />
+                  <DetailRow label="CHI TIẾT" value={selectedLog.detail || '\u2014'} />
+                  <DetailRow label="NGƯỜI DÙNG" value={selectedLog.user} />
+                  {selectedLog.ipAddress && <DetailRow label="IP" value={selectedLog.ipAddress} />}
+                  {selectedLog.entityType && <DetailRow label="ĐỐI TƯỢNG" value={selectedLog.entityType} />}
+                  {selectedLog.channel && <DetailRow label="KÊNH" value={selectedLog.channel} />}
+                  {selectedLog.recipient && <DetailRow label="NGƯỜI NHẬN" value={selectedLog.recipient} />}
+                  {selectedLog.status && <DetailRow label="TRẠNG THÁI" value={selectedLog.status} />}
+                  {selectedLog.ruleName && <DetailRow label="RULE" value={selectedLog.ruleName} />}
+                  {selectedLog.deviceName && <DetailRow label="THIẾT BỊ" value={selectedLog.deviceName} />}
+                  {selectedLog.valueAtTrigger != null && <DetailRow label="GIÁ TRỊ" value={String(selectedLog.valueAtTrigger)} />}
+                  {selectedLog.conditionSnapshot && (
+                    <div>
+                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span>ĐIỀU KIỆN</span>
+                        <button onClick={() => copyToClipboard(selectedLog.conditionSnapshot!)} style={{ border: 'none', background: 'none', color: 'var(--admin-accent)', cursor: 'pointer', fontSize: '.5rem', fontWeight: 700, padding: 0 }}>SAO CHÉP</button>
+                      </div>
+                      <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 100, margin: 0 }}>{selectedLog.conditionSnapshot}</pre>
+                    </div>
+                  )}
+                  {(selectedLog.oldValue || selectedLog.newValue) && (
+                    <div>
+                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>THAY ĐỔI</div>
+                      {selectedLog.oldValue && (
+                        <div style={{ marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                            <span style={{ fontSize: '.5rem', color: '#ef4444', fontWeight: 700 }}>CŨ</span>
+                            <button onClick={() => copyToClipboard(typeof selectedLog.oldValue === 'string' ? selectedLog.oldValue! : JSON.stringify(selectedLog.oldValue, null, 2))}
+                              style={{ border: 'none', background: 'none', color: 'var(--admin-accent)', cursor: 'pointer', fontSize: '.5rem', fontWeight: 700, padding: 0 }}>SAO CHÉP</button>
+                          </div>
+                          <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 80, margin: 0 }}>{typeof selectedLog.oldValue === 'string' ? selectedLog.oldValue : JSON.stringify(selectedLog.oldValue, null, 2)}</pre>
+                        </div>
+                      )}
+                      {selectedLog.newValue && (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                            <span style={{ fontSize: '.5rem', color: '#22c55e', fontWeight: 700 }}>MỚI</span>
+                            <button onClick={() => copyToClipboard(typeof selectedLog.newValue === 'string' ? selectedLog.newValue! : JSON.stringify(selectedLog.newValue, null, 2))}
+                              style={{ border: 'none', background: 'none', color: 'var(--admin-accent)', cursor: 'pointer', fontSize: '.5rem', fontWeight: 700, padding: 0 }}>SAO CHÉP</button>
+                          </div>
+                          <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 80, margin: 0 }}>{typeof selectedLog.newValue === 'string' ? selectedLog.newValue : JSON.stringify(selectedLog.newValue, null, 2)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </aside>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: '.65rem', fontWeight: 600, color: color || 'var(--admin-text)', wordBreak: 'break-all' }}>{value}</div>
+    </div>
+  );
+}

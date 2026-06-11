@@ -3,21 +3,21 @@
 # To stop: docker compose -f docker-compose.db.yml down
 
 version: '3.8'
-name: stationos-main
+name: stationos-central
 
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: stationos-dev-db
+    container_name: stationos-central-db
     environment:
-      POSTGRES_DB: StationOS
+      POSTGRES_DB: StationOS_Central
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres123
     volumes:
-      - stationos_pg_data:/var/lib/postgresql/data
+      - stationos_central_pg_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "6432:5432"
     restart: unless-stopped
 
 volumes:
-  stationos_pg_data:
+  stationos_central_pg_data:

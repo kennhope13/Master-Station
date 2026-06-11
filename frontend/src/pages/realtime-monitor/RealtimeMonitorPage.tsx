@@ -380,6 +380,13 @@ export default function RealtimeMonitorPage({
     return stationCameraStats;
   }, [stationCameraStats]);
 
+  const fleetGridConfig = useMemo(() => {
+    const total = Math.max(filteredStats.length, 1);
+    const columns = total >= 7 ? 3 : total >= 3 ? 3 : total === 2 ? 2 : 1;
+    const rows = Math.max(1, Math.ceil(total / columns));
+    return { columns, rows };
+  }, [filteredStats.length]);
+
   /** Render các polygon SVG vùng ROI nhiệt lên overlay của ô camera. */
   const renderOverlayBoundaries = (cam: CameraDevice) => {
     let baseDeviceId = cam.id.replace(/_(optical|thermal)$/, '').toLowerCase();
@@ -1093,143 +1100,80 @@ export default function RealtimeMonitorPage({
     <div className="rtm-page">
 
       {/* ── Toolbar ── */}
-      <div className="page-toolbar-row dash-header">
-        <div className="page-title-cell">
-          {embeddedMode !== 'central' && <h2>GIÁM SÁT CAMERA TRỰC TIẾP</h2>}
-          {embeddedMode === 'central' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ display: 'inline-block' }}>
-              {stationMenuOpen && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setStationMenuOpen(false)} />
-              )}
-              <button
-                ref={stationBtnRef}
-                onClick={() => {
-                  const r = stationBtnRef.current?.getBoundingClientRect();
-                  if (r) setStationMenuPos({ top: r.bottom, left: r.left, width: r.width });
-                  setStationMenuOpen(o => !o);
-                }}
-                style={{
-                  width: 260, background: '#0f1729',
-                  border: '1px solid var(--admin-border)',
-                  color: 'var(--admin-text)', padding: '4px 10px',
-                  fontSize: '.72rem', fontWeight: 700, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
-                }}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {stations.find(s => s.id === stationIdOverride)?.name || 'Tất cả trạm'}
-                </span>
-                <span style={{ flexShrink: 0, opacity: 0.5, fontSize: '.65rem' }}>▾</span>
-              </button>
-              {stationMenuOpen && (
-                <div style={{
-                  position: 'fixed', top: stationMenuPos.top, left: stationMenuPos.left,
-                  width: stationMenuPos.width, zIndex: 9999,
-                  background: '#0f1729', border: '1px solid var(--admin-border)',
-                  maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                }}>
-                  <div
-                    onClick={() => { onStationIdChange?.(''); setStationMenuOpen(false); }}
-                    style={{
-                      padding: '6px 10px', fontSize: '.72rem', cursor: 'pointer',
-                      fontWeight: !stationIdOverride ? 800 : 500,
-                      color: !stationIdOverride ? 'var(--admin-accent)' : 'var(--admin-text)',
-                      background: !stationIdOverride ? 'var(--admin-layer-3)' : 'transparent',
-                      borderLeft: `2px solid ${!stationIdOverride ? 'var(--admin-accent)' : 'transparent'}`,
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    }}
-                  >
-                    Tất cả trạm
+      {(!isCentralFleetView || stationIdOverride) && (
+        <div className="page-toolbar-row dash-header" style={{ height: 32, minHeight: 32 }}>
+          {((embeddedMode !== 'central') || (embeddedMode === 'central' && stationIdOverride)) && (
+            <div className="page-title-cell">
+              {embeddedMode !== 'central' && <h2>GIÁM SÁT CAMERA TRỰC TIẾP</h2>}
+              {embeddedMode === 'central' && stationIdOverride && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{
+                    padding: '2px 10px', background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid var(--admin-border)',
+                    color: 'var(--admin-accent)',
+                    fontSize: '.72rem', fontWeight: 800,
+                    textTransform: 'uppercase', letterSpacing: '0.05em'
+                  }}>
+                    {stations.find(s => s.id === stationIdOverride)?.name || 'Chi tiết trạm'}
                   </div>
-                  {stations.map(s => (
-                    <div
-                      key={s.id}
-                      onClick={() => { onStationIdChange?.(s.id); setStationMenuOpen(false); }}
-                      style={{
-                        padding: '6px 10px', fontSize: '.72rem', cursor: 'pointer',
-                        fontWeight: stationIdOverride === s.id ? 800 : 500,
-                        color: stationIdOverride === s.id ? 'var(--admin-accent)' : 'var(--admin-text)',
-                        background: stationIdOverride === s.id ? 'var(--admin-layer-3)' : 'transparent',
-                        borderLeft: `2px solid ${stationIdOverride === s.id ? 'var(--admin-accent)' : 'transparent'}`,
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                      }}
-                      onMouseEnter={e => { if (stationIdOverride !== s.id) (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.05)'; }}
-                      onMouseLeave={e => { if (stationIdOverride !== s.id) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
-                    >
-                      {(s.code ? `${s.code} - ` : '') + s.name}
-                    </div>
-                  ))}
                 </div>
               )}
+            </div>
+          )}
+
+          <div className="page-toolbar-group">
+            {!isCentralFleetView && (
+              <>
+            <button className={`nvr-lb ${layout === 'l1' ? 'active' : ''}`} onClick={() => setLayout('l1')} title="1×1">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><rect width="13" height="13" rx="1.5"/></svg>
+            </button>
+            <button className={`nvr-lb ${layout === 'l4' ? 'active' : ''}`} onClick={() => setLayout('l4')} title="2×2">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
+                <rect x="0" y="0" width="5.5" height="5.5" rx=".8"/><rect x="7.5" y="0" width="5.5" height="5.5" rx=".8"/>
+                <rect x="0" y="7.5" width="5.5" height="5.5" rx=".8"/><rect x="7.5" y="7.5" width="5.5" height="5.5" rx=".8"/>
+              </svg>
+            </button>
+            <button className={`nvr-lb ${layout === 'l9' ? 'active' : ''}`} onClick={() => setLayout('l9')} title="3×3">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
+                <rect x="0" y="0" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="0" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="0" width="3.2" height="3.2" rx=".5"/>
+                <rect x="0" y="4.9" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="4.9" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="4.9" width="3.2" height="3.2" rx=".5"/>
+                <rect x="0" y="9.8" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="9.8" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="9.8" width="3.2" height="3.2" rx=".5"/>
+              </svg>
+            </button>
+
+            <div className="rtm-sep" />
+            <ToolbarSelect
+              value={selectedCamFilter}
+              onChange={v => { setSelectedCamFilter(v); if (v) setLayout('l1'); else setLayout('l4'); }}
+              options={[{ value: '', label: 'Tất cả camera' }, ...cameras.map(c => ({ value: c.id, label: (c as any).stationName ? `${(c as any).stationName} · ${c.name}` : c.name }))]}
+              width={180}
+            />
+
+            {expandedCamId && (
+              <div className="nvr-back-btn visible" onClick={() => toggleExpand(expandedCamId)}>
+                ← Quay về lưới
               </div>
-            </div>
-          )}
+            )}
+              </>
+            )}
+          </div>
         </div>
-
-        <div className="page-toolbar-group">
-          {!isCentralFleetView && (
-            <>
-          <button className={`nvr-lb ${layout === 'l1' ? 'active' : ''}`} onClick={() => setLayout('l1')} title="1×1">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><rect width="13" height="13" rx="1.5"/></svg>
-          </button>
-          <button className={`nvr-lb ${layout === 'l4' ? 'active' : ''}`} onClick={() => setLayout('l4')} title="2×2">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
-              <rect x="0" y="0" width="5.5" height="5.5" rx=".8"/><rect x="7.5" y="0" width="5.5" height="5.5" rx=".8"/>
-              <rect x="0" y="7.5" width="5.5" height="5.5" rx=".8"/><rect x="7.5" y="7.5" width="5.5" height="5.5" rx=".8"/>
-            </svg>
-          </button>
-          <button className={`nvr-lb ${layout === 'l9' ? 'active' : ''}`} onClick={() => setLayout('l9')} title="3×3">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
-              <rect x="0" y="0" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="0" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="0" width="3.2" height="3.2" rx=".5"/>
-              <rect x="0" y="4.9" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="4.9" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="4.9" width="3.2" height="3.2" rx=".5"/>
-              <rect x="0" y="9.8" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="9.8" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="9.8" width="3.2" height="3.2" rx=".5"/>
-            </svg>
-          </button>
-
-          <div className="rtm-sep" />
-          <ToolbarSelect
-            value={selectedCamFilter}
-            onChange={v => { setSelectedCamFilter(v); if (v) setLayout('l1'); else setLayout('l4'); }}
-            options={[{ value: '', label: 'Tất cả camera' }, ...cameras.map(c => ({ value: c.id, label: (c as any).stationName ? `${(c as any).stationName} · ${c.name}` : c.name }))]}
-            width={180}
-          />
-
-          {expandedCamId && (
-            <div className="nvr-back-btn visible" onClick={() => toggleExpand(expandedCamId)}>
-              ← Quay về lưới
-            </div>
-          )}
-            </>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* ── Main Area ── */}
       <div className="rtm-main">
         {isCentralFleetView ? (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', overflow: 'hidden' }}>
-            
-            {/* System Status Summary Bar */}
-            <div style={{ display: 'flex', gap: 30, padding: '10px 20px', background: 'var(--admin-panel)', borderBottom: '1px solid var(--admin-border)', alignItems: 'center' }}>
-               <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.1em' }}>
-                  HỆ THỐNG: <span style={{ color: 'var(--admin-text)', marginLeft: 6 }}>{fleetSummary.totalStations} TRẠM</span>
-               </div>
-               <div style={{ width: 1, height: 14, background: 'var(--admin-border)' }} />
-               <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.1em' }}>
-                  THIẾT BỊ: <span style={{ color: 'var(--admin-success)', marginLeft: 6 }}>{fleetSummary.onlineCams} ONLINE</span> / {fleetSummary.totalCams} TỔNG
-               </div>
-               <div style={{ width: 1, height: 14, background: 'var(--admin-border)' }} />
-               <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.1em' }}>
-                  SỨC KHỎE: <span style={{ color: fleetSummary.avgHealth > 90 ? 'var(--admin-success)' : 'var(--admin-accent)', marginLeft: 6 }}>{fleetSummary.avgHealth}%</span>
-               </div>
-               
-               <div style={{ flex: 1 }} />
-            </div>
 
             {/* Station Mosaic Grid */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+            <div className="rtm-fleet-scroll">
+               <div
+                 className="rtm-fleet-grid"
+                 style={{
+                   gridTemplateColumns: `repeat(${fleetGridConfig.columns}, minmax(0, 1fr))`,
+                   gridTemplateRows: `repeat(${fleetGridConfig.rows}, minmax(0, 1fr))`,
+                 }}
+               >
                   {filteredStats.map(stat => {
                      const cam = stat.firstCam;
                      const health = stat.total > 0 ? Math.round((stat.online / stat.total) * 100) : 0;
@@ -1238,61 +1182,53 @@ export default function RealtimeMonitorPage({
                      return (
                         <div 
                           key={stat.stationId} 
-                          className="admin-card" 
-                          style={{ 
-                            padding: 0, display: 'flex', flexDirection: 'column', 
-                            border: '1px solid var(--admin-border)', overflow: 'hidden',
-                            transition: 'border-color 0.2s',
-                            cursor: 'pointer'
-                          }}
+                          className="admin-card rtm-fleet-card"
                           onClick={() => stat.stationId && onStationIdChange?.(stat.stationId)}
-                          onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--admin-accent)'}
-                          onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--admin-border)'}
                         >
                            {/* Station Header */}
-                           <div style={{ padding: '8px 12px', background: 'var(--admin-layer-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--admin-border)' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: stat.online > 0 ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: stat.online > 0 ? '0 0 5px var(--admin-success)' : 'none' }} />
-                                 <b style={{ fontSize: '.75rem', color: 'var(--admin-text)', letterSpacing: '0.05em' }}>{stat.stationName.toUpperCase()}</b>
+                           <div className="rtm-fleet-card-header">
+                              <div className="rtm-fleet-card-title">
+                                 <div className="rtm-fleet-card-dot" style={{ background: stat.online > 0 ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: stat.online > 0 ? '0 0 5px var(--admin-success)' : 'none' }} />
+                                 <b>{stat.stationName.toUpperCase()}</b>
                               </div>
                               {stat.alertCount > 0 && (
-                                 <div style={{ background: 'var(--admin-danger)', color: '#fff', fontSize: '.6rem', fontWeight: 900, padding: '1px 6px', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                 <div className="rtm-fleet-alert-badge">
                                     <AlertTriangle size={10} /> {stat.alertCount}
                                  </div>
                               )}
                            </div>
 
                            {/* Preview Section */}
-                           <div style={{ aspectRatio: '16/9', background: '#000', position: 'relative', overflow: 'hidden' }}>
+                           <div className="rtm-fleet-preview">
                               {cam ? (
                                  <iframe 
                                     src={`/camera-stream.html?src=${encodeURIComponent(cam.config.go2rtc_id || cam.config.go2rtc_optical || '')}&mode=webrtc,mse&go2rtc=${encodeURIComponent(GO2RTC_URL)}`}
-                                    style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none' }}
+                                    className="rtm-fleet-preview-frame"
                                     title={cam.name}
                                  />
                               ) : (
-                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'rgba(255,255,255,0.15)', gap: 8 }}>
+                                 <div className="rtm-fleet-nosignal">
                                     <Video size={32} />
                                     <div style={{ fontSize: '.6rem', fontWeight: 900, letterSpacing: '0.2em' }}>NO SIGNAL</div>
                                  </div>
                               )}
-                              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(0deg, rgba(0,0,0,0.5) 0%, transparent 40%)', pointerEvents: 'none' }} />
-                              <div style={{ position: 'absolute', bottom: 8, left: 10, right: 10, display: 'flex', justifyContent: 'space-between', pointerEvents: 'none' }}>
-                                 <span style={{ fontSize: '.65rem', color: 'rgba(255,255,255,0.8)', fontWeight: 600 }}>{cam?.name || '---'}</span>
-                                 <span style={{ fontSize: '.6rem', color: 'rgba(255,255,255,0.5)', fontWeight: 800 }}>LIVE</span>
+                              <div className="rtm-fleet-preview-overlay" />
+                              <div className="rtm-fleet-preview-meta">
+                                 <span className="rtm-fleet-preview-name">{cam?.name || '---'}</span>
+                                 <span className="rtm-fleet-preview-live">LIVE</span>
                               </div>
                            </div>
 
                            {/* Station Footer Stats */}
-                           <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--admin-panel)' }}>
-                              <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
+                           <div className="rtm-fleet-card-footer">
+                              <div className="rtm-fleet-card-online">
                                  ONLINE: <span style={{ color: 'var(--admin-text)' }}>{stat.online}</span> / {stat.total}
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                 <div style={{ width: 60, height: 4, background: 'var(--admin-layer-3)', borderRadius: 2, overflow: 'hidden' }}>
+                              <div className="rtm-fleet-card-health">
+                                 <div className="rtm-fleet-card-healthbar">
                                     <div style={{ width: `${health}%`, height: '100%', background: healthColor, borderRadius: 2, transition: 'width 0.5s' }} />
                                  </div>
-                                 <span style={{ fontSize: '.65rem', fontWeight: 800, color: healthColor, minWidth: 28, textAlign: 'right' }}>{health}%</span>
+                                 <span className="rtm-fleet-card-healthpct" style={{ color: healthColor }}>{health}%</span>
                               </div>
                            </div>
                         </div>

@@ -1,0 +1,23 @@
+appId: com.stationmonitor.desktop
+productName: Station Monitor
+directories:
+  output: dist-electron
+files:
+  - electron/**/*
+  - thin-client-ui/**/*
+  - package.json
+extraResources:
+  - from: resources/tailscale-setup.exe
+    to: tailscale-setup.exe
+linux:
+  target:
+    - deb
+    - AppImage
+  category: Utility
+  maintainer: StationOS Team <support@stationos.com>
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

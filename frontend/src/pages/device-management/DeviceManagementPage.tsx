@@ -37,6 +37,7 @@ interface DeviceManagementPageProps {
   embeddedMode?: 'default' | 'central';
   stationIdOverride?: string | null;
   onStationIdChange?: (stationId: string) => void;
+  onBack?: () => void;
 }
 
 /**
@@ -49,6 +50,7 @@ export default function DeviceManagementPage({
   embeddedMode = 'default',
   stationIdOverride = null,
   onStationIdChange,
+  onBack,
 }: DeviceManagementPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const stations = useStationStore(s => s.stations);
@@ -555,6 +557,23 @@ export default function DeviceManagementPage({
   const online = devices.filter(d => d.status === 'online').length;
   const requiresStationSelection = embeddedMode === 'central' && !stationId;
 
+  const renderDeviceConfig = (device: Device) => {
+    const cfg = device.config || {};
+    if (device.type === 'plc_s7')
+      return `S7 • Rack ${cfg.rack ?? 0} / Slot ${cfg.slot ?? 1} / DB ${cfg.db ?? 32}`;
+    if (device.type === 'modbus_tcp')
+      return `Modbus TCP • Port ${cfg.port ?? 502} / Unit ${cfg.unit_id ?? 1}`;
+    if (device.type === 'camera_dual')
+      return `RTSP Dual • ${cfg.go2rtc_optical || '-'} / ${cfg.go2rtc_thermal || '-'}`;
+    if (device.type === 'camera_thermal')
+      return `RTSP Thermal • ${cfg.go2rtc_thermal || '-'}`;
+    if (device.type.startsWith('camera'))
+      return `RTSP • ${cfg.go2rtc_id || cfg.rtsp_path || '-'}`;
+    if (device.type === 'cabinet')
+      return 'Cabinet JSON';
+    return device.protocol || '-';
+  };
+
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', overflow: 'hidden' }}>
@@ -563,12 +582,28 @@ export default function DeviceManagementPage({
       {embeddedMode === 'central' && (
         <div style={{ padding: '20px 20px 0 20px' }}>
           <div className="admin-card" style={{ padding: '16px 20px', background: 'var(--admin-panel)', borderBottom: 'none', borderRadius: '4px 4px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: '.65rem', fontWeight: 900, letterSpacing: '0.08em', color: 'var(--admin-accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <LayoutList size={14} /> QUẢN LÝ THIẾT BỊ KẾT NỐI
-              </div>
-              <div style={{ marginTop: 6, fontSize: '1.2rem', fontWeight: 800, color: 'var(--admin-text)' }}>
-                {stationIdOverride ? (stations.find(s => s.id === stationIdOverride)?.name || 'Trạm đã chọn') : 'Toàn bộ trạm'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    height: 30, padding: '0 12px', borderRadius: 4,
+                    border: '1px solid var(--admin-border)', background: 'transparent',
+                    color: 'var(--admin-text-muted)', fontSize: '.65rem', fontWeight: 700,
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  ← Quay lại
+                </button>
+              )}
+              <div>
+                <div style={{ fontSize: '.65rem', fontWeight: 900, letterSpacing: '0.08em', color: 'var(--admin-accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <LayoutList size={14} /> QUẢN LÝ THIẾT BỊ KẾT NỐI
+                </div>
+                <div style={{ marginTop: 6, fontSize: '1.2rem', fontWeight: 800, color: 'var(--admin-text)' }}>
+                  {stationIdOverride ? (stations.find(s => s.id === stationIdOverride)?.name || 'Trạm đã chọn') : 'Toàn bộ trạm'}
+                </div>
               </div>
             </div>
 
@@ -646,7 +681,7 @@ export default function DeviceManagementPage({
               <button 
                 className="btn-industrial btn-primary" 
                 style={{ padding: '6px 16px', fontSize: '.75rem', fontWeight: 800 }}
-                onClick={() => handleOpenModal()}
+                onClick={() => openDeviceModal()}
               >
                 + THÊM THIẾT BỊ
               </button>
@@ -667,7 +702,7 @@ export default function DeviceManagementPage({
             </div>
             <div className="page-toolbar-group">
               <button className="btn-industrial" style={{ height: 32, padding: '0 16px', fontSize: '.72rem', fontWeight: 700 }} onClick={() => setIsScanModalOpen(true)}>Dò tìm thiết bị</button>
-              <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800 }} onClick={() => handleOpenModal()}>+ Thêm thiết bị</button>
+              <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800 }} onClick={() => openDeviceModal()}>+ Thêm thiết bị</button>
             </div>
           </div>
         )}
@@ -725,11 +760,21 @@ export default function DeviceManagementPage({
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                          <ActionDropdown
-                            actions={getDeviceActions(device)}
-                            triggerLabel="Thao tác"
-                            compact={true}
-                          />
+                          <ActionDropdown>
+                            <ActionDropdownItem icon={<Settings size={14} />} label="Sửa thiết bị" onClick={() => openDeviceModal(device)} />
+                            <ActionDropdownItem icon={<LayoutList size={14} />} label="Kiểm tra kết nối" onClick={() => handleTestDevice(device.id)} />
+                            <ActionDropdownItem icon={<ShieldAlert size={14} />} label="Quy tắc giám sát" onClick={() => handleOpenRulesModal(device)} />
+                            {(device.type === 'camera_thermal' || device.type === 'camera_dual') && (
+                              <ActionDropdownItem icon={<Thermometer size={14} />} label="Cấu hình nhiệt" onClick={() => { setSelectedRoiDevice(device as CameraDevice); setRoiTab(3); }} />
+                            )}
+                            {(device.type === 'camera_thermal' || device.type === 'camera_dual') && (
+                              <ActionDropdownItem icon={<Flame size={14} />} label="Cấu hình cảnh báo cháy" onClick={() => { setSelectedFireDevice(device as CameraDevice); setRoiTab(4); }} />
+                            )}
+                            {device.type === 'camera_pd' && (
+                              <ActionDropdownItem icon={<Zap size={14} />} label="Vẽ vùng PD" onClick={() => { setSelectedPdDevice(device as CameraDevice); setRoiTab(2); }} />
+                            )}
+                            <ActionDropdownItem icon={<Trash2 size={14} />} label="Xóa thiết bị" danger onClick={() => handleDelete(device)} />
+                          </ActionDropdown>
                         </div>
                       </td>
                     </tr>

@@ -6,6 +6,7 @@
 
 using Microsoft.AspNetCore.HttpOverrides;
 using Hangfire;
+using Npgsql;
 using StationOS.Api.Hubs;
 using StationOS.Api.Middleware;
 using StationOS.Api.Extensions;
@@ -13,6 +14,34 @@ using StationOS.Services.Reports;
 using StationOS.Workers.Polling;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ── Tự động tạo PostgreSQL database trước khi Hangfire khởi tạo ──
+{
+    var connStr = builder.Configuration.GetConnectionString("Default") ?? "";
+    if (!string.IsNullOrEmpty(connStr) && connStr.Contains("Host="))
+    {
+        try
+        {
+            var cb = new NpgsqlConnectionStringBuilder(connStr);
+            var dbName = cb.Database ?? "";
+            cb.Database = "postgres";
+            await using var conn = new NpgsqlConnection(cb.ConnectionString);
+            await conn.OpenAsync();
+            await using var check = new NpgsqlCommand(
+                $"SELECT 1 FROM pg_database WHERE datname = '{dbName}'", conn);
+            if (await check.ExecuteScalarAsync() == null)
+            {
+                await using var create = new NpgsqlCommand($"CREATE DATABASE \"{dbName}\"", conn);
+                await create.ExecuteNonQueryAsync();
+                Console.WriteLine($"[Startup] Đã tạo database '{dbName}'");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Startup] Không thể tự tạo database (bỏ qua): {ex.Message}");
+        }
+    }
+}
 
 // ── Register Services via Extension Method ───────────────
 builder.Services.AddStationOSServices(builder.Configuration);

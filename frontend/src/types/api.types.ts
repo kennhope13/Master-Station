@@ -230,6 +230,7 @@ export interface RuleTriggerLogEntry {
   valueAtTrigger?: number;
   stationId?: string;
   stationName?: string;
+  conditionSnapshot?: string;
 }
 
 // ── Người dùng ───────────────────────────────────────────────

@@ -61,7 +61,9 @@ class AuthService {
             return { success: true, licenseReason: data.licenseReason ?? '' };
 
         } catch (err) {
-            return { success: false, error: 'Không thể kết nối tới máy chủ' };
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error('[AuthService] login error:', msg, err);
+            return { success: false, error: `Lỗi: ${msg}` };
         }
     }
 

@@ -187,7 +187,12 @@ export default function ThermalForecastTab() {
   // Chart Effect
   useEffect(() => {
     if (!chartRef.current || historyData.length === 0) return;
-    chartInst.current?.destroy();
+
+    // Robust cleanup: destroy any existing chart on this canvas
+    const existingChart = Chart.getChart(chartRef.current);
+    if (existingChart) existingChart.destroy();
+    if (chartInst.current) { chartInst.current.destroy(); chartInst.current = null; }
+
     const xLabels = historyData.map(h => {
       if (!h.full_ts) return h.timestamp;
       const parts = String(h.full_ts).split(' ');

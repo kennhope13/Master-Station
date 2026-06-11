@@ -5,13 +5,13 @@ services:
   postgres:
     image: timescale/timescaledb:latest-pg16
     environment:
-      POSTGRES_DB: stationos
-      POSTGRES_USER: stationos
+      POSTGRES_DB: StationOS_Central
+      POSTGRES_USER: stationos_central
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - pg_central_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "6432:5432"
 
   backend:
     build:
@@ -19,10 +19,10 @@ services:
       dockerfile: Dockerfile
     environment:
       Mode: Central
-      ConnectionStrings__Postgres: "Host=postgres;Database=stationos;Username=stationos;Password=${DB_PASSWORD}"
+      ConnectionStrings__Postgres: "Host=postgres;Database=StationOS_Central;Username=stationos_central;Password=${DB_PASSWORD}"
       ASPNETCORE_URLS: http://+:5000
     ports:
-      - "5000:5000"
+      - "6000:5000"
     depends_on:
       - postgres
 
@@ -36,4 +36,4 @@ services:
       - "80:80"
 
 volumes:
-  pg_data:
+  pg_central_data:

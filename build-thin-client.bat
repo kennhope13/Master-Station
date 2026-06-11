@@ -19,21 +19,15 @@ node --version >nul 2>&1 || (
     pause & exit /b 1
 )
 
-REM Kiểm tra Rust
-cargo --version >nul 2>&1 || (
-    echo [ERROR] Rust chua duoc cai. Tai tai: https://rustup.rs
-    pause & exit /b 1
-)
-
 REM Cài dependencies nếu cần
 if not exist "node_modules" (
-    echo [1/3] Cai dat npm dependencies...
+    echo [1/2] Cai dat npm dependencies...
     npm install
 )
 
 REM Build thin client
-echo [2/3] Building thin client...
-call npm run desktop:build:thin
+echo [2/2] Building thin client (Electron)...
+call npm run electron:build:win
 
 echo.
 if %ERRORLEVEL% EQU 0 (
@@ -41,8 +35,8 @@ if %ERRORLEVEL% EQU 0 (
     echo   BUILD THANH CONG!
     echo.
     echo   Installer nam o:
-    echo   frontend\src-tauri\target\release\bundle\nsis\
-    echo   -> Station Monitor_x.x.x_x64-setup.exe  (~15-20 MB)
+    echo   frontend\dist-electron\
+    echo   -> Station Monitor Setup 3.0.1.exe (hoac Station Monitor-3.0.1.exe)
     echo.
     echo   GUI tren thi buoc tiep theo:
     echo   1. Gui file .exe nay cho nguoi dung cuoi

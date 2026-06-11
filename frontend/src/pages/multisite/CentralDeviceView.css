@@ -1,0 +1,1148 @@
+/* ═══════════════════════════════════════════════════════════════
+   CentralDeviceView.css — Trang thiết bị đa trạm
+   Design: vuông vắng, 0px radius cho panel/card/input,
+           2px radius cho button — đồng bộ với admin-card + btn-industrial
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Root ──────────────────────────────────────────────────── */
+.cdv-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--admin-bg);
+  overflow: hidden;
+}
+
+/* ── Toolbar ───────────────────────────────────────────────── */
+.cdv-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--admin-panel);
+  border-bottom: 1px solid var(--admin-border);
+  flex-shrink: 0;
+  min-height: 40px;
+  flex-wrap: wrap;
+}
+
+.cdv-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cdv-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cdv-title {
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--admin-text);
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Back button */
+.cdv-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 2px;
+  border: 1px solid var(--admin-border);
+  background: transparent;
+  color: var(--admin-text-muted);
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cdv-back-btn:hover {
+  border-color: var(--admin-text-muted);
+  color: var(--admin-text);
+}
+
+/* Auto-refresh indicator */
+.cdv-refresh-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.55rem;
+  color: var(--admin-text-muted);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cdv-refresh-indicator.active {
+  color: var(--admin-accent);
+}
+.cdv-refresh-indicator button {
+  border: 1px solid var(--admin-border);
+  border-radius: 2px;
+  background: var(--admin-layer-2);
+  color: var(--admin-text-muted);
+  font-size: 0.48rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 1px 5px;
+}
+.cdv-refresh-indicator button:hover {
+  border-color: var(--admin-text-muted);
+  color: var(--admin-text);
+}
+.cdv-refresh-indicator button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Search box */
+.cdv-search-box {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 0;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-bg);
+  color: var(--admin-text-muted);
+  min-width: 150px;
+  max-width: 200px;
+}
+.cdv-search-box:focus-within {
+  border-color: var(--admin-accent);
+}
+.cdv-search-box input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--admin-text);
+  font: inherit;
+  font-size: 0.6rem;
+  min-width: 0;
+}
+.cdv-search-box input::placeholder {
+  color: var(--admin-text-muted);
+}
+.cdv-search-box button {
+  display: flex;
+  border: none;
+  background: none;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+/* Chip button (filter / sort / action) */
+.cdv-chip {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 2px;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-btn-secondary-bg);
+  color: var(--admin-btn-secondary-text);
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+.cdv-chip:hover {
+  border-color: var(--admin-text-muted);
+  color: var(--admin-text);
+  background: var(--admin-hover);
+}
+.cdv-chip.active {
+  background: var(--admin-accent);
+  border-color: var(--admin-accent);
+  color: var(--admin-text-on-accent);
+}
+.cdv-chip.primary {
+  background: var(--admin-accent);
+  border-color: var(--admin-accent);
+  color: var(--admin-text-on-accent);
+}
+.cdv-chip.sort {
+  font-size: 0.52rem;
+  letter-spacing: 0.03em;
+}
+
+/* Select dropdown */
+.cdv-select {
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 0;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-panel);
+  color: var(--admin-text);
+  font: inherit;
+  font-size: 0.56rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-width: 110px;
+  outline: none;
+}
+.cdv-select:focus {
+  border-color: var(--admin-accent);
+}
+
+/* View mode toggle */
+.cdv-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--admin-border);
+  border-radius: 0;
+  overflow: hidden;
+}
+.cdv-view-toggle button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: var(--admin-btn-secondary-bg);
+  color: var(--admin-btn-secondary-text);
+  cursor: pointer;
+}
+.cdv-view-toggle button:not(:last-child) {
+  border-right: 1px solid var(--admin-border);
+}
+.cdv-view-toggle button.active {
+  background: var(--admin-accent);
+  color: var(--admin-text-on-accent);
+}
+.cdv-view-toggle button:hover:not(.active) {
+  background: var(--admin-hover);
+  color: var(--admin-text);
+}
+
+/* ── Summary bar ───────────────────────────────────────────── */
+.cdv-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  height: 28px;
+  background: var(--admin-panel);
+  border-bottom: 1px solid var(--admin-border);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--admin-text-muted);
+  flex-shrink: 0;
+}
+.cdv-summary-divider {
+  width: 1px;
+  height: 10px;
+  background: var(--admin-border);
+  flex-shrink: 0;
+}
+
+/* Bulk action in summary */
+.cdv-bulk-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--admin-accent);
+  font-weight: 800;
+}
+.cdv-bulk-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 2px;
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+  font-size: 0.52rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.cdv-bulk-delete:hover {
+  background: rgba(239, 68, 68, 0.15);
+}
+.cdv-bulk-delete:disabled {
+  opacity: 0.4;
+}
+.cdv-bulk-info > button:last-child {
+  border: none;
+  background: none;
+  color: var(--admin-text-muted);
+  font-size: 0.52rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+/* ── Body ──────────────────────────────────────────────────── */
+.cdv-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+}
+
+/* ── Empty / Loading ──────────────────────────────────────── */
+.cdv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  min-height: 120px;
+  color: var(--admin-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* ═════════════════════════════════════════════════════════════
+   DASHBOARD — Station cards overview
+   ═════════════════════════════════════════════════════════════ */
+
+.cdv-dashboard {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cdv-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 10px;
+}
+
+/* ── Fleet Health Panel ──────────────────────────────────── */
+.cdv-fleet-panel {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 22px;
+  background:
+    linear-gradient(110deg, var(--admin-info-bg, rgba(14,165,233,0.12)) 0%, transparent 55%),
+    var(--admin-bg);
+  border: 1px solid var(--admin-accent);
+  border-left: 3px solid var(--admin-accent);
+  box-shadow:
+    0 0 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px var(--admin-border-light, rgba(14,165,233,0.08)),
+    inset 0 1px 0 var(--admin-border-light, rgba(255,255,255,0.04));
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* Corner bracket decorators — industrial style */
+.cdv-fleet-panel::before,
+.cdv-fleet-panel::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-color: var(--admin-accent);
+  border-style: solid;
+  opacity: 0.6;
+}
+.cdv-fleet-panel::before {
+  top: -1px;
+  right: -1px;
+  border-width: 2px 2px 0 0;
+}
+.cdv-fleet-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-width: 0 2px 2px 0;
+}
+
+.cdv-fleet-stats {
+  flex: 1;
+  min-width: 0;
+}
+
+.cdv-fleet-title {
+  font-size: 0.54rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--admin-accent);
+  margin-bottom: 10px;
+}
+
+.cdv-fleet-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cdv-fleet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cdv-fleet-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cdv-fleet-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: var(--admin-text-muted);
+  width: 44px;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+
+.cdv-fleet-bar-track {
+  flex: 1;
+  height: 3px;
+  background: var(--admin-layer-3);
+  border-radius: 0;
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.cdv-fleet-bar-fill {
+  height: 100%;
+  border-radius: 0;
+  transition: width 0.4s ease;
+}
+
+.cdv-fleet-count {
+  font-size: 0.68rem;
+  font-weight: 900;
+  min-width: 24px;
+  text-align: right;
+  font-family: var(--admin-font-mono, monospace);
+}
+
+.cdv-fleet-meta {
+  margin-top: 10px;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--admin-text-muted);
+  text-transform: uppercase;
+}
+
+/* Station card */
+.cdv-station-card {
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  position: relative;
+}
+.cdv-station-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 0;
+  background: var(--admin-accent);
+  transition: width 0.15s ease;
+}
+.cdv-station-card:hover {
+  background: var(--admin-layer-2);
+}
+.cdv-station-card:hover::before {
+  width: 2px;
+}
+
+.cdv-station-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.cdv-station-info code {
+  font-family: var(--admin-font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.52rem;
+  font-weight: 800;
+  color: var(--admin-accent);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cdv-station-info h3 {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--admin-text);
+  margin: 4px 0 0;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+/* Health ring */
+.cdv-health-ring {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+}
+.cdv-health-ring svg {
+  width: 100%;
+  height: 100%;
+}
+.cdv-health-ring strong {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: var(--admin-text);
+  font-family: var(--admin-font-mono, monospace);
+}
+
+/* Bars */
+.cdv-station-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.cdv-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.54rem;
+  font-weight: 700;
+  color: var(--admin-text-muted);
+  letter-spacing: 0.03em;
+}
+.cdv-bar-row span {
+  width: 42px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  font-size: 0.52rem;
+}
+.cdv-bar-row b {
+  width: 20px;
+  text-align: right;
+  font-size: 0.6rem;
+  color: var(--admin-text);
+  font-family: var(--admin-font-mono, monospace);
+}
+
+.cdv-bar-track {
+  flex: 1;
+  height: 3px;
+  background: var(--admin-layer-3);
+  border-radius: 0;
+  overflow: hidden;
+}
+.cdv-bar-track > div {
+  height: 100%;
+  border-radius: 0;
+  transition: width 0.3s ease;
+}
+
+/* Type badges */
+.cdv-station-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.cdv-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 5px;
+  border-radius: 0;
+  border: 1px solid;
+  font-size: 0.5rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.cdv-type-badge b {
+  font-weight: 900;
+}
+
+/* Station card footer */
+.cdv-station-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--admin-border);
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--admin-text-muted);
+}
+
+.cdv-alert-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--admin-danger);
+  font-weight: 800;
+}
+
+.cdv-station-arrow {
+  margin-left: auto;
+  color: var(--admin-text-muted);
+  display: flex;
+}
+
+/* ═════════════════════════════════════════════════════════════
+   GROUPED VIEW
+   ═════════════════════════════════════════════════════════════ */
+
+.cdv-groups {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cdv-group {
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.cdv-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s;
+  border-left: 2px solid transparent;
+}
+.cdv-group-header:hover {
+  background: var(--admin-hover);
+  border-left-color: var(--admin-accent);
+}
+.cdv-group-header b {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--admin-text);
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.cdv-group-header > span {
+  font-size: 0.56rem;
+  color: var(--admin-text-muted);
+}
+
+.cdv-group-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cdv-group-count {
+  flex: 1;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.cdv-group-health-bar {
+  width: 80px;
+  height: 3px;
+  background: var(--admin-layer-3);
+  border-radius: 0;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.cdv-group-health-bar > div {
+  height: 100%;
+  border-radius: 0;
+  transition: width 0.3s ease;
+}
+
+.cdv-group-body {
+  padding: 6px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--admin-border);
+}
+
+/* ═════════════════════════════════════════════════════════════
+   DEVICE CARD (in grouped + cards views)
+   ═════════════════════════════════════════════════════════════ */
+
+.cdv-device-card {
+  background: var(--admin-bg);
+  border: 1px solid var(--admin-border);
+  border-radius: 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  transition: border-color 0.1s;
+}
+.cdv-device-card:hover {
+  border-color: var(--admin-text-muted);
+}
+.cdv-device-card.selected {
+  border-color: var(--admin-accent);
+  background: rgba(14, 165, 233, 0.04);
+}
+
+.cdv-device-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  cursor: pointer;
+  color: var(--admin-text-muted);
+  display: flex;
+  z-index: 1;
+}
+
+.cdv-device-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 24px;
+}
+.cdv-device-header b {
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--admin-text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cdv-device-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cdv-badge {
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.cdv-device-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cdv-device-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.cdv-device-type {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: var(--admin-text);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+.cdv-device-info small {
+  font-size: 0.54rem;
+  color: var(--admin-text-muted);
+  font-family: var(--admin-font-mono, monospace);
+}
+
+/* Test result badge */
+.cdv-test-result {
+  padding: 3px 7px;
+  border-radius: 0;
+  font-size: 0.52rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-left: 2px solid;
+}
+.cdv-test-result.ok {
+  background: rgba(16, 185, 129, 0.06);
+  color: #6ee7b7;
+  border-left-color: #10b981;
+}
+.cdv-test-result.fail {
+  background: rgba(239, 68, 68, 0.06);
+  color: #fca5a5;
+  border-left-color: #ef4444;
+}
+.cdv-test-result.pending {
+  background: rgba(59, 130, 246, 0.06);
+  color: #93c5fd;
+  border-left-color: #3b82f6;
+}
+
+/* Device actions */
+.cdv-device-actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+.cdv-device-actions button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 2px;
+  border: 1px solid var(--admin-border);
+  background: transparent;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+}
+.cdv-device-actions button:hover {
+  color: var(--admin-text);
+  border-color: var(--admin-text-muted);
+  background: var(--admin-hover);
+}
+.cdv-device-actions button.danger:hover {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.06);
+}
+.cdv-device-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ═════════════════════════════════════════════════════════════
+   CARDS VIEW
+   ═════════════════════════════════════════════════════════════ */
+
+.cdv-cards {
+  padding: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+/* ═════════════════════════════════════════════════════════════
+   TABLE VIEW
+   ═════════════════════════════════════════════════════════════ */
+
+.cdv-table-wrap {
+  margin: 12px;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  border-radius: 0;
+  overflow: auto;
+}
+
+.cdv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.6rem;
+}
+.cdv-table th {
+  padding: 7px 10px;
+  text-align: left;
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+  background: var(--admin-layer-2);
+  border-bottom: 1px solid var(--admin-border);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.cdv-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.05);
+}
+.cdv-table tr:hover td {
+  background: var(--admin-hover);
+}
+.cdv-table tr.selected td {
+  background: rgba(14, 165, 233, 0.06);
+}
+.cdv-table b {
+  color: var(--admin-text);
+  font-weight: 700;
+}
+.cdv-table code {
+  font-family: var(--admin-font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.54rem;
+  color: var(--admin-text-muted);
+}
+
+.cdv-col-check {
+  width: 30px;
+  text-align: center;
+  color: var(--admin-text-muted);
+}
+
+.cdv-col-actions {
+  text-align: right;
+}
+.cdv-col-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 2px;
+  border: 1px solid var(--admin-border);
+  background: transparent;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+.cdv-col-actions button:hover {
+  color: var(--admin-text);
+  border-color: var(--admin-text-muted);
+  background: var(--admin-hover);
+}
+.cdv-col-actions button.danger:hover {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* Copy IP button in table */
+.cdv-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 4px;
+  vertical-align: middle;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.cdv-table td:hover .cdv-copy-btn {
+  opacity: 1;
+}
+
+/* Test badge in table */
+.cdv-test-badge {
+  font-weight: 800;
+  font-size: 0.52rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--admin-font-mono, monospace);
+}
+.cdv-test-badge.ok { color: #10b981; }
+.cdv-test-badge.fail { color: #ef4444; }
+.cdv-test-badge.pending { color: #3b82f6; }
+
+.cdv-test-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--admin-border);
+  border-radius: 2px;
+  background: transparent;
+  color: var(--admin-text-muted);
+  font-size: 0.5rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 5px;
+}
+.cdv-test-btn:hover {
+  color: var(--admin-text);
+  border-color: var(--admin-text-muted);
+  background: var(--admin-hover);
+}
+
+/* ═════════════════════════════════════════════════════════════
+   MODAL
+   ═════════════════════════════════════════════════════════════ */
+
+.cdv-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+}
+
+.cdv-modal {
+  width: 360px;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  border-top: 2px solid var(--admin-accent);
+  border-radius: 0;
+  padding: 20px;
+  box-shadow: var(--admin-shadow, 0 20px 50px rgba(0,0,0,0.5));
+}
+
+.cdv-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--admin-border);
+}
+.cdv-modal-header b {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--admin-text);
+}
+
+.cdv-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 14px;
+  font-size: 0.52rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--admin-text-muted);
+}
+.cdv-modal-field input {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 0;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-bg);
+  color: var(--admin-text);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  outline: none;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--admin-font-mono, monospace);
+}
+.cdv-modal-field input:focus {
+  border-color: var(--admin-accent);
+}
+
+.cdv-modal-error {
+  padding: 6px 10px;
+  border-radius: 0;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-left: 3px solid #ef4444;
+  color: #fca5a5;
+  font-size: 0.56rem;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.cdv-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--admin-border);
+  margin-top: 4px;
+}
+.cdv-modal-actions button {
+  height: 30px;
+  padding: 0 16px;
+  border-radius: 2px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid var(--admin-border);
+  background: transparent;
+  color: var(--admin-text-muted);
+}
+.cdv-modal-actions button:hover {
+  border-color: var(--admin-text-muted);
+  color: var(--admin-text);
+}
+.cdv-modal-actions button.primary {
+  border-color: var(--admin-accent);
+  background: var(--admin-accent);
+  color: var(--admin-text-on-accent);
+}
+.cdv-modal-actions button.primary:hover {
+  opacity: 0.9;
+}
+.cdv-modal-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ═════════════════════════════════════════════════════════════
+   TOAST
+   ═════════════════════════════════════════════════════════════ */
+
+.cdv-toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  padding: 8px 18px;
+  border-radius: 0;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  border-top: 2px solid var(--admin-accent);
+  color: var(--admin-text);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  box-shadow: var(--admin-shadow, 0 4px 16px rgba(0,0,0,0.4));
+  pointer-events: none;
+  animation: cdvToastIn 0.18s ease-out;
+  white-space: nowrap;
+}
+
+@keyframes cdvToastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ═════════════════════════════════════════════════════════════
+   SPINNER
+   ═════════════════════════════════════════════════════════════ */
+
+@keyframes cdvSpin {
+  to { transform: rotate(360deg); }
+}
+.cdv-spin {
+  animation: cdvSpin 0.8s linear infinite;
+}

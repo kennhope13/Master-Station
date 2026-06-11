@@ -334,30 +334,34 @@ class PdRegionAnalyzer:
             f'<audioFrequency>{hz:.1f}</audioFrequency>'
             f'</EventNotificationAlert>'
         )
-        try:
-            img_bytes = None
-            if annotated is not None:
-                import cv2
-                success, encoded_img = cv2.imencode('.jpg', annotated)
-                if success:
-                    img_bytes = encoded_img.tobytes()
+        img_bytes = None
+        if annotated is not None:
+            import cv2
+            success, encoded_img = cv2.imencode('.jpg', annotated)
+            if success:
+                img_bytes = encoded_img.tobytes()
 
-            files = {
-                'event': (None, xml, 'application/xml'),
-            }
-            if img_bytes:
-                files['image_hd'] = ('snapshot.jpg', img_bytes, 'image/jpeg')
+        files = {
+            'event': (None, xml, 'application/xml'),
+        }
+        if img_bytes:
+            files['image_hd'] = ('snapshot.jpg', img_bytes, 'image/jpeg')
 
-            requests.post(
-                f"{cfg.backend_url}/api/v1/camera-webhook",
-                files=files,
-                timeout=3.0,
-            )
-            # Chỉ cập nhật state SAU KHI gửi thành công → nếu lỗi sẽ retry lần sau
-            self._last_alert[region.id] = (level, now)
-            logger.info("[PdRegion] Alert sent: region=%s level=%s db=%.1f", region.name, level, db)
-        except Exception as ex:
-            logger.warning("[PdRegion] Alert send failed (sẽ retry): %s", ex)
+        def send_post():
+            try:
+                requests.post(
+                    f"{cfg.backend_url}/api/v1/camera-webhook",
+                    files=files,
+                    timeout=3.0,
+                )
+                # Chỉ cập nhật state SAU KHI gửi thành công → nếu lỗi sẽ retry lần sau
+                self._last_alert[region.id] = (level, now)
+                logger.info("[PdRegion] Alert sent: region=%s level=%s db=%.1f", region.name, level, db)
+            except Exception as ex:
+                logger.warning("[PdRegion] Alert send failed (sẽ retry): %s", ex)
+
+        import threading
+        threading.Thread(target=send_post, daemon=True).start()
 
     def _update_ui_state(self, region_name: str, db: float, hz: float, level: str, hotspot: tuple) -> None:
         """Cập nhật sự kiện hiển thị trên UI Frontend"""

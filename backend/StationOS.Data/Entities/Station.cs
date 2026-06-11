@@ -16,4 +16,6 @@ public class Station
     public string Status { get; set; } = "active";
     /// <summary>Thời điểm tạo trạm.</summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>URL API của trạm con (dùng để trạm tổng kết nối vào). Ví dụ: http://192.168.1.100:5000</summary>
+    public string? ApiUrl { get; set; }
 }

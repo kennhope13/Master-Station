@@ -280,7 +280,7 @@ export default function RuleEnginePage() {
   return (
     <div className="admin-page-container">
       {/* Toolbar */}
-      <div className="page-toolbar-row">
+      <div className="page-toolbar-row dash-header">
         <div className="page-title-cell">
           <h2>RULE ENGINE</h2>
         </div>
@@ -295,24 +295,15 @@ export default function RuleEnginePage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="page-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, flexShrink: 0, padding: 0, marginBottom: 8 }}>
-        <div className="kpi-card" style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', padding: '8px 12px', borderRadius: 4, display: 'flex', flexDirection: 'column', borderLeft: '4px solid var(--admin-accent)', minHeight: 65 }}>
-          <div className="page-stat-label" style={{ fontSize: '10px', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2px' }}>Tổng quy tắc</div>
-          <div className="page-stat-value" style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1, marginTop: 'auto' }}>{loading ? '—' : total}</div>
-        </div>
-        <div className="kpi-card" style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', padding: '8px 12px', borderRadius: 4, display: 'flex', flexDirection: 'column', borderLeft: '4px solid var(--admin-success)', minHeight: 65 }}>
-          <div className="page-stat-label" style={{ fontSize: '10px', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2px' }}>Đang kích hoạt</div>
-          <div className="page-stat-value" style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1, marginTop: 'auto', color: 'var(--admin-success)' }}>{loading ? '—' : enabled}</div>
-        </div>
-        <div className="kpi-card" style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', padding: '8px 12px', borderRadius: 4, display: 'flex', flexDirection: 'column', borderLeft: '4px solid var(--admin-warning)', minHeight: 65 }}>
-          <div className="page-stat-label" style={{ fontSize: '10px', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2px' }}>Ngưỡng Cảnh báo (Vàng)</div>
-          <div className="page-stat-value" style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1, marginTop: 'auto', color: 'var(--admin-warning)' }}>{loading ? '—' : totalWarning}</div>
-        </div>
-        <div className="kpi-card" style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', padding: '8px 12px', borderRadius: 4, display: 'flex', flexDirection: 'column', borderLeft: '4px solid var(--admin-danger)', minHeight: 65 }}>
-          <div className="page-stat-label" style={{ fontSize: '10px', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.2px' }}>Ngưỡng Nguy hiểm (Đỏ)</div>
-          <div className="page-stat-value" style={{ fontSize: '20px', fontWeight: 700, lineHeight: 1.1, marginTop: 'auto', color: 'var(--admin-danger)' }}>{loading ? '—' : totalAlarm}</div>
-        </div>
+      {/* Stats bar */}
+      <div style={{ display:'flex', gap:16, alignItems:'center', padding:'6px 14px', background:'var(--admin-panel)', borderBottom:'1px solid var(--admin-border)', fontSize:'.6rem', color:'var(--admin-text-muted)', fontWeight:800, letterSpacing:'.08em', flexShrink:0 }}>
+        <span>TỔNG: <b style={{color:'var(--admin-text)',letterSpacing:'0'}}>{loading ? '—' : total}</b></span>
+        <span style={{width:1,height:12,background:'var(--admin-border)',flexShrink:0}} />
+        <span>KÍCH HOẠT: <b style={{color:'var(--admin-success)',letterSpacing:'0'}}>{loading ? '—' : enabled}</b></span>
+        <span style={{width:1,height:12,background:'var(--admin-border)',flexShrink:0}} />
+        <span>CẢNH BÁO: <b style={{color:'var(--admin-warning)',letterSpacing:'0'}}>{loading ? '—' : totalWarning}</b></span>
+        <span style={{width:1,height:12,background:'var(--admin-border)',flexShrink:0}} />
+        <span>NGUY HIỂM: <b style={{color:'var(--admin-danger)',letterSpacing:'0'}}>{loading ? '—' : totalAlarm}</b></span>
       </div>
 
       {/* Main List */}

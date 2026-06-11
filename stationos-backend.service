@@ -1,0 +1,17 @@
+[Unit]
+Description=StationOS Backend Services and Vite Dev Server
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=admin-
+WorkingDirectory=/home/admin-/stationos-clean
+ExecStart=/home/admin-/stationos-clean/start-all.sh
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/admin-/stationos-clean/backend_systemd.log
+StandardError=append:/home/admin-/stationos-clean/backend_systemd.log
+
+[Install]
+WantedBy=multi-user.target

@@ -749,232 +749,205 @@ export default function CentralAnalyticsLayout() {
           {!rightPanelCollapsed && (
             <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
               {selectedSnapshot ? (
-                /* ── Station Detail ──────────────────── */
+                /* ── Station Detail Scorecard ──────────────────── */
                 <>
                   {/* Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 16, borderBottom: '1px solid var(--admin-border)' }}>
                     <div>
-                      <div style={{ fontSize: '.8rem', fontWeight: 900, color: 'var(--admin-text)' }}>{selectedSnapshot.station.name}</div>
-                      <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontFamily: 'monospace' }}>{selectedSnapshot.station.code || 'NO-CODE'}</div>
+                      <div style={{ fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-accent)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 6 }}>Scorecard Trạm</div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 900, color: 'var(--admin-text)', letterSpacing: '0.02em' }}>{selectedSnapshot.station.name}</div>
+                      <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)', marginTop: 2 }}>{selectedSnapshot.station.code || 'NO-CODE'}</div>
                     </div>
-                    <button className="btn-industrial" style={{ padding: '4px 10px', fontSize: '.55rem', fontWeight: 800 }}
-                      onClick={() => setSelectedStationId(null)}>
-                      <X size={12} /> ĐÓNG
+                    <button 
+                      onClick={() => setSelectedStationId(null)} 
+                      style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 6, color: 'var(--admin-text-muted)', cursor: 'pointer', padding: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--admin-text)'; e.currentTarget.style.borderColor = 'var(--admin-text-muted)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--admin-text-muted)'; e.currentTarget.style.borderColor = 'var(--admin-border)'; }}
+                    >
+                      <X size={14} />
                     </button>
                   </div>
 
-                  {/* Health Gauge */}
-                  <HealthGauge score={selectedSnapshot.avgHealth} />
-                  <div style={{ textAlign: 'center', marginTop: -8 }}>
-                    <span style={{ fontSize: '.7rem', fontWeight: 800, color: getHealthClass(selectedSnapshot.avgHealth).color }}>
-                      {getHealthClass(selectedSnapshot.avgHealth).label.toUpperCase()}
-                    </span>
-                  </div>
-
-                  {/* Device status */}
-                  <div style={{
-                    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
-                    background: 'var(--admin-layer-2)', borderRadius: 6, padding: 12
-                  }}>
-                    <div style={{ textAlign: 'center' }}>
-                      <Wifi size={14} style={{ color: 'var(--admin-success)' }} />
-                      <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>Online</div>
-                      <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--admin-success)' }}>{selectedSnapshot.onlineDevices}</div>
-                    </div>
-                    <div style={{ textAlign: 'center' }}>
-                      <WifiOff size={14} style={{ color: 'var(--admin-text-muted)' }} />
-                      <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>Offline</div>
-                      <div style={{ fontSize: '1rem', fontWeight: 900, color: 'var(--admin-text-muted)' }}>{selectedSnapshot.devices.length - selectedSnapshot.onlineDevices}</div>
+                  {/* Primary KPI: Health */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 0 20px' }}>
+                    <HealthGauge score={selectedSnapshot.avgHealth} />
+                    <div style={{ marginTop: 12, padding: '4px 14px', background: `${getHealthClass(selectedSnapshot.avgHealth).color}15`, border: `1px solid ${getHealthClass(selectedSnapshot.avgHealth).color}30`, borderRadius: 20, color: getHealthClass(selectedSnapshot.avgHealth).color, fontSize: '.65rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      {getHealthClass(selectedSnapshot.avgHealth).label}
                     </div>
                   </div>
 
-                  {/* Thermal */}
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                      <Thermometer size={13} style={{ color: 'var(--admin-danger)' }} />
-                      <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Nhiệt độ</span>
-                    </div>
-                    <ThermalBar
-                      label="Điểm nóng nhất"
-                      value={selectedSnapshot.hottestPoint?.value ?? null}
-                      color={getThermalClass(selectedSnapshot.hottestPoint?.value ?? null).color}
-                    />
-                    {selectedSnapshot.hottestPoint && (
-                      <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', marginTop: -4 }}>
-                        {selectedSnapshot.hottestPoint.label}
+                  {/* Secondary KPIs Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, color: 'var(--admin-text-muted)' }}>
+                        <Wifi size={13} style={{ color: 'var(--admin-success)' }} /> <span style={{ fontSize: '.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Kết nối</span>
                       </div>
-                    )}
-                  </div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                        <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1 }}>{selectedSnapshot.onlineDevices}</span>
+                        <span style={{ fontSize: '.75rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>/ {selectedSnapshot.devices.length} thiết bị</span>
+                      </div>
+                    </div>
+                    
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, color: 'var(--admin-text-muted)' }}>
+                        <Thermometer size={13} style={{ color: 'var(--admin-danger)' }} /> <span style={{ fontSize: '.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Điểm nóng</span>
+                      </div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: getThermalClass(selectedSnapshot.hottestPoint?.value ?? null).color, lineHeight: 1 }}>
+                        {selectedSnapshot.hottestPoint ? `${selectedSnapshot.hottestPoint.value.toFixed(1)}°` : '—'}
+                      </div>
+                    </div>
 
-                  {/* PD */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--admin-layer-2)', borderRadius: 6, padding: '10px 14px' }}>
-                    <Zap size={16} style={{ color: getPdClass(selectedSnapshot.warningPdPoints).color }} />
-                    <div>
-                      <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Phóng điện</div>
-                      <div style={{ fontSize: '.8rem', fontWeight: 900, color: getPdClass(selectedSnapshot.warningPdPoints).color }}>
-                        {selectedSnapshot.warningPdPoints > 0 ? `${selectedSnapshot.warningPdPoints} điểm` : 'Không phát hiện'}
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: '12px 14px', gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Zap size={16} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cảnh báo Phóng điện</div>
+                          <div style={{ fontSize: '.9rem', fontWeight: 900, color: getPdClass(selectedSnapshot.warningPdPoints).color, marginTop: 2 }}>
+                            {selectedSnapshot.warningPdPoints > 0 ? `${selectedSnapshot.warningPdPoints} điểm phát hiện` : 'Hệ thống an toàn'}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* ── Analysis Mini Cards ───────────────── */}
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    {/* AI Nhiệt */}
+                  {/* Context Actions */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {(cabinetSummary?.thermalCameraCount ?? 0) > 0 && (
-                      <AnalysisCard
-                        icon={<Thermometer size={14} style={{ color: 'var(--admin-danger)' }} />}
-                        title="AI NHIỆT"
-                        accentColor="var(--admin-danger)"
-                        onClick={() => navigateToAnalytics(selectedSnapshot.station.id, 'thermal')}
+                      <button 
+                        onClick={() => navigateToAnalytics(selectedSnapshot.station.id, 'thermal')} 
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-hover)'; e.currentTarget.style.borderColor = 'var(--admin-text-muted)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'var(--admin-panel)'; e.currentTarget.style.borderColor = 'var(--admin-border)'; }}
                       >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '.55rem' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--admin-text-muted)' }}>Camera nhiệt:</span>
-                            <span style={{ color: 'var(--admin-text)', fontWeight: 800 }}>{cabinetSummary?.thermalCameraCount ?? 0}</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--admin-text-muted)' }}>Hotspot:</span>
-                            <span style={{ color: getThermalClass(selectedSnapshot.hottestPoint?.value ?? null).color, fontWeight: 800 }}>
-                              {selectedSnapshot.hottestPoint ? `${selectedSnapshot.hottestPoint.value.toFixed(1)}°C` : 'N/A'}
-                            </span>
-                          </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Thermometer size={14} style={{ color: 'var(--admin-danger)' }} />
+                          <span style={{ fontSize: '.75rem', fontWeight: 800, color: 'var(--admin-text)' }}>Phân tích AI Nhiệt</span>
                         </div>
-                      </AnalysisCard>
+                        <ChevronRight size={14} style={{ color: 'var(--admin-text-muted)' }} />
+                      </button>
                     )}
-
-                    {/* Phóng điện camera */}
                     {(cabinetSummary?.pdCameraCount ?? 0) > 0 && (
-                      <AnalysisCard
-                        icon={<Zap size={14} style={{ color: '#f59e0b' }} />}
-                        title="PHÓNG ĐIỆN"
-                        accentColor="#f59e0b"
-                        onClick={() => navigateToAnalytics(selectedSnapshot.station.id, 'pd')}
+                      <button 
+                        onClick={() => navigateToAnalytics(selectedSnapshot.station.id, 'pd')} 
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-hover)'; e.currentTarget.style.borderColor = 'var(--admin-text-muted)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'var(--admin-panel)'; e.currentTarget.style.borderColor = 'var(--admin-border)'; }}
                       >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: '.55rem' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--admin-text-muted)' }}>Camera PD:</span>
-                            <span style={{ color: 'var(--admin-text)', fontWeight: 800 }}>{cabinetSummary?.pdCameraCount ?? 0}</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: 'var(--admin-text-muted)' }}>Điểm cảnh báo:</span>
-                            <span style={{ color: getPdClass(selectedSnapshot.warningPdPoints).color, fontWeight: 800 }}>
-                              {selectedSnapshot.warningPdPoints > 0 ? selectedSnapshot.warningPdPoints : '0'}
-                            </span>
-                          </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Zap size={14} style={{ color: '#f59e0b' }} />
+                          <span style={{ fontSize: '.75rem', fontWeight: 800, color: 'var(--admin-text)' }}>Phân tích Phóng điện</span>
                         </div>
-                      </AnalysisCard>
-                    )}
-
-                    {/* Tủ điện */}
-                    {(cabinetSummary?.cabinetCount ?? 0) > 0 && (
-                      <AnalysisCard
-                        icon={<Radio size={14} style={{ color: 'var(--admin-accent)' }} />}
-                        title="TỦ ĐIỆN"
-                        accentColor="var(--admin-accent)"
-                        onClick={() => navigateToAnalytics(selectedSnapshot.station.id, 'cabinet')}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.55rem', marginBottom: 2 }}>
-                          <span style={{ color: 'var(--admin-text-muted)' }}>Số tủ:</span>
-                          <span style={{ color: 'var(--admin-text)', fontWeight: 800 }}>{cabinetSummary?.cabinetCount}</span>
-                        </div>
-                        <CabinetMiniRow t1={cabinetSummary?.t1 ?? null} t2={cabinetSummary?.t2 ?? null} t3={cabinetSummary?.t3 ?? null} pdVal={cabinetSummary?.pdVal ?? null} />
-                      </AnalysisCard>
-                    )}
-
-                    {/* Fallback: no analysis devices */}
-                    {(cabinetSummary?.thermalCameraCount ?? 0) === 0 &&
-                     (cabinetSummary?.pdCameraCount ?? 0) === 0 &&
-                     (cabinetSummary?.cabinetCount ?? 0) === 0 && (
-                      <div style={{ textAlign: 'center', padding: 10, fontSize: '.55rem', color: 'var(--admin-text-muted)' }}>
-                        Trạm chưa có thiết bị phân tích chuyên sâu
-                      </div>
+                        <ChevronRight size={14} style={{ color: 'var(--admin-text-muted)' }} />
+                      </button>
                     )}
                   </div>
 
-                  {/* Alerts */}
+                  {/* Alerts Warning */}
                   {selectedSnapshot.openAlerts > 0 && (
-                    <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, padding: '10px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                        <AlertTriangle size={13} style={{ color: 'var(--admin-danger)' }} />
-                        <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-danger)' }}>{selectedSnapshot.openAlerts} CẢNH BÁO ĐANG MỞ</span>
+                    <div style={{ marginTop: 'auto', background: 'rgba(239,68,68,0.1)', borderLeft: '3px solid var(--admin-danger)', padding: '12px 16px', borderRadius: '0 8px 8px 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <AlertTriangle size={16} style={{ color: 'var(--admin-danger)' }} />
+                        <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-danger)', letterSpacing: '0.05em' }}>{selectedSnapshot.openAlerts} CẢNH BÁO ĐANG MỞ</span>
                       </div>
                     </div>
                   )}
 
-                  {/* Drill-in button */}
+                  {/* Action */}
                   <button
-                    className="btn-industrial"
                     onClick={() => drillIntoStation(selectedSnapshot.station.id)}
                     style={{
-                      marginTop: 'auto',
-                      padding: '10px 16px',
-                      fontSize: '.7rem',
+                      marginTop: selectedSnapshot.openAlerts > 0 ? 16 : 'auto',
+                      padding: '14px',
+                      fontSize: '.75rem',
                       fontWeight: 900,
                       background: 'var(--admin-accent)',
-                      color: '#000',
-                      borderColor: 'var(--admin-accent)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 8,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: 8,
-                      letterSpacing: '0.05em'
+                      letterSpacing: '0.08em',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
+                      transition: 'transform 0.2s, box-shadow 0.2s'
                     }}
+                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(59, 130, 246, 0.5)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(59, 130, 246, 0.4)'; }}
                   >
-                    <TrendingUp size={14} /> TRUY XUẤT CHI TIẾT
+                    <TrendingUp size={15} /> TRUY XUẤT CHI TIẾT
                   </button>
                 </>
               ) : (
-                /* ── Fleet Overview ──────────────────── */
+                /* ── Fleet Overview Scorecard ──────────────────── */
                 <>
-                  <div style={{ textAlign: 'center', marginBottom: 4 }}>
-                    <Shield size={24} style={{ color: 'var(--admin-accent)' }} />
-                    <div style={{ marginTop: 4, fontSize: '.7rem', fontWeight: 800, color: 'var(--admin-text)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Tổng quan hệ thống</div>
-                    <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)' }}>Chọn một trạm để xem chi tiết</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0 20px', borderBottom: '1px solid var(--admin-border)', marginBottom: 16 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(59, 130, 246, 0.1)', color: 'var(--admin-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12, border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                      <Shield size={24} />
+                    </div>
+                    <div style={{ fontSize: '.9rem', fontWeight: 900, color: 'var(--admin-text)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Tổng quan hệ thống</div>
+                    <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>Chọn một trạm để xem chi tiết</div>
                   </div>
 
-                  <div style={{ display: 'grid', gap: 10 }}>
-                    <div style={{ background: 'var(--admin-layer-2)', borderRadius: 6, padding: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Radio size={18} style={{ color: 'var(--admin-accent)' }} />
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(59, 130, 246, 0.1)', color: 'var(--admin-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Radio size={18} />
+                      </div>
                       <div>
-                        <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Tổng trạm</div>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--admin-text)' }}>{fleetSummary.totalStations}</div>
+                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tổng trạm</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>{fleetSummary.totalStations}</div>
                       </div>
                     </div>
 
-                    <div style={{ background: 'var(--admin-layer-2)', borderRadius: 6, padding: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Wifi size={18} style={{ color: 'var(--admin-success)' }} />
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(16, 185, 129, 0.1)', color: 'var(--admin-success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Wifi size={18} />
+                      </div>
                       <div>
-                        <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Thiết bị Online</div>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--admin-text)' }}>{fleetSummary.totalOnline}/{fleetSummary.totalDevices}</div>
+                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Thiết bị Online</div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 4 }}>
+                          <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1 }}>{fleetSummary.totalOnline}</span>
+                          <span style={{ fontSize: '.8rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>/{fleetSummary.totalDevices}</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div style={{ background: 'var(--admin-layer-2)', borderRadius: 6, padding: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <AlertTriangle size={18} style={{ color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }} />
+                    <div style={{ background: 'var(--admin-layer-1)', border: fleetSummary.totalAlerts > 0 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: fleetSummary.totalAlerts > 0 ? 'rgba(239, 68, 68, 0.1)' : 'var(--admin-layer-2)', color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <AlertTriangle size={18} />
+                      </div>
                       <div>
-                        <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Cảnh báo mở</div>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-text)' }}>{fleetSummary.totalAlerts}</div>
+                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cảnh báo mở</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>{fleetSummary.totalAlerts}</div>
                       </div>
                     </div>
 
-                    <div style={{ background: 'var(--admin-layer-2)', borderRadius: 6, padding: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Thermometer size={18} style={{ color: 'var(--admin-danger)' }} />
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--admin-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Thermometer size={18} />
+                      </div>
                       <div>
-                        <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Hotspot toàn hệ thống</div>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--admin-text)' }}>
+                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hotspot toàn hệ thống</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>
                           {fleetSummary.hottest ? `${fleetSummary.hottest.value.toFixed(1)}°C` : 'N/A'}
                         </div>
                         {fleetSummary.hottest && (
-                          <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)' }}>{fleetSummary.hottest.stationName}</div>
+                          <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>{fleetSummary.hottest.stationName}</div>
                         )}
                       </div>
                     </div>
 
-                    <div style={{ background: 'var(--admin-layer-2)', borderRadius: 6, padding: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Zap size={18} style={{ color: fleetSummary.totalPdWarnings > 0 ? '#f59e0b' : 'var(--admin-success)' }} />
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: fleetSummary.totalPdWarnings > 0 ? 'rgba(245, 158, 11, 0.1)' : 'var(--admin-layer-2)', color: fleetSummary.totalPdWarnings > 0 ? '#f59e0b' : 'var(--admin-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Zap size={18} />
+                      </div>
                       <div>
-                        <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase' }}>Điểm PD cảnh báo</div>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 900, color: 'var(--admin-text)' }}>{fleetSummary.totalPdWarnings}</div>
+                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Điểm PD cảnh báo</div>
+                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>{fleetSummary.totalPdWarnings}</div>
                       </div>
                     </div>
                   </div>
