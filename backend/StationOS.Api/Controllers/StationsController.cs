@@ -1,12 +1,3 @@
-// ============================================================
-// StationsController — CRUD trạm biến áp
-// GET    /api/v1/stations        — Danh sách trạm
-// GET    /api/v1/stations/{id}   — Chi tiết 1 trạm
-// POST   /api/v1/stations        — Tạo trạm mới (Admin)
-// PUT    /api/v1/stations/{id}   — Cập nhật trạm (Admin)
-// DELETE /api/v1/stations/{id}   — Xóa trạm (Admin)
-// ============================================================
-
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -23,10 +14,12 @@ public class StationsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
-    public StationsController(AppDbContext db, PermissionService permissions)
+    private readonly IHttpClientFactory _httpClientFactory;
+    public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory)
     {
         _db = db;
         _permissions = permissions;
+        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>Lấy danh sách trạm biến áp. Operator chỉ thấy trạm được phân quyền.</summary>
@@ -118,12 +111,34 @@ public class StationsController : ControllerBase
         await _db.SaveChangesAsync();
         return NoContent();
     }
+
+    /// <summary>Kiểm tra kết nối tới trạm con qua ApiUrl.</summary>
+    [HttpPost("test-connection")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> TestConnection([FromBody] StationPingRequest req)
+    {
+        if (string.IsNullOrWhiteSpace(req.Url))
+            return BadRequest(new { reachable = false, error = "URL không được để trống" });
+
+        var url = req.Url.TrimEnd('/');
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            var client = _httpClientFactory.CreateClient("station-ping");
+            var res = await client.GetAsync($"{url}/api/v1/health");
+            sw.Stop();
+            if (res.IsSuccessStatusCode)
+                return Ok(new { reachable = true, responseMs = sw.ElapsedMilliseconds });
+
+            return Ok(new { reachable = false, responseMs = sw.ElapsedMilliseconds, error = $"HTTP {(int)res.StatusCode}" });
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            return Ok(new { reachable = false, responseMs = sw.ElapsedMilliseconds, error = ex.Message });
+        }
+    }
 }
 
-/// <summary>Request DTO cho tạo/cập nhật trạm.</summary>
-/// <param name="Name">Tên trạm (bắt buộc).</param>
-/// <param name="Code">Mã trạm.</param>
-/// <param name="Location">Vị trí dạng JSON {"lat","lng","address"}.</param>
-/// <param name="Status">Trạng thái: active | inactive | maintenance.</param>
-/// <param name="ApiUrl">URL API của trạm con (để trạm tổng kết nối vào). Ví dụ: http://192.168.1.100:5000</param>
 public record StationRequest(string Name, string? Code, string? Location, string? Status, string? ApiUrl);
+public record StationPingRequest(string Url);

@@ -89,27 +89,28 @@ echo " Database  : localhost:6432 (StationOS_Central)"
 echo ""
 echo " Đăng nhập đa trạm: multi / Demo@2024"
 echo " Log backend : tail -f $ROOT/backend.log"
-echo " Log AI      : tail -f $ROOT/ai_engine.log"
+# echo " Log AI      : tail -f $ROOT/ai_engine.log"
 echo "=================================================="
 echo ""
 
 # ── 5. Khởi động AI Engine ────────────────────────────────
-echo "[5/5] Khởi động AI Engine trạm tổng (port 9100)..."
-cd "$ROOT/ai_engine"
-if [ -d ".venv" ]; then
-    .venv/bin/pip install -r requirements.txt >/dev/null 2>&1 || true
-    nohup .venv/bin/python main.py > "$ROOT/ai_engine.log" 2>&1 &
-else
-    pip3 install -r requirements.txt >/dev/null 2>&1 || true
-    nohup python3 main.py > "$ROOT/ai_engine.log" 2>&1 &
-fi
-echo "✅ AI Engine khởi chạy (port 9100)"
-
+# Đã tắt cho trạm tổng: không khởi động AI Engine từ script này.
+# echo "[5/5] Khởi động AI Engine trạm tổng (port 9100)..."
+# cd "$ROOT/ai_engine"
+# if [ -d ".venv" ]; then
+#     .venv/bin/pip install -r requirements.txt >/dev/null 2>&1 || true
+#     nohup .venv/bin/python main.py > "$ROOT/ai_engine.log" 2>&1 &
+# else
+#     pip3 install -r requirements.txt >/dev/null 2>&1 || true
+#     nohup python3 main.py > "$ROOT/ai_engine.log" 2>&1 &
+# fi
+# echo "✅ AI Engine khởi chạy (port 9100)"
+#
 # Chờ AI Engine (tối đa 20s) trước khi start Vite
-for i in {1..20}; do
-    curl -s http://localhost:9100/health >/dev/null 2>&1 && break
-    sleep 1
-done
+# for i in {1..20}; do
+#     curl -s http://localhost:9100/health >/dev/null 2>&1 && break
+#     sleep 1
+# done
 
 # ── 6. Khởi động Frontend Vite (foreground) ───────────────
 cd "$ROOT/frontend"

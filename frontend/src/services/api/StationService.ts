@@ -22,8 +22,13 @@ export class StationService {
   }
 
   /** Tạo trạm mới. */
-  async createStation(name: string, code: string, location: string): Promise<Station> {
-    return apiMutate<Station>('POST', '/stations', { name, code, location });
+  async createStation(name: string, code: string, location: string, apiUrl?: string): Promise<Station> {
+    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl });
+  }
+
+  /** Kiểm tra kết nối tới trạm con. */
+  async testConnection(url: string): Promise<{ reachable: boolean; responseMs: number; error?: string }> {
+    return apiMutate('POST', '/stations/test-connection', { url });
   }
 
   /** Xóa trạm. */

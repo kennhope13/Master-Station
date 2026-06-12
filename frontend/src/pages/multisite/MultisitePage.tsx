@@ -129,6 +129,9 @@ export default function MultisitePage() {
   const [newStationLat, setNewStationLat] = useState('');
   const [newStationLng, setNewStationLng] = useState('');
   const [newStationAddress, setNewStationAddress] = useState('');
+  const [newStationApiUrl, setNewStationApiUrl] = useState('');
+  const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
+  const [connMs, setConnMs] = useState<number | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
@@ -153,6 +156,19 @@ export default function MultisitePage() {
 
 
 
+  const handleTestConnection = async () => {
+    if (!newStationApiUrl.trim()) return;
+    setConnStatus('checking');
+    setConnMs(null);
+    try {
+      const res = await stationApi.testStationConnection(newStationApiUrl.trim());
+      setConnMs(res.responseMs);
+      setConnStatus(res.reachable ? 'ok' : 'fail');
+    } catch {
+      setConnStatus('fail');
+    }
+  };
+
   const handleAddStationSubmit = async () => {
     if (!newStationName.trim()) {
       alert('Vui lòng nhập tên trạm');
@@ -168,29 +184,31 @@ export default function MultisitePage() {
       alert('Vui lòng nhập tọa độ Vĩ độ và Kinh độ hợp lệ');
       return;
     }
+    if (!newStationApiUrl.trim()) {
+      alert('Vui lòng nhập URL API của trạm con');
+      return;
+    }
+    if (connStatus !== 'ok') {
+      alert('Vui lòng kiểm tra kết nối trước khi lưu');
+      return;
+    }
 
     setIsSaving(true);
     try {
-      const locationObj = {
-        lat,
-        lng,
-        address: newStationAddress.trim()
-      };
+      const locationObj = { lat, lng, address: newStationAddress.trim() };
       await stationApi.createStation(
         newStationName.trim(),
         newStationCode.trim(),
-        JSON.stringify(locationObj)
+        JSON.stringify(locationObj),
+        newStationApiUrl.trim()
       );
 
-      // Reset form and close modal
-      setNewStationName('');
-      setNewStationCode('');
-      setNewStationLat('');
-      setNewStationLng('');
-      setNewStationAddress('');
+      setNewStationName(''); setNewStationCode('');
+      setNewStationLat(''); setNewStationLng('');
+      setNewStationAddress(''); setNewStationApiUrl('');
+      setConnStatus('idle'); setConnMs(null);
       setIsAddModalOpen(false);
 
-      // Force refresh the station list
       await fetchStations(true);
       alert('Đã thêm trạm mới thành công!');
     } catch (err: any) {
@@ -1256,21 +1274,30 @@ export default function MultisitePage() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => {
-                      setViewingStation(selectedView.station.id);
-                      navigate(`/dashboard?stationId=${selectedView.station.id}`);
-                    }}
-                    style={{
+                  {selectedView.station.apiUrl ? (
+                    <button
+                      onClick={() => {
+                        if (selectedView.station.apiUrl) window.location.href = selectedView.station.apiUrl;
+                      }}
+                      style={{
+                        width: '100%', marginTop: 8, padding: '6px 0',
+                        background: 'rgba(16,185,129,0.12)', border: '1px solid var(--admin-success)',
+                        color: 'var(--admin-success)', cursor: 'pointer', fontSize: '0.7rem',
+                        fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                        letterSpacing: 0.5, textTransform: 'uppercase'
+                      }}
+                    >
+                      <LogIn size={12} /> Vào trạm
+                    </button>
+                  ) : (
+                    <div style={{
                       width: '100%', marginTop: 8, padding: '6px 0',
-                      background: 'rgba(14,165,233,0.12)', border: '1px solid var(--admin-accent)',
-                      color: 'var(--admin-accent)', cursor: 'pointer', fontSize: '0.7rem',
-                      fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                      letterSpacing: 0.5, textTransform: 'uppercase'
-                    }}
-                  >
-                    <LogIn size={12} /> Vào trạm
-                  </button>
+                      border: '1px solid var(--admin-border)', textAlign: 'center',
+                      color: 'var(--admin-text-muted)', fontSize: '0.65rem', fontWeight: 700
+                    }}>
+                      Chưa cấu hình URL trạm
+                    </div>
+                  )}
 
                   <div className="custom-hud-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
                     <div style={{ background: 'var(--admin-hover)', border: '1px solid var(--admin-border-light)', padding: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1458,8 +1485,8 @@ export default function MultisitePage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>ĐỊA CHỈ</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="Ví dụ: Ninh Kiều, Cần Thơ"
                   value={newStationAddress}
                   onChange={e => setNewStationAddress(e.target.value)}
@@ -1468,6 +1495,45 @@ export default function MultisitePage() {
                     padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none'
                   }}
                 />
+              </div>
+
+              {/* URL API trạm con */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                  URL API TRẠM CON *
+                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    placeholder="http://192.168.1.100:6000"
+                    value={newStationApiUrl}
+                    onChange={e => { setNewStationApiUrl(e.target.value); setConnStatus('idle'); setConnMs(null); }}
+                    style={{
+                      flex: 1, background: 'var(--admin-layer-2)',
+                      border: `1px solid ${connStatus === 'ok' ? 'var(--admin-success)' : connStatus === 'fail' ? 'var(--admin-danger)' : 'var(--admin-border)'}`,
+                      padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={connStatus === 'checking' || !newStationApiUrl.trim()}
+                    className="btn-industrial"
+                    style={{ padding: '0 12px', fontSize: '0.68rem', whiteSpace: 'nowrap' }}
+                  >
+                    {connStatus === 'checking' ? 'Đang kiểm tra...' : 'Kiểm tra'}
+                  </button>
+                </div>
+                {connStatus === 'ok' && (
+                  <span style={{ fontSize: '0.68rem', color: 'var(--admin-success)' }}>
+                    ● Kết nối thành công {connMs !== null ? `(${connMs}ms)` : ''}
+                  </span>
+                )}
+                {connStatus === 'fail' && (
+                  <span style={{ fontSize: '0.68rem', color: 'var(--admin-danger)' }}>
+                    ● Không thể kết nối — kiểm tra lại URL và trạng thái trạm con
+                  </span>
+                )}
               </div>
             </div>
 

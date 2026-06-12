@@ -45,6 +45,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // ── Register Services via Extension Method ───────────────
 builder.Services.AddStationOSServices(builder.Configuration);
+builder.Services.AddHttpClient("station-ping")
+    .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(5));
 
 // ── Cấu hình ForwardedHeaders chống IP Spoofing qua Reverse Proxy ──
 builder.Services.Configure<ForwardedHeadersOptions>(options =>

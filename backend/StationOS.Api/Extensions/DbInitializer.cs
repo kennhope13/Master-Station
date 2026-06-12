@@ -50,9 +50,7 @@ public static class DbInitializer
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ApiUrl"" text;");
 
         var authService = services.GetRequiredService<AuthService>();
-        await authService.SeedAdminIfNotExistsAsync();   // Chỉ giữ admin user — không seed thêm data nào
-
-        await SeedDefaultStationAsync(db);
+        await authService.SeedAdminIfNotExistsAsync();
         // Tắt tính năng tự động tạo Rule mặc định
         // await SeedNetaRulesAsync(db);
         // await SeedTemperatureRulesAsync(db);
