@@ -89,6 +89,7 @@ public static class DependencyInjection
         services.AddHostedService<CloudSyncWorker>();
         services.AddHostedService<CentralSyncWorker>();
         services.AddHostedService<DeviceHealthCheckWorker>();
+        services.AddHostedService<StationConnectionMonitorWorker>();
         services.AddHostedService<StationOS.Workers.Recording.RtspRecorderWorker>();
 
         // ── Device Handlers (plugin pattern) ──────────────────────

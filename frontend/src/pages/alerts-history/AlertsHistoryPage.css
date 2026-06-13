@@ -121,15 +121,30 @@
 .h-item .actor { margin-top:4px; font-size:9px; font-weight:900; color:var(--admin-accent); display:flex; align-items:center; gap:4px; }
 
 .nvr-actions { display:flex; gap:8px; margin-top:10px; }
-.nvr-actions button { flex:1; height:36px; border:none; font-size:10px; font-weight:900; cursor:pointer; }
-.nvr-btn-p { background:var(--admin-accent); color:#000; }
-.nvr-btn-d { background:transparent; border:1px solid #ef4444 !important; color:#ef4444; }
+.nvr-actions button { 
+  flex:1; height:36px; border:1px solid transparent; 
+  font-size:10px; font-weight:900; cursor:pointer; 
+  text-transform: uppercase; letter-spacing: 1px;
+  transition: all 0.2s ease;
+  display: flex; align-items: center; justify-content: center;
+}
+.nvr-btn-p { 
+  background: var(--admin-accent); color: #000; 
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+}
+.nvr-btn-p:hover { background: #60a5fa; transform: translateY(-1px); box-shadow: 0 6px 15px rgba(59, 130, 246, 0.3); }
+
+.nvr-btn-d { 
+  background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4) !important; color: #ef4444; 
+}
+.nvr-btn-d:hover { background: #ef4444; color: #fff; transform: translateY(-1px); }
 
 .nvr-ep-loading { height:100%; display:flex; align-items:center; justify-content:center; gap:10px; color:#64748b; font-size:10px; font-weight:900; }
 
-/* GLOBAL RADIUS REMOVAL */
-.rtm-page * { border-radius: 0 !important; }
-.rtm-page *:before, .rtm-page *:after { border-radius: 0 !important; }
+/* GLOBAL RADIUS REMOVAL - Softened for buttons and interactive elements */
+.rtm-page * { border-radius: 0; }
+.rtm-page button, .rtm-page .btn-industrial, .rtm-page .nvr-lb { border-radius: 2px !important; }
+.rtm-page *:before, .rtm-page *:after { border-radius: 0; }
 
 .text-danger { color: #ef4444; }
 .text-accent { color: var(--admin-accent); }

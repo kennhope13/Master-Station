@@ -13,14 +13,43 @@ export default function LoginPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [isShaking, setIsShaking] = useState(false);
   const usernameRef = useRef<HTMLInputElement>(null);
+  const resolveNextPath = () => {
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get('next');
+    if (next && next.startsWith('/')) return next;
+    return null;
+  };
 
   useEffect(() => {
     if (authService.isAuthenticated()) {
       const u = authService.getUser();
-      navigate(isCentralUser(u) ? '/multisite' : '/dashboard', { replace: true });
-    } else {
-      usernameRef.current?.focus();
+      navigate(resolveNextPath() || (isCentralUser(u) ? '/multisite' : '/dashboard'), { replace: true });
+      return;
     }
+    // Nếu có params tự động đăng nhập từ trạm tổng
+    const params = new URLSearchParams(window.location.search);
+    const embedUser = params.get('u');
+    const embedPass = params.get('p');
+    const nextPath = resolveNextPath();
+    if (params.get('embed') === '1' && embedUser && embedPass) {
+      authService.login(embedUser, embedPass).then(result => {
+        if (result.success) {
+          navigate(nextPath || '/dashboard', { replace: true });
+        } else {
+          usernameRef.current?.focus();
+        }
+      });
+      return;
+    }
+    // Nếu đang chạy trong iframe không có params, thử admin mặc định
+    if (window.self !== window.top) {
+      authService.login('admin', 'Admin@123').then(result => {
+        if (result.success) navigate(nextPath || '/dashboard', { replace: true });
+        else usernameRef.current?.focus();
+      });
+      return;
+    }
+    usernameRef.current?.focus();
   }, [navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -31,7 +60,7 @@ export default function LoginPage() {
     const result = await authService.login(username.trim(), password);
     setLoading(false);
     if (result.success) {
-      navigate(isCentralUser(authService.getUser()) ? '/multisite' : '/dashboard');
+      navigate(resolveNextPath() || (isCentralUser(authService.getUser()) ? '/multisite' : '/dashboard'));
     } else {
       setErrorMsg(result.error || 'Đăng nhập thất bại');
       setIsShaking(true);

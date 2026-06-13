@@ -61,9 +61,8 @@ const ProtectedRoute = ({ children, roles, allowOnlyMulti, denyRestricted }: { c
 
 const IndexRedirect = () => {
   const user = authService.getUser();
-  if (isCentralUser(user)) {
-    return <Navigate to="/multisite" replace />;
-  }
+  if (!user) return <Navigate to="/multisite" replace />;
+  if (isCentralUser(user)) return <Navigate to="/multisite" replace />;
   return <Navigate to="/dashboard" replace />;
 };
 
@@ -101,6 +100,9 @@ export default function App() {
           {/* Trang đăng nhập — không cần xác thực */}
           <Route path="/login" element={<LoginPage />} />
 
+          {/* Trạm tổng — không cần đăng nhập, tự auto-login */}
+          <Route path="/multisite" element={<MultisitePage />} />
+
           {/* AppShell bọc toàn bộ layout (sidebar + header + content) */}
           <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
             <Route index element={<IndexRedirect />} />
@@ -115,8 +117,7 @@ export default function App() {
             <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><ReportsPage /></ProtectedRoute>} />
             <Route path="maintenance" element={<ProtectedRoute roles={['admin', 'manager']}><MaintenancePage /></ProtectedRoute>} />
             <Route path="audit-log" element={<ProtectedRoute roles={['admin']}><AuditLogPage /></ProtectedRoute>} />
-            <Route path="multisite" element={<ProtectedRoute allowOnlyMulti><MultisitePage /></ProtectedRoute>} />
-            <Route path="device-management" element={<ProtectedRoute roles={['admin']}><DeviceManagementPage /></ProtectedRoute>} />
+              <Route path="device-management" element={<ProtectedRoute roles={['admin']}><DeviceManagementPage /></ProtectedRoute>} />
             <Route path="device-management/:deviceId/thermal-config" element={<ProtectedRoute roles={['admin']}><ThermalConfigPage /></ProtectedRoute>} />
             <Route path="user-management" element={<ProtectedRoute roles={['admin']}><UserManagementPage /></ProtectedRoute>} />
             <Route path="rule-engine" element={<ProtectedRoute roles={['admin']}><RuleEnginePage /></ProtectedRoute>} />

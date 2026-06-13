@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Map as MapIcon, AlertTriangle, Activity, Server, CheckCircle, Video, Radio, ShieldCheck, Clock, Search } from 'lucide-react';
 import ToolbarSelect from '@/components/ui/ToolbarSelect';
 import { stationApi, CameraDevice, RoiPoint, Boundary } from '@/services/StationApiService';
@@ -40,6 +41,7 @@ export default function RealtimeMonitorPage({
   stationIdOverride = null,
   onStationIdChange,
 }: RealtimeMonitorPageProps) {
+  const [searchParams] = useSearchParams();
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [layout, setLayout] = useState<Layout>('l4');
   const [selectedCamFilter, setSelectedCamFilter] = useState('');
@@ -76,6 +78,8 @@ export default function RealtimeMonitorPage({
   const stations = useStationStore(s => s.stations);
   const alertsByFilter = useAlertStore(s => s.alertsByFilter);
   const alerts = alertsByFilter[ALERT_STATUS.OPEN] ?? [];
+  const queryStationId = searchParams.get('stationId');
+  const effectiveStationId = stationIdOverride || queryStationId;
 
   const expandCameraVariants = (cams: CameraDevice[], stationName?: string) => {
     const initialStatus: Record<string, string> = {};
@@ -176,8 +180,8 @@ export default function RealtimeMonitorPage({
       }
     };
 
-    const savedStationId = stationIdOverride || localStorage.getItem('selected_station_id');
-    if (embeddedMode === 'central' && !stationIdOverride) {
+    const savedStationId = effectiveStationId || localStorage.getItem('selected_station_id');
+    if (embeddedMode === 'central' && !effectiveStationId) {
       stations.forEach(s => fetchDevices(s.id));
       fetchAlerts(ALERT_STATUS.OPEN);
       loadAllStationsCams();
@@ -208,7 +212,7 @@ export default function RealtimeMonitorPage({
         return next;
       });
     }).catch(console.error);
-  }, [embeddedMode, stationIdOverride, stations, fetchDevices, fetchAlerts, getFirstStationId, onStationIdChange]);
+  }, [embeddedMode, stationIdOverride, effectiveStationId, stations, fetchDevices, fetchAlerts, getFirstStationId, onStationIdChange]);
 
   // 2. Periodic ROI/PD Boundary Refresh
   useEffect(() => {
@@ -300,7 +304,7 @@ export default function RealtimeMonitorPage({
   // Helpers
   const cellCount = layout === 'l1' ? 1 : layout === 'l4' ? 4 : 9;
   const displayCams = selectedCamFilter ? cameras.filter(c => c.id === selectedCamFilter) : cameras;
-  const isCentralFleetView = embeddedMode === 'central' && !stationIdOverride;
+  const isCentralFleetView = embeddedMode === 'central' && !effectiveStationId;
   const stationCameraStats = useMemo(() => {
     const grouped = new Map<string, {
       stationId: string;
@@ -1100,12 +1104,12 @@ export default function RealtimeMonitorPage({
     <div className="rtm-page">
 
       {/* ── Toolbar ── */}
-      {(!isCentralFleetView || stationIdOverride) && (
+      {(!isCentralFleetView || effectiveStationId) && (
         <div className="page-toolbar-row dash-header" style={{ height: 32, minHeight: 32 }}>
-          {((embeddedMode !== 'central') || (embeddedMode === 'central' && stationIdOverride)) && (
+          {((embeddedMode !== 'central') || (embeddedMode === 'central' && effectiveStationId)) && (
             <div className="page-title-cell">
               {embeddedMode !== 'central' && <h2>GIÁM SÁT CAMERA TRỰC TIẾP</h2>}
-              {embeddedMode === 'central' && stationIdOverride && (
+              {embeddedMode === 'central' && effectiveStationId && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <div style={{
                     padding: '2px 10px', background: 'rgba(255,255,255,0.03)',
@@ -1114,7 +1118,7 @@ export default function RealtimeMonitorPage({
                     fontSize: '.72rem', fontWeight: 800,
                     textTransform: 'uppercase', letterSpacing: '0.05em'
                   }}>
-                    {stations.find(s => s.id === stationIdOverride)?.name || 'Chi tiết trạm'}
+                    {stations.find(s => s.id === effectiveStationId)?.name || 'Chi tiết trạm'}
                   </div>
                 </div>
               )}

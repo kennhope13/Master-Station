@@ -1,10 +1,11 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore } from '@/store';
-import type { Station, StationLocation, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry } from '@/types/api.types';
+import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry } from '@/types/api.types';
+import type { StationView, StationLocation, StationKpi } from './types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
-  Search, Map, AlertTriangle,
+  Search, Map as MapIcon, AlertTriangle,
   X, ShieldCheck, Wifi,
   ChevronLeft, ChevronRight, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video,
   Download, RefreshCw, Calendar, Clock, Loader2, Filter, Bell, Zap
@@ -12,28 +13,14 @@ import {
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { fmtDateTime, fmtTimeRange } from '@/utils/format';
+import { createRealtimeHub } from '@/services/realtime.service';
+import { showToast } from '@/utils/toast';
 
 const CentralAnalyticsLayout = lazy(() => import('@/pages/analytics/CentralAnalyticsLayout'));
 const DeviceManagementPage = lazy(() => import('@/pages/device-management/DeviceManagementPage'));
 const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView'));
-const RealtimeMonitorPage = lazy(() => import('@/pages/realtime-monitor/RealtimeMonitorPage'));
-const ReportsPage = lazy(() => import('@/pages/reports/ReportsPage'));
+const LiveStationPicker = lazy(() => import('@/pages/multisite/LiveStationPicker'));
 const UserManagementPage = lazy(() => import('@/pages/user-management/UserManagementPage'));
-
-interface StationKpi {
-  alerts: number;       // số cảnh báo đang mở
-  devicesOnline: number;
-  devicesTotal: number;
-  warningsCount: number;
-  alarmsCount: number;
-}
-
-interface StationView {
-  station: Station;
-  location: StationLocation;
-  kpi: StationKpi;
-  alertsList: AlertItem[];
-}
 
 type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'audit_log' | 'reports' | 'users';
 
@@ -55,6 +42,61 @@ function parseLocation(raw?: any): StationLocation {
   try { return JSON.parse(raw); } catch { return {}; }
 }
 
+function extractProvinceName(location?: StationLocation): string {
+  const rawAddress = (location?.address || '').trim();
+  if (!rawAddress) return 'Chưa phân tỉnh';
+
+  const segments = rawAddress
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+
+  if (segments.length === 0) return 'Chưa phân tỉnh';
+
+  const preferred = [...segments].reverse().find(part =>
+    /^(Tỉnh|Thành phố|TP\.?|TP )/i.test(part)
+  );
+
+  return preferred || segments[segments.length - 1] || 'Chưa phân tỉnh';
+}
+
+const PROVINCE_CHIP_ICON = `
+  <svg viewBox="0 0 64 64" width="24" height="24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="16" y="16" width="32" height="32" rx="6"></rect>
+    <path d="M24 10h16a8 8 0 0 1 8 8v4"></path>
+    <path d="M24 54h16a8 8 0 0 0 8-8v-4"></path>
+    <path d="M10 24v16a8 8 0 0 0 8 8h4"></path>
+    <path d="M54 24v16a8 8 0 0 1-8 8h-4"></path>
+    <path d="M24 26h16"></path>
+    <path d="M24 32h16"></path>
+    <path d="M24 38h16"></path>
+    <path d="M8 22h8"></path>
+    <path d="M8 32h8"></path>
+    <path d="M8 42h8"></path>
+    <path d="M48 22h8"></path>
+    <path d="M48 32h8"></path>
+    <path d="M48 42h8"></path>
+  </svg>
+`;
+
+const STATION_TOWER_ICON = `
+  <svg viewBox="0 0 64 64" width="22" height="22" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M24 8h16l8 6H16z"></path>
+    <path d="M12 16h40"></path>
+    <path d="M18 16v10"></path>
+    <path d="M46 16v10"></path>
+    <path d="M12 34h40"></path>
+    <path d="M18 34v8"></path>
+    <path d="M46 34v8"></path>
+    <path d="M28 16l-8 40"></path>
+    <path d="M36 16l8 40"></path>
+    <path d="M20 56l12-8 12 8"></path>
+    <path d="M24 46l8-6 8 6"></path>
+    <path d="M26 36l6-5 6 5"></path>
+    <path d="M27 26l5-4 5 4"></path>
+  </svg>
+`;
+
 export default function MultisitePage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -67,6 +109,28 @@ export default function MultisitePage() {
   const [currentTheme, setCurrentTheme] = useState(() => localStorage.getItem('station-theme') || 'blue');
   const [mapHostKey, setMapHostKey] = useState(0);
   const [mapReadyTick, setMapReadyTick] = useState(0);
+
+  // Apply theme + full-screen layout (normally done by AppShell)
+  useEffect(() => {
+    const saved = localStorage.getItem('station-theme') || 'industrial';
+    document.documentElement.dataset.theme = saved;
+    const toRemove = Array.from(document.documentElement.classList).filter(c => c.startsWith('theme-'));
+    toRemove.forEach(c => document.documentElement.classList.remove(c));
+    document.documentElement.classList.add(`theme-${saved}`);
+
+    // Full-screen body needed when rendered outside AppShell
+    const prev = { htmlH: document.documentElement.style.height, bodyH: document.body.style.height, bodyOv: document.body.style.overflow, bodyBg: document.body.style.background };
+    document.documentElement.style.height = '100%';
+    document.body.style.height = '100%';
+    document.body.style.overflow = 'hidden';
+    document.body.style.background = '#1a1c1e';
+    return () => {
+      document.documentElement.style.height = prev.htmlH;
+      document.body.style.height = prev.bodyH;
+      document.body.style.overflow = prev.bodyOv;
+      document.body.style.background = prev.bodyBg;
+    };
+  }, []);
 
   // Check if Leaflet is loaded from CDN
   useEffect(() => {
@@ -95,8 +159,9 @@ export default function MultisitePage() {
 
   const [statusFilter, setStatusFilter] = useState<'all' | 'warning' | 'normal'>('all');
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [showLeftPanel, setShowLeftPanel] = useState(true);
-  const [showRightPanel, setShowRightPanel] = useState(true);
+  const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
+  const [showLeftPanel, setShowLeftPanel] = useState(false);
+  const [showRightPanel, setShowRightPanel] = useState(false);
   const [devicePanelAction, setDevicePanelAction] = useState<'new' | null>(null);
   const [devicesSubTab, setDevicesSubTab] = useState<'overview' | 'manage'>('overview');
   const showEmbeddedBackButton = activeTab !== 'overview' && !!selectedStationId;
@@ -119,8 +184,16 @@ export default function MultisitePage() {
   useEffect(() => {
     if (activeTab === 'overview') {
       setMapHostKey(k => k + 1);
+      setShowLeftPanel(false);
+      setShowRightPanel(false);
+      setSelectedStationId(null);
+      setSelectedProvince(null);
     }
   }, [activeTab, location.key]);
+
+  useEffect(() => {
+    overviewFittedRef.current = false;
+  }, [selectedProvince]);
 
   // States for creating a new station
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -132,8 +205,14 @@ export default function MultisitePage() {
   const [newStationApiUrl, setNewStationApiUrl] = useState('');
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [connMs, setConnMs] = useState<number | null>(null);
+  const [geoStatus, setGeoStatus] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle');
   const [isSaving, setIsSaving] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [remoteKpis, setRemoteKpis] = useState<Record<string, { devicesOnline: number; devicesTotal: number; alertsCount: number }>>({});
+  const [isAuthReady, setIsAuthReady] = useState(() => !!authService.getToken());
+  const stationStatusRef = useRef<Record<string, string>>({});
+  const stationNameRef = useRef<Record<string, string>>({});
+  const kpiRefreshAtRef = useRef<Record<string, number>>({});
 
   const stations = useStationStore(s => s.stations);
   const fetchStations = useStationStore(s => s.fetch);
@@ -143,29 +222,180 @@ export default function MultisitePage() {
   const devicesByStation = useDeviceStore(s => s.devicesByStation);
   const fetchDevices = useDeviceStore(s => s.fetch);
 
-  // Initial fetch
+  // Auto-login as multi if no token, then fetch data
   useEffect(() => {
-    fetchStations();
-    fetchAlerts(ALERT_STATUS.OPEN);
-  }, [fetchStations, fetchAlerts]);
+    const init = async () => {
+      if (!authService.getToken()) {
+        try { await authService.login('multi', 'Demo@2024'); } catch { /* ignore */ }
+      }
+      setIsAuthReady(true);
+      try { fetchStations(); } catch { /* ignore */ }
+      try { fetchAlerts(ALERT_STATUS.OPEN); } catch { /* ignore */ }
+    };
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch devices of all stations
   useEffect(() => {
     stations.forEach(s => fetchDevices(s.id));
   }, [stations, fetchDevices]);
 
+  useEffect(() => {
+    stationStatusRef.current = Object.fromEntries(
+      stations.map(s => [s.id, s.connectionStatus || 'unknown'])
+    );
+    stationNameRef.current = Object.fromEntries(
+      stations.map(s => [s.id, s.name])
+    );
+  }, [stations]);
 
+  // Fetch remote KPIs từ trạm con có apiUrl
+  useEffect(() => {
+    const stationsWithUrl = stations.filter(s => s.apiUrl);
+    if (stationsWithUrl.length === 0) return;
+    stationsWithUrl.forEach(s => {
+      stationApi.getRemoteKpi(s.id)
+        .then(kpi => setRemoteKpis(prev => ({ ...prev, [s.id]: kpi })))
+        .catch(() => {});
+    });
+  }, [stations]);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    const hub = createRealtimeHub();
+
+    const refreshRemoteKpi = (stationId: string, force = false) => {
+      const now = Date.now();
+      const last = kpiRefreshAtRef.current[stationId] || 0;
+      if (!force && now - last < 5000) return;
+      kpiRefreshAtRef.current[stationId] = now;
+
+      stationApi.getRemoteKpi(stationId)
+        .then(kpi => setRemoteKpis(prev => ({ ...prev, [stationId]: kpi })))
+        .catch(() => {});
+    };
+
+    hub.on('StationStatusChanged', (payload: any) => {
+      if (!payload?.stationId || !payload?.status) return;
+
+      const stationId = String(payload.stationId);
+      const nextStatus = String(payload.status);
+      const previousStatus = stationStatusRef.current[stationId];
+      stationStatusRef.current[stationId] = nextStatus;
+
+      useStationStore.setState(state => ({
+        stations: state.stations.map(station => station.id === stationId
+          ? { ...station, connectionStatus: nextStatus, lastSeenAt: payload.lastSeenAt || station.lastSeenAt }
+          : station)
+      }));
+
+      if ((previousStatus === 'online' || previousStatus === 'offline') && previousStatus !== nextStatus) {
+        const stationName = stationNameRef.current[stationId] || 'Trạm con';
+        if (nextStatus === 'offline') {
+          setRemoteKpis(prev => ({
+            ...prev,
+            [stationId]: {
+              ...(prev[stationId] || { devicesOnline: 0, devicesTotal: 0, alertsCount: 0 }),
+              devicesOnline: 0
+            }
+          }));
+          showToast(`${stationName} mất kết nối`, 'error');
+        } else if (nextStatus === 'online') {
+          showToast(`${stationName} kết nối lại`, 'success');
+          refreshRemoteKpi(stationId, true);
+        }
+      }
+    });
+
+    hub.on('StationDataReceived', (payload: any) => {
+      if (!payload?.stationId) return;
+
+      const stationId = String(payload.stationId);
+      stationStatusRef.current[stationId] = 'online';
+
+      useStationStore.setState(state => ({
+        stations: state.stations.map(station => station.id === stationId
+          ? { ...station, connectionStatus: 'online', lastSeenAt: payload.receivedAt || station.lastSeenAt }
+          : station)
+      }));
+
+      refreshRemoteKpi(stationId);
+    });
+
+    hub.start().catch(() => {});
+    return () => { hub.stop(); };
+  }, [isAuthReady]);
+
+
+
+  const normalizeUrl = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (!trimmed) return trimmed;
+    if (!/^https?:\/\//i.test(trimmed)) return `http://${trimmed}`;
+    return trimmed;
+  };
+
+  const resolveWebUrl = (apiUrl: string): string => {
+    let base = normalizeUrl((apiUrl || '').trim().replace(/\/$/, ''));
+    if (!base) return '';
+    try {
+      const urlObj = new URL(base);
+      if (urlObj.port === '5000') {
+        urlObj.port = '5173';
+      } else if (urlObj.port === '6000') {
+        urlObj.port = '6173';
+      }
+      if (typeof window !== 'undefined' && window.location) {
+        const hostname = window.location.hostname;
+        if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+          if (urlObj.hostname === 'localhost' || urlObj.hostname === '127.0.0.1') {
+            urlObj.hostname = hostname;
+          }
+        }
+      }
+      return urlObj.toString().replace(/\/$/, '');
+    } catch {
+      return base;
+    }
+  };
 
   const handleTestConnection = async () => {
     if (!newStationApiUrl.trim()) return;
+    const url = normalizeUrl(newStationApiUrl);
+    if (url !== newStationApiUrl) setNewStationApiUrl(url);
     setConnStatus('checking');
     setConnMs(null);
     try {
-      const res = await stationApi.testStationConnection(newStationApiUrl.trim());
+      const res = await stationApi.testStationConnection(url);
       setConnMs(res.responseMs);
       setConnStatus(res.reachable ? 'ok' : 'fail');
     } catch {
       setConnStatus('fail');
+    }
+  };
+
+  const handleGeocode = async () => {
+    if (!newStationAddress.trim()) return;
+    setGeoStatus('searching');
+    try {
+      const q = encodeURIComponent(newStationAddress.trim());
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=vn`, {
+        headers: { 'Accept-Language': 'vi', 'User-Agent': 'MasterStation/1.0' }
+      });
+      const data = await res.json();
+      if (data.length > 0) {
+        setNewStationLat(parseFloat(data[0].lat).toFixed(6));
+        setNewStationLng(parseFloat(data[0].lon).toFixed(6));
+        if (!newStationAddress.trim() || data[0].display_name) {
+          setNewStationAddress(data[0].display_name);
+        }
+        setGeoStatus('found');
+      } else {
+        setGeoStatus('notfound');
+      }
+    } catch {
+      setGeoStatus('notfound');
     }
   };
 
@@ -188,10 +418,6 @@ export default function MultisitePage() {
       alert('Vui lòng nhập URL API của trạm con');
       return;
     }
-    if (connStatus !== 'ok') {
-      alert('Vui lòng kiểm tra kết nối trước khi lưu');
-      return;
-    }
 
     setIsSaving(true);
     try {
@@ -200,14 +426,18 @@ export default function MultisitePage() {
         newStationName.trim(),
         newStationCode.trim(),
         JSON.stringify(locationObj),
-        newStationApiUrl.trim()
+        normalizeUrl(newStationApiUrl)
       );
 
       setNewStationName(''); setNewStationCode('');
       setNewStationLat(''); setNewStationLng('');
       setNewStationAddress(''); setNewStationApiUrl('');
-      setConnStatus('idle'); setConnMs(null);
+      setConnStatus('idle'); setConnMs(null); setGeoStatus('idle');
       setIsAddModalOpen(false);
+      setSelectedProvince(null);
+      setSelectedStationId(null);
+      overviewFittedRef.current = false;
+      setMapHostKey(k => k + 1);
 
       await fetchStations(true);
       alert('Đã thêm trạm mới thành công!');
@@ -246,31 +476,37 @@ export default function MultisitePage() {
   const views: StationView[] = useMemo(() => {
     const openAlerts = alertsByFilter[ALERT_STATUS.OPEN] ?? [];
     return stations.map(s => {
+      const remote = remoteKpis[s.id];
       const devices = devicesByStation[s.id] ?? [];
-      const onlineCount = devices.filter(d => d.status === DEVICE_STATUS.ONLINE).length;
-      
+      const onlineCount = s.connectionStatus === 'offline'
+        ? 0
+        : remote
+          ? remote.devicesOnline
+          : devices.filter(d => d.status === DEVICE_STATUS.ONLINE).length;
+      const totalCount  = remote ? remote.devicesTotal  : devices.length;
+
       const stationAlerts = openAlerts.filter(a => {
         if (!a.deviceId) return false;
         return devices.some(d => d.id === a.deviceId);
       });
-
-      const warningsCount = stationAlerts.filter(a => a.level === 'warning').length;
-      const alarmsCount = stationAlerts.filter(a => a.level === 'alarm' || a.level === 'danger').length;
+      const alertsCount   = remote ? remote.alertsCount : stationAlerts.length;
+      const warningsCount = remote ? 0 : stationAlerts.filter(a => a.level === 'warning').length;
+      const alarmsCount   = remote ? alertsCount : stationAlerts.filter(a => a.level === 'alarm' || a.level === 'danger').length;
 
       return {
         station: s,
         location: parseLocation(s.location),
         kpi: {
-          alerts: stationAlerts.length,
+          alerts: alertsCount,
           devicesOnline: onlineCount,
-          devicesTotal: devices.length,
+          devicesTotal: totalCount,
           warningsCount,
           alarmsCount
         },
         alertsList: stationAlerts
       };
     });
-  }, [stations, alertsByFilter, devicesByStation]);
+  }, [stations, alertsByFilter, devicesByStation, remoteKpis]);
 
   const alertsByStation = useMemo(() => {
     const result: Record<string, number> = {};
@@ -287,6 +523,72 @@ export default function MultisitePage() {
     });
   }, [views, statusFilter]);
 
+  const groupedViewsByProvince = useMemo(() => {
+    const grouped = new Map<string, StationView[]>();
+
+    filteredViews.forEach(view => {
+      const province = extractProvinceName(view.location);
+      const existing = grouped.get(province) || [];
+      existing.push(view);
+      grouped.set(province, existing);
+    });
+
+    return [...grouped.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'vi'))
+      .map(([province, provinceViews]) => ({
+        province,
+        views: provinceViews.sort((a, b) => a.station.name.localeCompare(b.station.name, 'vi'))
+      }));
+  }, [filteredViews]);
+
+  const visibleProvinceGroups = useMemo(() => {
+    if (!selectedProvince) return groupedViewsByProvince;
+    return groupedViewsByProvince.filter(group => group.province === selectedProvince);
+  }, [groupedViewsByProvince, selectedProvince]);
+
+  useEffect(() => {
+    if (!selectedProvince) return;
+    if (!groupedViewsByProvince.some(group => group.province === selectedProvince)) {
+      setSelectedProvince(null);
+    }
+  }, [groupedViewsByProvince, selectedProvince]);
+
+  const provinceMarkerGroups = useMemo(() => {
+    return groupedViewsByProvince
+      .map(group => {
+        const locatedViews = group.views.filter(v => v.location.lat != null && v.location.lng != null);
+        if (locatedViews.length === 0) return null;
+
+        const lat = locatedViews.reduce((sum, view) => sum + (view.location.lat || 0), 0) / locatedViews.length;
+        const lng = locatedViews.reduce((sum, view) => sum + (view.location.lng || 0), 0) / locatedViews.length;
+        const alerts = group.views.reduce((sum, view) => sum + view.kpi.alerts, 0);
+        const totalStations = group.views.length;
+        const onlineStations = group.views.filter(view => view.station.connectionStatus === 'online').length;
+
+        return {
+          province: group.province,
+          lat,
+          lng,
+          alerts,
+          totalStations,
+          onlineStations,
+        };
+      })
+      .filter(Boolean) as Array<{
+        province: string;
+        lat: number;
+        lng: number;
+        alerts: number;
+        totalStations: number;
+        onlineStations: number;
+      }>;
+  }, [groupedViewsByProvince]);
+
+  const provinceStationViews = useMemo(() => {
+    if (!selectedProvince) return [];
+    return views.filter(view => extractProvinceName(view.location) === selectedProvince);
+  }, [views, selectedProvince]);
+
   // Alias tương thích cho các đoạn JSX/refresh cũ còn tham chiếu tên trước đó.
   const filteredStationStats = filteredViews;
 
@@ -295,12 +597,12 @@ export default function MultisitePage() {
     return views.find(v => v.station.id === selectedStationId) || null;
   }, [views, selectedStationId]);
 
-  // Auto-select single station if there is only one
+  // Auto-select single station chỉ ở tab overview
   useEffect(() => {
-    if (views.length === 1 && views[0] && !selectedStationId) {
+    if (activeTab === 'overview' && views.length === 1 && views[0] && !selectedStationId) {
       setSelectedStationId(views[0].station.id);
     }
-  }, [views, selectedStationId]);
+  }, [views, selectedStationId, activeTab]);
 
   // Reset devices sub-tab when leaving devices tab
   useEffect(() => {
@@ -430,7 +732,7 @@ export default function MultisitePage() {
     return () => clearTimeout(timer);
   }, [showLeftPanel, showRightPanel]);
 
-  // Render station markers on map when views data updates
+  // Render province markers or station markers depending on selection
   useEffect(() => {
     const L = (window as any).L;
     const map = leafletMap.current;
@@ -439,45 +741,66 @@ export default function MultisitePage() {
     const bounds: [number, number][] = [];
     const newMarkerMap: Record<string, any> = {};
 
-    views.forEach(v => {
-      const lat = v.location.lat;
-      const lng = v.location.lng;
-      if (lat == null || lng == null) return;
+    if (selectedProvince) {
+      provinceStationViews.forEach(view => {
+        const lat = view.location.lat;
+        const lng = view.location.lng;
+        if (lat == null || lng == null) return;
 
-      const isWarning = v.kpi.alerts > 0;
-      
-      // Professional Power Station / Facility SVG Icon
-      const svgIcon = `
-        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="css-i6dzq1">
-          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-        </svg>
-      `;
-
-      const icon = L.divIcon({
-        className: 'custom-gis-marker',
-        html: `
-          <div class="marker-icon-wrapper ${isWarning ? 'pulse-red' : 'pulse-green'}">
-            ${svgIcon}
-          </div>
-          <div class="marker-label-v3">${v.station.name}</div>
-        `,
-        iconSize: [28, 28],
-        iconAnchor: [14, 14],
-      });
-
-      const marker = L.marker([lat, lng], { icon }).addTo(map);
-      bounds.push([lat, lng]);
-      newMarkerMap[v.station.id] = marker;
-
-      // Click on marker will select station on Right Panel
-      marker.on('click', () => {
-        window.requestAnimationFrame(() => {
-          setSelectedStationId(v.station.id);
+        const isWarning = view.kpi.alerts > 0;
+        const isActive = selectedStationId === view.station.id;
+        const icon = L.divIcon({
+          className: 'custom-gis-marker',
+          html: `
+            <div class="marker-icon-wrapper ${isWarning ? 'pulse-red' : 'pulse-green'} ${isActive ? 'active-marker' : ''}">
+              ${STATION_TOWER_ICON}
+            </div>
+            <div class="marker-label-v3">${view.station.name}</div>
+          `,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
         });
-      });
 
-      markers.push(marker);
-    });
+        const marker = L.marker([lat, lng], { icon }).addTo(map);
+        bounds.push([lat, lng]);
+        newMarkerMap[view.station.id] = marker;
+        marker.on('click', () => {
+          window.requestAnimationFrame(() => {
+            setSelectedStationId(view.station.id);
+            setShowRightPanel(true);
+          });
+        });
+        markers.push(marker);
+      });
+    } else {
+      provinceMarkerGroups.forEach(group => {
+        const isWarning = group.alerts > 0;
+        const isActive = selectedProvince === group.province;
+        const icon = L.divIcon({
+          className: 'custom-gis-marker',
+          html: `
+            <div class="marker-icon-wrapper ${isWarning ? 'pulse-red' : 'pulse-green'} ${isActive ? 'active-marker' : ''}">
+              ${PROVINCE_CHIP_ICON}
+            </div>
+            <div class="marker-label-v3">${group.province} · ${group.totalStations} trạm</div>
+          `,
+          iconSize: [36, 36],
+          iconAnchor: [18, 18],
+        });
+
+        const marker = L.marker([group.lat, group.lng], { icon }).addTo(map);
+        bounds.push([group.lat, group.lng]);
+        newMarkerMap[group.province] = marker;
+        marker.on('click', () => {
+          window.requestAnimationFrame(() => {
+            setSelectedProvince(group.province);
+            setSelectedStationId(null);
+            setShowLeftPanel(true);
+          });
+        });
+        markers.push(marker);
+      });
+    }
 
     markerMapRef.current = newMarkerMap;
 
@@ -500,11 +823,21 @@ export default function MultisitePage() {
       });
       markerMapRef.current = {};
     };
-  }, [views, activeTab, mapReadyTick]);
+  }, [provinceMarkerGroups, provinceStationViews, activeTab, mapReadyTick, selectedProvince, selectedStationId]);
+
+  if (!isAuthReady) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: '#1a1c1e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.1em', fontFamily: 'monospace' }}>
+          MASTERSTATION ĐANG KẾT NỐI...
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="multisite-page" style={{ 
-      position: 'relative', width: '100%', height: '100%', overflow: 'hidden'
+    <div className="multisite-page" style={{
+      position: 'fixed', inset: 0, overflow: 'hidden'
     }}>
       {/* Dynamic style tag for CSS extensions */}
       <style>{`
@@ -528,9 +861,10 @@ export default function MultisitePage() {
           transition: all 0.3s ease;
         }
         .marker-icon-wrapper.active-marker {
-          background: var(--admin-accent) !important;
-          border: 2px solid #fff !important;
-          box-shadow: 0 0 10px rgba(0,0,0,0.5);
+          background: rgba(14, 165, 233, 0.18) !important;
+          border: 2px solid rgba(125, 211, 252, 0.95) !important;
+          color: #e0f2fe !important;
+          box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18), 0 0 14px rgba(14, 165, 233, 0.45);
           z-index: 10;
         }
         .marker-icon-wrapper svg {
@@ -637,6 +971,37 @@ export default function MultisitePage() {
         <div key={mapHostKey} ref={mapRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }} />
       )}
 
+      {activeTab === 'overview' && selectedProvince && (
+        <button
+          onClick={() => {
+            setSelectedProvince(null);
+            setSelectedStationId(null);
+          }}
+          className="btn-industrial"
+          style={{
+            position: 'absolute',
+            top: 78,
+            left: selectedView && showRightPanel ? 214 : 14,
+            zIndex: 1008,
+            width: 32,
+            height: 32,
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: '4px',
+            border: '1px solid var(--admin-accent)',
+            background: 'rgba(245, 158, 11, 0.15)',
+            color: 'var(--admin-accent)',
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>←</span>
+        </button>
+      )}
+
       {/* TOP FLOATING HEADER HUD */}
       <div className="multisite-hud-panel multisite-hud-row" style={{
         position: 'absolute', top: 0, left: 0, height: 40,
@@ -653,32 +1018,6 @@ export default function MultisitePage() {
             style={{ width: 28, height: 28, flexShrink: 0 }}
           />
 
-          {showEmbeddedBackButton && (
-            <button
-              onClick={() => setSelectedStationId(null)}
-              style={{
-                height: 28,
-                padding: '0 10px',
-                flexShrink: 0,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                border: '1px solid var(--admin-border)',
-                background: 'linear-gradient(180deg, rgba(15,23,42,0.92), rgba(15,23,42,0.72))',
-                color: 'var(--admin-accent)',
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                cursor: 'pointer',
-                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-              }}
-            >
-              <span style={{ fontSize: '0.8rem', lineHeight: 1 }}>←</span>
-              <span>Trở về</span>
-            </button>
-          )}
-          
           <span style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--admin-accent)', letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
             {selectedView ? selectedView.station.name : MULTISITE_TAB_TITLES[activeTab]}
           </span>
@@ -713,7 +1052,7 @@ export default function MultisitePage() {
                 borderColor: activeTab === 'overview' ? 'var(--admin-accent)' : 'transparent'
               }}
             >
-              <Map size={11} />
+              <MapIcon size={11} />
               Bản đồ
             </button>
             <button
@@ -863,7 +1202,7 @@ export default function MultisitePage() {
           gap: 24
         }}>
            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Map size={12} style={{ color: 'var(--admin-text-muted)' }} />
+              <MapIcon size={12} style={{ color: 'var(--admin-text-muted)' }} />
               <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>TỔNG SỐ TRẠM:</span>
               <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-text)' }}>{globalStats.totalStations}</span>
            </div>
@@ -943,24 +1282,15 @@ export default function MultisitePage() {
       )}
 
       {activeTab === 'truc_tiep' && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 74,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 2,
-            overflow: 'auto',
-            background: 'var(--admin-bg, #0b1220)',
-            padding: 0
-          }}
-        >
+        <div style={{ position: 'absolute', top: 74, left: 0, right: 0, bottom: 0, zIndex: 2, overflow: 'hidden' }}>
           <Suspense fallback={null}>
-            <RealtimeMonitorPage
-              embeddedMode="central"
-              stationIdOverride={selectedStationId}
-              onStationIdChange={setSelectedStationId}
+            <LiveStationPicker
+              views={views}
+              onOpenStation={station => {
+                const base = resolveWebUrl(station.apiUrl || '');
+                if (!base) return;
+                window.open(`${base}/login?embed=1&u=admin&p=Admin%40123&next=/realtime`, '_blank');
+              }}
             />
           </Suspense>
         </div>
@@ -1134,59 +1464,193 @@ export default function MultisitePage() {
               </div>
 
               <div className="custom-hud-scroll" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                {filteredViews.length === 0 ? (
+                {visibleProvinceGroups.length === 0 ? (
                   <div style={{ padding: 12, textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '0.65rem' }}>
                     Trống
                   </div>
                 ) : (
-                  filteredViews.map(v => {
-                    const isWarning = v.kpi.alerts > 0;
-                    const isActive = selectedStationId === v.station.id;
+                  selectedProvince ? (
+                    visibleProvinceGroups.map(group => (
+                      <div key={group.province} style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div
+                          style={{
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 1,
+                            padding: '6px 8px 5px',
+                            background: 'var(--admin-panel)',
+                            borderTop: '1px solid var(--admin-border-light)',
+                            borderBottom: '1px solid var(--admin-border-light)',
+                            fontSize: '0.62rem',
+                            fontWeight: 900,
+                            color: 'var(--admin-accent)',
+                            letterSpacing: '0.08em',
+                            textTransform: 'uppercase'
+                          }}
+                        >
+                          {group.province}
+                          <span style={{ marginLeft: 6, color: 'var(--admin-text-muted)', fontWeight: 700 }}>
+                            {group.views.length} trạm
+                          </span>
+                        </div>
 
-                    return (
-                      <div
-                        key={v.station.id}
-                        className={`station-item-card ${isActive ? 'active-card' : ''}`}
-                        onClick={() => setSelectedStationId(v.station.id)}
-                        style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 1 }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                            <span style={{
-                              fontSize: '0.68rem', fontWeight: 800, color: 'var(--admin-text)',
-                              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2,
-                              fontFamily: 'monospace'
-                            }}>
-                              {v.station.code || v.station.id.slice(0, 8).toUpperCase()}
+                        {group.views.map(v => {
+                          const isWarning = v.kpi.alerts > 0;
+                          const isActive = selectedStationId === v.station.id;
+                          const isOnline = v.station.connectionStatus === 'online';
+
+                          return (
+                            <div
+                              key={v.station.id}
+                              className={`station-item-card ${isActive ? 'active-card' : ''}`}
+                              onClick={() => { setSelectedStationId(v.station.id); setShowRightPanel(true); }}
+                              style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 1 }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                                    <span
+                                      style={{ width: 16, height: 16, display: 'inline-flex', color: 'var(--admin-accent)', flexShrink: 0 }}
+                                      dangerouslySetInnerHTML={{ __html: STATION_TOWER_ICON }}
+                                    />
+                                    <span style={{
+                                      fontSize: '0.68rem', fontWeight: 800, color: 'var(--admin-text)',
+                                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2,
+                                      fontFamily: 'monospace'
+                                    }}>
+                                      {v.station.code || v.station.id.slice(0, 8).toUpperCase()}
+                                    </span>
+                                  </div>
+                                  <span style={{
+                                    fontSize: '0.58rem',
+                                    color: 'var(--admin-text-muted)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    paddingLeft: 22
+                                  }}>
+                                    {v.station.name}
+                                  </span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <span
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: '50%',
+                                      background: isOnline ? 'var(--admin-success)' : 'var(--admin-danger)',
+                                      boxShadow: isOnline ? '0 0 6px var(--admin-success)' : '0 0 6px var(--admin-danger)'
+                                    }}
+                                    title={isOnline ? 'Online' : 'Offline'}
+                                  />
+                                  <span style={{ fontSize: '0.6rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
+                                    {v.kpi.devicesOnline}/{v.kpi.devicesTotal}
+                                  </span>
+                                  {isWarning ? (
+                                    <span style={{
+                                      fontSize: 8, background: 'rgba(239,68,68,0.15)', color: 'var(--admin-danger)',
+                                      border: '1px solid rgba(239,68,68,0.3)', padding: '0px 3px', fontWeight: 900,
+                                      height: 12, display: 'flex', alignItems: 'center'
+                                    }}>
+                                      🔴{v.kpi.alerts}
+                                    </span>
+                                  ) : (
+                                    <span style={{
+                                      fontSize: 8, background: 'rgba(16,185,129,0.1)', color: 'var(--admin-success)',
+                                      border: '1px solid rgba(16,185,129,0.2)', padding: '0px 3px', fontWeight: 900,
+                                      height: 12, display: 'flex', alignItems: 'center'
+                                    }}>
+                                      🟢OK
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))
+                  ) : (
+                    visibleProvinceGroups.map(group => {
+                      const provinceAlerts = group.views.reduce((sum, view) => sum + view.kpi.alerts, 0);
+                      const totalDevices = group.views.reduce((sum, view) => sum + view.kpi.devicesTotal, 0);
+                      const onlineDevices = group.views.reduce((sum, view) => sum + view.kpi.devicesOnline, 0);
+                      const hasWarning = provinceAlerts > 0;
+
+                      return (
+                        <div
+                          key={group.province}
+                          className="station-item-card"
+                          onClick={() => {
+                            setSelectedProvince(group.province);
+                            setSelectedStationId(null);
+                            setShowLeftPanel(true);
+                          }}
+                          style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <span
+                                style={{ width: 16, height: 16, display: 'inline-flex', color: 'var(--admin-accent)', flexShrink: 0 }}
+                                dangerouslySetInnerHTML={{ __html: PROVINCE_CHIP_ICON }}
+                              />
+                              <span style={{
+                                fontSize: '0.66rem',
+                                fontWeight: 900,
+                                color: 'var(--admin-accent)',
+                                letterSpacing: '0.06em',
+                                textTransform: 'uppercase',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {group.province}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.56rem', color: 'var(--admin-text-muted)', fontWeight: 800, flexShrink: 0 }}>
+                              {group.views.length} TRẠM
                             </span>
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ fontSize: '0.6rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
-                              {v.kpi.devicesOnline}/{v.kpi.devicesTotal}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingLeft: 22 }}>
+                            <span style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
+                              {onlineDevices}/{totalDevices} online
                             </span>
-                            {isWarning ? (
+                            {hasWarning ? (
                               <span style={{
-                                fontSize: 8, background: 'rgba(239,68,68,0.15)', color: 'var(--admin-danger)',
-                                border: '1px solid rgba(239,68,68,0.3)', padding: '0px 3px', fontWeight: 900,
-                                height: 12, display: 'flex', alignItems: 'center'
+                                fontSize: 8,
+                                background: 'rgba(239,68,68,0.15)',
+                                color: 'var(--admin-danger)',
+                                border: '1px solid rgba(239,68,68,0.3)',
+                                padding: '0px 4px',
+                                fontWeight: 900,
+                                height: 12,
+                                display: 'flex',
+                                alignItems: 'center'
                               }}>
-                                🔴{v.kpi.alerts}
+                                🔴{provinceAlerts}
                               </span>
                             ) : (
                               <span style={{
-                                fontSize: 8, background: 'rgba(16,185,129,0.1)', color: 'var(--admin-success)',
-                                border: '1px solid rgba(16,185,129,0.2)', padding: '0px 3px', fontWeight: 900,
-                                height: 12, display: 'flex', alignItems: 'center'
+                                fontSize: 8,
+                                background: 'rgba(16,185,129,0.1)',
+                                color: 'var(--admin-success)',
+                                border: '1px solid rgba(16,185,129,0.2)',
+                                padding: '0px 4px',
+                                fontWeight: 900,
+                                height: 12,
+                                display: 'flex',
+                                alignItems: 'center'
                               }}>
                                 🟢OK
                               </span>
                             )}
                           </div>
                         </div>
-                      </div>
-                    );
-                  })
+                      );
+                    })
+                  )
                 )}
               </div>
             </div>
@@ -1277,7 +1741,8 @@ export default function MultisitePage() {
                   {selectedView.station.apiUrl ? (
                     <button
                       onClick={() => {
-                        if (selectedView.station.apiUrl) window.location.href = selectedView.station.apiUrl;
+                        const base = resolveWebUrl(selectedView.station.apiUrl || '');
+                        window.open(`${base}/login?embed=1&u=admin&p=Admin%40123&next=/realtime`, '_blank');
                       }}
                       style={{
                         width: '100%', marginTop: 8, padding: '6px 0',
@@ -1300,6 +1765,18 @@ export default function MultisitePage() {
                   )}
 
                   <div className="custom-hud-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
+                    <div style={{ background: 'var(--admin-hover)', border: '1px solid var(--admin-border-light)', padding: 6 }}>
+                      <div style={{ fontSize: 8, color: 'var(--admin-text-muted)', fontWeight: 800 }}>KẾT NỐI TRẠM</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 900, color: selectedView.station.connectionStatus === 'online' ? 'var(--admin-success)' : 'var(--admin-danger)' }}>
+                          {selectedView.station.connectionStatus === 'online' ? 'ONLINE' : 'OFFLINE'}
+                        </span>
+                        <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)', textAlign: 'right' }}>
+                          {selectedView.station.lastSeenAt ? fmtDateTime(selectedView.station.lastSeenAt) : 'Chưa có dữ liệu'}
+                        </span>
+                      </div>
+                    </div>
+
                     <div style={{ background: 'var(--admin-hover)', border: '1px solid var(--admin-border-light)', padding: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <span style={{
                         fontSize: 11, fontWeight: 900,
@@ -1484,28 +1961,56 @@ export default function MultisitePage() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>ĐỊA CHỈ</label>
-                <input
-                  type="text"
-                  placeholder="Ví dụ: Ninh Kiều, Cần Thơ"
-                  value={newStationAddress}
-                  onChange={e => setNewStationAddress(e.target.value)}
-                  style={{
-                    background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
-                    padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none'
-                  }}
-                />
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                  ĐỊA CHỈ
+                  <span style={{ marginLeft: 6, fontWeight: 400, color: 'var(--admin-text-muted)', opacity: 0.7 }}>
+                    — nhập rồi bấm "Tìm tọa độ" để tự điền Lat/Lng
+                  </span>
+                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    placeholder="Ví dụ: Ninh Kiều, Cần Thơ"
+                    value={newStationAddress}
+                    onChange={e => { setNewStationAddress(e.target.value); setGeoStatus('idle'); }}
+                    onKeyDown={e => { if (e.key === 'Enter') handleGeocode(); }}
+                    style={{
+                      flex: 1, background: 'var(--admin-layer-2)',
+                      border: `1px solid ${geoStatus === 'found' ? 'var(--admin-success)' : geoStatus === 'notfound' ? 'var(--admin-danger)' : 'var(--admin-border)'}`,
+                      padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGeocode}
+                    disabled={geoStatus === 'searching' || !newStationAddress.trim()}
+                    className="btn-industrial"
+                    style={{ padding: '0 10px', fontSize: '0.68rem', whiteSpace: 'nowrap' }}
+                  >
+                    {geoStatus === 'searching' ? '...' : 'Tìm tọa độ'}
+                  </button>
+                </div>
+                {geoStatus === 'found' && (
+                  <span style={{ fontSize: '0.68rem', color: 'var(--admin-success)' }}>
+                    ● Tìm thấy — đã điền tọa độ tự động
+                  </span>
+                )}
+                {geoStatus === 'notfound' && (
+                  <span style={{ fontSize: '0.68rem', color: 'var(--admin-danger)' }}>
+                    ● Không tìm thấy địa chỉ này — thử từ khóa khác hoặc nhập tọa độ thủ công
+                  </span>
+                )}
               </div>
 
               {/* URL API trạm con */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
-                  URL API TRẠM CON *
+                  URL TRẠM CON *
                 </label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input
                     type="text"
-                    placeholder="http://192.168.1.100:6000"
+                    placeholder="192.168.10.102:5173  (http:// tự động thêm)"
                     value={newStationApiUrl}
                     onChange={e => { setNewStationApiUrl(e.target.value); setConnStatus('idle'); setConnMs(null); }}
                     style={{
@@ -1567,6 +2072,8 @@ export default function MultisitePage() {
           </div>
         </div>
       )}
+
+
 
       {/* Logout confirm */}
       {showLogoutConfirm && (

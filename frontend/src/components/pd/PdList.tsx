@@ -46,8 +46,8 @@ export const PdList: React.FC<Props> = ({ regions, activeId, onSelect, onEdit, o
                 Ngưỡng: {r.warningThreshold ?? 20} / {r.alarmThreshold ?? 45} dB
               </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-                <button className="btn-industrial btn-sm" style={{ height: 24, padding: '0 8px', fontSize: '.65rem' }} onClick={e => { e.stopPropagation(); onEdit(r); }}>Sửa</button>
-                <button className="btn-industrial btn-sm btn-danger" style={{ height: 24, padding: '0 8px', fontSize: '.65rem' }} onClick={e => { e.stopPropagation(); onDelete(r.id); }}>Xóa</button>
+                <button className="btn-industrial btn-sm" onClick={e => { e.stopPropagation(); onEdit(r); }}>Sửa</button>
+                <button className="btn-industrial btn-sm btn-danger" onClick={e => { e.stopPropagation(); onDelete(r.id); }}>Xóa</button>
               </div>
             </div>
           ))

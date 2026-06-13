@@ -31,6 +31,8 @@ export interface Station {
   createdAt?: string;
   /** URL API của trạm con, ví dụ: http://192.168.1.100:6000 */
   apiUrl?: string;
+  connectionStatus?: 'online' | 'offline' | 'unknown' | string;
+  lastSeenAt?: string;
 }
 
 /** Helper parse location JSON. */
@@ -132,6 +134,7 @@ export interface CameraDevice {
 // ── Dữ liệu Cảm biến ─────────────────────────────────────────
 
 export interface SensorPoint {
+  stationId?: string;
   deviceId: string;
   pointId: string;        // vd: nhiet_do_pha_1, phong_dien, P1..P10
   value: number;

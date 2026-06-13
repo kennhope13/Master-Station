@@ -31,6 +31,11 @@ export class StationService {
     return apiMutate('POST', '/stations/test-connection', { url });
   }
 
+  /** Lấy KPI thực từ trạm con. */
+  async getRemoteKpi(id: string): Promise<{ devicesOnline: number; devicesTotal: number; alertsCount: number; error?: string }> {
+    return apiFetch(`/stations/${id}/remote-kpi`);
+  }
+
   /** Xóa trạm. */
   async deleteStation(id: string): Promise<void> {
     return apiMutate<void>('DELETE', `/stations/${id}`);

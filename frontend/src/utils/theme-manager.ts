@@ -8,7 +8,7 @@ import { invalidateColorCache } from './theme-colors';
 export type Theme = 'dark' | 'light' | 'soft-light' | 'silver' | 'blue' | 'industrial' | 'hightech' | 'cyberpunk';
 
 const STORAGE_KEY = 'station-theme';
-const DEFAULT_THEME: Theme = 'light';
+const DEFAULT_THEME: Theme = 'industrial';
 const VALID_THEMES: Theme[] = ['dark', 'light', 'soft-light', 'silver', 'blue', 'industrial', 'hightech', 'cyberpunk'];
 
 // Đọc theme đã lưu từ localStorage.

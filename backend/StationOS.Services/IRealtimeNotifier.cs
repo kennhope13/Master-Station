@@ -14,4 +14,6 @@ public interface IRealtimeNotifier
     Task SendDeviceStatusAsync(Guid deviceId, string status);
     Task SendCameraEventAsync(object evt);
     Task SendMetadataAsync(Guid cameraId, long frameTs, object items);
+    Task SendStationStatusAsync(Guid stationId, string status, DateTime? lastSeenAt = null, string? reason = null);
+    Task SendStationDataReceivedAsync(Guid stationId, string stationName, int sensorCount, int alertCount, int eventCount, DateTime receivedAt);
 }

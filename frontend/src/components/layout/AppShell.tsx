@@ -243,13 +243,13 @@ export default function AppShell() {
       useSensorStore.setState(s => {
         const nextPoints = { ...s.pointsByStation };
         data.forEach(d => {
-          Object.keys(nextPoints).forEach(sid => {
+          const targetStationIds = d.stationId ? [d.stationId] : Object.keys(nextPoints);
+          targetStationIds.forEach(sid => {
             const list = [...(nextPoints[sid] || [])];
             const idx = list.findIndex(p => p.pointId === d.pointId && p.deviceId === d.deviceId);
             if (idx >= 0) {
               list[idx] = d;
             } else {
-              // Thêm sensor point mới nếu chưa có trong danh sách
               list.push(d);
             }
             nextPoints[sid] = list;

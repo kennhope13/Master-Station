@@ -55,4 +55,33 @@ public class SignalRNotifier : IRealtimeNotifier
     /// </summary>
     public Task SendMetadataAsync(Guid cameraId, long frameTs, object items)
         => _hub.Clients.All.SendAsync("CameraMetadata", new { cameraId, frameTs, items });
+
+    /// <summary>
+    /// Broadcast trạng thái kết nối của trạm con tới UI đa trạm.
+    /// Event: "StationStatusChanged"
+    /// </summary>
+    public Task SendStationStatusAsync(Guid stationId, string status, DateTime? lastSeenAt = null, string? reason = null)
+        => _hub.Clients.All.SendAsync("StationStatusChanged", new
+        {
+            stationId,
+            status,
+            lastSeenAt,
+            reason,
+            changedAt = DateTime.UtcNow
+        });
+
+    /// <summary>
+    /// Broadcast khi trạm con vừa đẩy thêm dữ liệu lên trạm tổng.
+    /// Event: "StationDataReceived"
+    /// </summary>
+    public Task SendStationDataReceivedAsync(Guid stationId, string stationName, int sensorCount, int alertCount, int eventCount, DateTime receivedAt)
+        => _hub.Clients.All.SendAsync("StationDataReceived", new
+        {
+            stationId,
+            stationName,
+            sensorCount,
+            alertCount,
+            eventCount,
+            receivedAt
+        });
 }

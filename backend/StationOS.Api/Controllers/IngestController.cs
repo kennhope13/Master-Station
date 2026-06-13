@@ -40,6 +40,12 @@ public class IngestController : ControllerBase
         return await _db.Stations.FirstOrDefaultAsync(s => s.Id == stationId && s.Status == "active");
     }
 
+    private async Task MarkStationOnlineAsync(Station station, string? reason = null)
+    {
+        var lastSeenAt = DateTime.UtcNow;
+        await _notifier.SendStationStatusAsync(station.Id, "online", lastSeenAt, reason);
+    }
+
     // ── POST /api/v1/ingest/alerts ───────────────────────────
     /// <summary>Trạm con đẩy danh sách alert lên trạm tổng để hiển thị tập trung.</summary>
     [HttpPost("alerts")]
@@ -70,6 +76,8 @@ public class IngestController : ControllerBase
         }
 
         await _db.SaveChangesAsync(ct);
+        await MarkStationOnlineAsync(station, "alerts_ingest");
+        await _notifier.SendStationDataReceivedAsync(station.Id, station.Name, 0, items.Count, 0, DateTime.UtcNow);
         if (saved > 0)
             await _notifier.SendAlertAsync(new { stationId = station.Id, count = saved, message = $"[{station.Name}] {saved} cảnh báo mới" });
 
@@ -85,8 +93,11 @@ public class IngestController : ControllerBase
         var station = await AuthenticateStationAsync();
         if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
 
+        var payload = new List<object>(items.Count);
         foreach (var dto in items)
         {
+            var time = dto.Time == default ? DateTime.UtcNow : dto.Time;
+            var qualityCode = dto.Quality == "good" ? 0 : dto.Quality == "bad" ? 1 : 2;
             _db.SensorReadings.Add(new SensorReading
             {
                 Id        = dto.Id == Guid.Empty ? Guid.NewGuid() : dto.Id,
@@ -95,12 +106,26 @@ public class IngestController : ControllerBase
                 PointId   = dto.PointId,
                 Value     = dto.Value,
                 Unit      = dto.Unit,
-                Quality   = (short)(dto.Quality == "good" ? 0 : dto.Quality == "bad" ? 1 : 2),
-                Time      = dto.Time == default ? DateTime.UtcNow : dto.Time,
+                Quality   = (short)qualityCode,
+                Time      = time,
+            });
+
+            payload.Add(new
+            {
+                stationId = station.Id,
+                deviceId = dto.DeviceId,
+                pointId = dto.PointId,
+                value = dto.Value,
+                unit = dto.Unit,
+                quality = qualityCode,
+                time
             });
         }
 
         await _db.SaveChangesAsync(ct);
+        await MarkStationOnlineAsync(station, "sensors_ingest");
+        await _notifier.SendSensorUpdateAsync(payload);
+        await _notifier.SendStationDataReceivedAsync(station.Id, station.Name, items.Count, 0, 0, DateTime.UtcNow);
         _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Count} sensor readings", station.Name, items.Count);
         return Ok(new { received = items.Count });
     }
@@ -134,6 +159,8 @@ public class IngestController : ControllerBase
         }
 
         await _db.SaveChangesAsync(ct);
+        await MarkStationOnlineAsync(station, "events_ingest");
+        await _notifier.SendStationDataReceivedAsync(station.Id, station.Name, 0, 0, items.Count, DateTime.UtcNow);
         _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Saved}/{Total} events", station.Name, saved, items.Count);
         return Ok(new { received = items.Count, saved });
     }

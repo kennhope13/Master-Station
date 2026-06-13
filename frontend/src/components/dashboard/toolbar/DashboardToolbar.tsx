@@ -61,18 +61,19 @@ export default function DashboardToolbar(props: DashboardToolbarProps) {
           <button 
             onClick={onToggleEditMode} 
             className={`btn-industrial btn-sm ${isEditMode ? 'btn-primary' : ''}`}
-            style={{ fontSize: '0.65rem', padding: '2px 8px', height: 24, position: 'relative' }}
+            style={{ fontSize: '0.65rem', padding: '0 12px', height: 26, position: 'relative', minWidth: 100 }}
           >
             {isEditMode ? 'XONG' : 'CHỈNH SƠ ĐỒ'}
             {!isEditMode && unpinnedCount > 0 && (
               <span style={{
-                position: 'absolute', top: -5, right: -5,
+                position: 'absolute', top: -6, right: -6,
                 background: 'var(--admin-danger)', color: '#fff',
                 fontSize: 9, fontWeight: 900,
-                width: 14, height: 14, borderRadius: 0,
+                width: 16, height: 16, borderRadius: '50%',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                boxShadow: '0 0 5px var(--admin-danger)',
-                animation: 'pulse 1.5s infinite'
+                boxShadow: '0 0 8px var(--admin-danger)',
+                animation: 'pulse 1.5s infinite',
+                border: '1.5px solid var(--admin-overlay)'
               }}>
                 {unpinnedCount}
               </span>
