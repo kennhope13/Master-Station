@@ -76,6 +76,38 @@ public class AnalyticsController : ControllerBase
             });
         }
 
+        // Nếu không có devices trong master DB, thử đọc health scores từ SensorReadings đã sync
+        if (result.Count == 0 && stationId.HasValue)
+        {
+            var since = DateTime.UtcNow.AddDays(-1);
+            var deviceIds = await _db.SensorReadings
+                .Where(r => r.StationId == stationId.Value && r.Time >= since)
+                .Select(r => r.DeviceId)
+                .Distinct()
+                .ToListAsync();
+
+            foreach (var devId in deviceIds)
+            {
+                var key     = $"health_{devId}";
+                var setting = await _db.SystemSettings
+                    .FirstOrDefaultAsync(s => s.StationId == stationId.Value && s.Key == key);
+
+                int score = 100; string risk = "good"; DateTime? ts = null;
+                if (setting is not null)
+                {
+                    try
+                    {
+                        var obj = JsonSerializer.Deserialize<JsonElement>(setting.Value);
+                        if (obj.TryGetProperty("score", out var s2)) score = s2.GetInt32();
+                        if (obj.TryGetProperty("risk",  out var r2)) risk  = r2.GetString() ?? "good";
+                        if (obj.TryGetProperty("ts",    out var t2) && t2.TryGetDateTime(out var dt)) ts = dt;
+                    }
+                    catch { }
+                }
+                result.Add(new { deviceId = devId, deviceName = $"Thiết bị {devId}", deviceType = "unknown", status = "online", score, risk, ts });
+            }
+        }
+
         return Ok(result);
     }
 

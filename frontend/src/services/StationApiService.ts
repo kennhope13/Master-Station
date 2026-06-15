@@ -49,7 +49,10 @@ class StationApiService {
   createStation = stationService.createStation.bind(stationService);
   deleteStation = stationService.deleteStation.bind(stationService);
   testStationConnection = stationService.testConnection.bind(stationService);
+  updateStation = stationService.updateStation.bind(stationService);
   getRemoteKpi = stationService.getRemoteKpi.bind(stationService);
+  getRemoteCameras = stationService.getRemoteCameras.bind(stationService);
+  getRemoteToken = stationService.getRemoteToken.bind(stationService);
 
   // ── Devices ───────────────────────────────────────────────
   getDevices = deviceService.getDevices.bind(deviceService);

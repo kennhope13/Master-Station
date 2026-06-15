@@ -168,31 +168,21 @@
 
 /* ── Nút đăng nhập ── */
 .login-btn {
-  width: 100%; margin-top: 12px;
-  padding: 12px;
-  background: linear-gradient(to bottom, #f59e0b, #d97706);
+  width: 100%; margin-top: 8px;
+  padding: 11px;
+  background: #f59e0b;
   border: none;
   color: #000;
   font-size: 11px; font-weight: 900;
-  text-transform: uppercase; letter-spacing: 2.5px;
-  cursor: pointer; border-radius: 2px;
+  text-transform: uppercase; letter-spacing: 2px;
+  cursor: pointer; border-radius: 0;
   font-family: inherit;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.15);
+  transition: background 0.15s, transform 0.1s;
 }
 
-.login-btn:hover:not(:disabled) {
-  background: #fbbf24;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.3);
-}
-
-.login-btn:active:not(:disabled) {
-  transform: translateY(0);
-  background: #d97706;
-}
-
-.login-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+.login-btn:hover:not(:disabled) { background: #d97706; transform: translateY(-1px); }
+.login-btn:active:not(:disabled) { transform: translateY(0); }
+.login-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 /* ── Footer ── */
 .login-footer {

@@ -282,7 +282,8 @@ public class PlcPollingWorker : BackgroundService
                     var fbCachedDict = _cache.GetOrCreate("LatestReadings", entry => new Dictionary<string, SensorReading>());
                     foreach (var r in fbReadings)
                     {
-                        fbCachedDict[r.PointId] = r;
+                        var cacheKey = $"{r.DeviceId}_{r.PointId}".ToLower();
+                        fbCachedDict[cacheKey] = r;
                     }
 
                     // TUYỆT ĐỐI KHÔNG lưu vào DB đo lường để giữ dữ liệu DB sạch 100% không bị lẫn lộn dữ liệu giả!

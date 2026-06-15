@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Activity, AlertTriangle, Radio, Thermometer, Zap,
   Search, MapPin, ChevronRight, ChevronDown, X,
-  Shield, Wifi, WifiOff, TrendingUp, Maximize2, Crosshair
+  Shield, Wifi, WifiOff, TrendingUp, Maximize2, Crosshair, Video, BarChart3,
+  RefreshCw, ShieldCheck, Loader2
 } from 'lucide-react';
 import Chart from 'chart.js/auto';
 import {
@@ -13,9 +14,11 @@ import {
   type HealthScore,
   type SensorPoint,
   type Station,
+  type CameraDevice,
 } from '@/services/StationApiService';
 import { useStationStore } from '@/store';
 import { MULTISITE_RETURN_TAB_KEY } from '@/utils/centralAccess';
+import { showToast } from '@/utils/toast';
 import './AnalyticsLayout.css';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -71,9 +74,9 @@ function getCabinetSummary(points: SensorPoint[], devices: Device[]) {
   const t2 = points.find(p => p.pointId === 'nhiet_do_pha_2' || p.pointId === 'temp_2')?.value ?? null;
   const t3 = points.find(p => p.pointId === 'nhiet_do_pha_3' || p.pointId === 'temp_3')?.value ?? null;
   const pdVal = points.find(p => p.pointId === 'phong_dien' || p.pointId === 'pd')?.value ?? null;
-  const cabinetDevices = devices.filter(d => d.type === 'cabinet');
-  const thermalCameras = devices.filter(d => d.type === 'camera_thermal');
-  const pdCameras = devices.filter(d => d.type === 'camera_pd');
+  const cabinetDevices = devices.filter(d => d.type === 'cabinet' || d.type === 'plc_s7');
+  const thermalCameras = devices.filter(d => d.type === 'camera_thermal' || d.type === 'camera_dual');
+  const pdCameras = devices.filter(d => d.type === 'camera_pd' || d.type === 'camera_dual');
   return { t1, t2, t3, pdVal, cabinetCount: cabinetDevices.length, thermalCameraCount: thermalCameras.length, pdCameraCount: pdCameras.length };
 }
 
@@ -90,7 +93,7 @@ function fmtDb(v: number | null): string {
 
 function KpiBadge({ label, value, icon, color }: { label: string; value: string | number; icon: React.ReactNode; color?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 14px', background: 'var(--admin-layer-2)', borderRadius: 6, border: '1px solid var(--admin-border)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 14px', background: 'var(--admin-layer-2)', borderRadius: 0, border: '1px solid var(--admin-border)' }}>
       <span style={{ color: color || 'var(--admin-accent)', display: 'flex', alignItems: 'center' }}>{icon}</span>
       <div>
         <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: 1 }}>{label}</div>
@@ -101,6 +104,351 @@ function KpiBadge({ label, value, icon, color }: { label: string; value: string 
 }
 
 // ── Station Card (Left Panel) ──────────────────────────────────
+
+function StationTrendChart({ color, data }: { color: string; data: { time: string; value: number }[] }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const chart = new Chart(ref.current, {
+      type: 'line',
+      data: {
+        labels: data.map(d => d.time),
+        datasets: [{
+          data: data.map(d => d.value),
+          borderColor: color,
+          backgroundColor: color + '11',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 0,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } }
+      }
+    });
+    return () => chart.destroy();
+  }, [color, data]);
+  return <canvas ref={ref} style={{ width: '100%', height: '100%' }} />;
+}
+
+function StationAnalysisOverlay({ snapshot, onClose, drillIntoStation, navigateToAnalytics }: { snapshot: StationAnalyticsSnapshot; onClose: () => void; drillIntoStation: (id: string) => void; navigateToAnalytics: (id: string, tab: string) => void; }) {
+  const [activeTab, setActiveTab] = useState<'overview' | 'thermal' | 'pd' | 'live' | 'alerts' | 'diagnostics'>('overview');
+  const [localAlerts, setLocalAlerts] = useState<AlertItem[]>([]);
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
+  const cabinetSummary = getCabinetSummary(snapshot.points, snapshot.devices);
+  
+  const loadStationAlerts = useCallback(async () => {
+    setLoadingAlerts(true);
+    try {
+      const res = await stationApi.getAlerts(snapshot.station.id, 'open', undefined, 20);
+      setLocalAlerts(res);
+    } catch (err) {
+      console.error('Failed to load station alerts', err);
+    } finally {
+      setLoadingAlerts(false);
+    }
+  }, [snapshot.station.id]);
+
+  useEffect(() => {
+    if (activeTab === 'alerts') loadStationAlerts();
+  }, [activeTab, loadStationAlerts]);
+
+  const handleAck = async (id: string) => {
+    try {
+      await stationApi.ackAlert(id, 'Xác nhận từ trạm tổng');
+      setLocalAlerts(prev => prev.filter(a => a.id !== id));
+      showToast('Đã xác nhận cảnh báo', 'success');
+    } catch (err) {
+      showToast('Lỗi khi xác nhận', 'error');
+    }
+  };
+
+  const mockHistory = useMemo(() => Array.from({ length: 20 }, (_, i) => ({
+    time: i.toString(),
+    value: 40 + Math.random() * 20
+  })), []);
+
+  const mockPdHistory = useMemo(() => Array.from({ length: 20 }, (_, i) => ({
+    time: i.toString(),
+    value: 5 + Math.random() * 15
+  })), []);
+
+  const selectedCamera = useMemo(() => {
+    return snapshot.devices.find(d => d.type.startsWith('camera')) as CameraDevice | undefined;
+  }, [snapshot.devices]);
+
+  return (
+      <div 
+      className="station-overlay-animate"
+      style={{
+        position: 'absolute', top: 16, left: 16, bottom: 16, width: 440,
+        background: 'var(--admin-panel)',
+        border: '1px solid var(--admin-accent)', borderRadius: 0,
+        zIndex: 1010, display: 'flex', flexDirection: 'column',
+        boxShadow: '4px 4px 0 rgba(0,0,0,0.5)', overflow: 'hidden'
+      }}
+    >
+      <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--admin-layer-2)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 10, height: 10, borderRadius: 0, background: snapshot.onlineDevices === snapshot.devices.length ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: `0 0 12px ${snapshot.onlineDevices === snapshot.devices.length ? 'var(--admin-success)' : 'var(--admin-danger)'}` }} />
+          <div>
+            <div style={{ fontSize: '.55rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: 2 }}>TRUNG TÂM ĐIỀU HÀNH</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', letterSpacing: '0.02em' }}>{snapshot.station.name}</div>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text-muted)', cursor: 'pointer', padding: 8, display: 'flex', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.color = '#fff'} onMouseLeave={e => e.currentTarget.style.color = 'var(--admin-text-muted)'}><X size={18} /></button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 2, padding: '0 12px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-bg)', overflowX: 'auto' }} className="custom-hud-scroll">
+        {[
+          { id: 'overview', label: 'TỔNG QUAN', icon: <Activity size={13} /> },
+          { id: 'live', label: 'TRỰC TIẾP', icon: <Video size={13} /> },
+          { id: 'alerts', label: `SỰ CỐ (${snapshot.openAlerts})`, icon: <AlertTriangle size={13} />, color: snapshot.openAlerts > 0 ? 'var(--admin-danger)' : undefined },
+          { id: 'thermal', label: 'NHIỆT ĐỘ', icon: <Thermometer size={13} /> },
+          { id: 'pd', label: 'PHÓNG ĐIỆN', icon: <Zap size={13} /> },
+          { id: 'diagnostics', label: 'CHẨN ĐOÁN', icon: <Shield size={13} /> },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id as any)}
+            style={{
+              background: 'transparent', border: 'none', color: activeTab === t.id ? (t.color || 'var(--admin-accent)') : 'var(--admin-text-muted)',
+              fontSize: '.62rem', fontWeight: 950, cursor: 'pointer', padding: '18px 14px',
+              borderBottom: activeTab === t.id ? `3px solid ${t.color || 'var(--admin-accent)'}` : '3px solid transparent',
+              textTransform: 'uppercase', letterSpacing: '0.1em', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s', flexShrink: 0
+            }}
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 24 }} className="custom-hud-scroll">
+        {activeTab === 'overview' && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 16 }}>
+                <div style={{ fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Chỉ số Sức khỏe</div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 950, color: getHealthClass(snapshot.avgHealth).color }}>{snapshot.avgHealth?.toFixed(0)}%</div>
+              </div>
+              <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 16 }}>
+                <div style={{ fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Thiết bị Trạm</div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 950, color: '#fff' }}>{snapshot.onlineDevices}<span style={{ fontSize: '.9rem', color: 'var(--admin-text-muted)', marginLeft: 4 }}>/ {snapshot.devices.length}</span></div>
+              </div>
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Biểu đồ Xu hướng (24h)</div>
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 6, height: 6, borderRadius: 0, background: 'var(--admin-accent)' }} /><span style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)' }}>Nhiệt</span></div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><div style={{ width: 6, height: 6, borderRadius: 0, background: '#f59e0b' }} /><span style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)' }}>PD</span></div>
+                </div>
+              </div>
+              <div style={{ height: 100, width: '100%', background: 'var(--admin-bg)', borderRadius: 0, overflow: 'hidden', border: '1px solid var(--admin-border)' }}>
+                <StationTrendChart color="var(--admin-accent)" data={mockHistory} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Thao tác Nhanh</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <button 
+                  onClick={() => drillIntoStation(snapshot.station.id)}
+                  style={{ padding: '12px', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid #3b82f644', borderRadius: 0, color: '#3b82f6', fontSize: '.65rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.25)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                >
+                  <Maximize2 size={14} /> SƠ ĐỒ SLD
+                </button>
+                <button 
+                  onClick={() => navigateToAnalytics(snapshot.station.id, 'alerts')}
+                  style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef444444', borderRadius: 0, color: '#ef4444', fontSize: '.65rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                >
+                  <AlertTriangle size={14} /> XỬ LÝ LỖI
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Trạng thái Hạ tầng</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                 {[
+                   { label: 'AI Engine', status: 'Online', color: 'var(--admin-success)' },
+                   { label: 'NVR Buffer', status: 'Running', color: 'var(--admin-success)' },
+                   { label: 'Gateway', status: 'Connected', color: 'var(--admin-success)' },
+                   { label: 'Database', status: 'Synced', color: 'var(--admin-success)' },
+                 ].map((s, i) => (
+                   <div key={i} style={{ padding: '8px 12px', background: 'var(--admin-layer-2)', borderRadius: 0, border: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                     <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>{s.label}</span>
+                     <span style={{ fontSize: '.55rem', color: s.color, fontWeight: 900, textTransform: 'uppercase' }}>{s.status}</span>
+                   </div>
+                 ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'live' && (
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ flex: 1, background: '#000', borderRadius: 0, overflow: 'hidden', border: '1px solid var(--admin-border)', position: 'relative', minHeight: 240, boxShadow: 'inset 0 0 40px rgba(0,0,0,0.8)' }}>
+              {selectedCamera ? (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: 'var(--admin-text-muted)', gap: 14 }}>
+                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '8px 16px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)', display: 'flex', justifyContent: 'space-between', zIndex: 1 }}>
+                      <span style={{ fontSize: '.65rem', fontWeight: 800, color: '#fff' }}>{selectedCamera.name}</span>
+                      <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>{selectedCamera.config.ip || '192.168.1.150'}</span>
+                   </div>
+                   <Video size={56} style={{ opacity: 0.2, color: 'var(--admin-accent)' }} />
+                   <div style={{ fontSize: '.65rem', fontWeight: 800, letterSpacing: '0.1em' }}>Hệ thống đang kết nối luồng RTSP...</div>
+                   <div style={{ position: 'absolute', bottom: 16, left: 16, display: 'flex', gap: 8 }}>
+                      <div style={{ padding: '4px 10px', background: 'rgba(0,0,0,0.6)', borderRadius: 0, fontSize: '.55rem', fontWeight: 900, color: 'var(--admin-success)', border: '1px solid var(--admin-success)' }}>25 FPS</div>
+                      <div style={{ padding: '4px 10px', background: 'rgba(0,0,0,0.6)', borderRadius: 0, fontSize: '.55rem', fontWeight: 900, color: 'var(--admin-accent)', border: '1px solid var(--admin-accent)' }}>4K ULTRA</div>
+                   </div>
+                   <div style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: '.6rem', fontWeight: 900, borderRadius: 0, boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)' }}>REC LIVE</div>
+                </div>
+              ) : (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--admin-text-muted)', fontSize: '.75rem' }}>
+                  Trạm hiện chưa cấu hình Camera IP
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <button style={{ padding: '12px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: '#fff', fontSize: '.7rem', fontWeight: 900, cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--admin-layer-2)'}>CHỤP ẢNH TỨC THÌ</button>
+              <button style={{ padding: '12px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: '#fff', fontSize: '.7rem', fontWeight: 900, cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--admin-layer-2)'}>GHI HÌNH SỰ KIỆN</button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'alerts' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+               <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Danh sách Sự cố</div>
+               <button onClick={loadStationAlerts} style={{ background: 'transparent', border: 'none', color: 'var(--admin-accent)', cursor: 'pointer' }}><RefreshCw size={14} /></button>
+            </div>
+            {loadingAlerts ? (
+              <div style={{ padding: 60, textAlign: 'center' }}><Activity size={28} className="pulse-slow" style={{ color: 'var(--admin-accent)' }} /></div>
+            ) : localAlerts.length === 0 ? (
+              <div style={{ padding: 60, textAlign: 'center', border: '1px dashed var(--admin-border)', borderRadius: 0}}>
+                 <ShieldCheck size={32} style={{ color: 'var(--admin-success)', opacity: 0.3, marginBottom: 12 }} />
+                 <div style={{ color: 'var(--admin-text-muted)', fontSize: '.7rem', fontWeight: 700 }}>Hệ thống vận hành an toàn</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {localAlerts.map(alert => (
+                  <div key={alert.id} style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 0, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-danger)', letterSpacing: '0.01em' }}>{alert.message}</div>
+                      <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: 0}}>{new Date(alert.triggeredAt).toLocaleTimeString()}</div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                         <div style={{ width: 6, height: 6, borderRadius: 0, background: alert.level === 'alarm' ? 'var(--admin-danger)' : '#f59e0b' }} />
+                         <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{alert.level === 'alarm' ? 'Critical' : 'Warning'}</span>
+                      </div>
+                      <button 
+                        onClick={() => handleAck(alert.id)}
+                        style={{ padding: '6px 14px', background: 'var(--admin-danger)', color: '#fff', border: 'none', borderRadius: 0, fontSize: '.65rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 2px 8px rgba(239,68,68,0.3)' }}
+                      >XÁC NHẬN</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'thermal' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: '.7rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Giám sát Nhiệt độ Tủ Điện</div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                   <div style={{ width: 12, height: 12, borderRadius: 0, background: 'var(--admin-success)' }} />
+                   <div style={{ width: 12, height: 12, borderRadius: 0, background: '#f59e0b' }} />
+                   <div style={{ width: 12, height: 12, borderRadius: 0, background: 'var(--admin-danger)' }} />
+                </div>
+             </div>
+            {[
+              { label: 'Cực Pha A - ACB 01', val: cabinetSummary.t1 },
+              { label: 'Cực Pha B - ACB 01', val: cabinetSummary.t2 },
+              { label: 'Cực Pha C - ACB 01', val: cabinetSummary.t3 },
+              { label: 'Thanh cái chính (Busbar)', val: 35.2 },
+            ].map((roi, i) => (
+              <div key={i} style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                   <div style={{ width: 4, height: 28, background: getThermalClass(roi.val).color, borderRadius: 0}} />
+                   <div>
+                    <div style={{ fontSize: '.75rem', fontWeight: 900, color: '#fff' }}>{roi.label}</div>
+                    <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>Trạng thái: {getThermalClass(roi.val).label}</div>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                   <div style={{ fontSize: '1.3rem', fontWeight: 950, color: getThermalClass(roi.val).color, lineHeight: 1 }}>{fmtTemp(roi.val)}</div>
+                   <div style={{ fontSize: '.5rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>Ngưỡng: 65°C</div>
+                </div>
+              </div>
+            ))}
+            <div style={{ height: 110, background: 'var(--admin-bg)', borderRadius: 0, overflow: 'hidden', border: '1px solid var(--admin-border)' }}>
+               <StationTrendChart color="var(--admin-danger)" data={mockHistory} />
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'pd' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 30, textAlign: 'center', position: 'relative', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, transparent, #f59e0b, #fff, #f59e0b, transparent)', opacity: 0.6 }} />
+              <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>Cường độ Phóng điện (PD)</div>
+              <div style={{ fontSize: '3.5rem', fontWeight: 950, color: '#f59e0b', textShadow: '0 0 25px rgba(245, 158, 11, 0.5)', lineHeight: 1 }}>{fmtDb(cabinetSummary.pdVal)}</div>
+              <div style={{ fontSize: '.7rem', color: '#f59e0b', fontWeight: 900, marginTop: 10, letterSpacing: '0.15em', background: 'rgba(245,158,11,0.1)', padding: '4px 12px', borderRadius: 0, display: 'inline-block' }}>HỆ THỐNG AN TOÀN</div>
+            </div>
+            <div>
+               <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.05em' }}>Lịch sử Phóng điện (dB)</div>
+               <div style={{ height: 140, background: 'var(--admin-bg)', borderRadius: 0, border: '1px solid var(--admin-border)', overflow: 'hidden' }}>
+                  <StationTrendChart color="#f59e0b" data={mockPdHistory} />
+               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'diagnostics' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+             <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Nhật ký Vận hành Hệ thống</div>
+             <div style={{ background: 'var(--admin-bg)', borderRadius: 0, border: '1px solid var(--admin-border)', padding: 12, fontFamily: 'monospace', fontSize: '.6rem', color: '#aaa', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:15:22]</span><span>AI Engine: Đã tải mô hình YOLOv8 thành công</span></div>
+                <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:15:25]</span><span>NVR: Bắt đầu ghi hình luồng Camera 153</span></div>
+                <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-warning)' }}>[10:18:01]</span><span>Network: Độ trễ Gateway tăng cao (45ms)</span></div>
+                <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:20:00]</span><span>Sync: Đã đồng bộ 120 bản ghi lên trạm tổng</span></div>
+                <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:22:15]</span><span>System: Kiểm tra định kỳ thiết bị - OK</span></div>
+             </div>
+             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Công cụ Chẩn đoán</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                   <button style={{ padding: '8px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 800, cursor: 'pointer' }}>PING GATEWAY</button>
+                   <button style={{ padding: '8px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 800, cursor: 'pointer' }}>RESTART AI SERVICE</button>
+                </div>
+             </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{ padding: 16, borderTop: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', display: 'flex', gap: 10 }}>
+         <button 
+           onClick={() => drillIntoStation(snapshot.station.id)}
+           style={{ flex: 1, padding: '12px', background: 'transparent', border: '1px solid var(--admin-accent)', color: 'var(--admin-accent)', borderRadius: 0, fontSize: '.7rem', fontWeight: 900, cursor: 'pointer', transition: 'all 0.2s', letterSpacing: '0.05em' }}
+           onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-accent)'; e.currentTarget.style.color = '#000'; }}
+           onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--admin-accent)'; }}
+         >
+           VẬN HÀNH CHI TIẾT (FULL VIEW)
+         </button>
+      </div>
+    </div>
+  );
+}
 
 function StationCard({ snapshot, selected, onClick }: { snapshot: StationAnalyticsSnapshot; selected: boolean; onClick: () => void }) {
   const health = getHealthClass(snapshot.avgHealth);
@@ -133,41 +481,47 @@ function StationCard({ snapshot, selected, onClick }: { snapshot: StationAnalyti
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {hasAlerts && (
-            <span style={{ background: 'var(--admin-danger)', color: '#fff', fontSize: '.55rem', fontWeight: 900, padding: '1px 7px', borderRadius: 10, letterSpacing: '0.03em' }}>
+            <span style={{ background: 'var(--admin-danger)', color: '#fff', fontSize: '.55rem', fontWeight: 900, padding: '1px 7px', borderRadius: 0, letterSpacing: '0.03em' }}>
               {snapshot.openAlerts}
             </span>
           )}
-          <div style={{ width: 7, height: 7, borderRadius: '50%', background: snapshot.onlineDevices === snapshot.devices.length && snapshot.devices.length > 0 ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: snapshot.onlineDevices === snapshot.devices.length && snapshot.devices.length > 0 ? '0 0 6px var(--admin-success)' : '0 0 6px var(--admin-danger)' }} />
+          <div style={{ width: 7, height: 7, borderRadius: 0, background: snapshot.onlineDevices === snapshot.devices.length && snapshot.devices.length > 0 ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: snapshot.onlineDevices === snapshot.devices.length && snapshot.devices.length > 0 ? '0 0 6px var(--admin-success)' : '0 0 6px var(--admin-danger)' }} />
         </div>
       </div>
 
       {/* Metrics row */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         {/* Health mini ring */}
-        <div style={{ position: 'relative', width: 32, height: 32, flexShrink: 0 }}>
-          <svg width="32" height="32" viewBox="0 0 36 36">
-            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--admin-layer-2)" strokeWidth="3" />
+        <div style={{ position: 'relative', width: 34, height: 34, flexShrink: 0 }}>
+          <svg width="34" height="34" viewBox="0 0 36 36">
+            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="3" />
             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke={health.color} strokeWidth="3" strokeDasharray={`${snapshot.avgHealth ?? 0}, 100`} strokeLinecap="round" />
           </svg>
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.5rem', fontWeight: 900, color: health.color }}>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.55rem', fontWeight: 900, color: health.color }}>
             {snapshot.avgHealth != null ? Math.round(snapshot.avgHealth) : '—'}
           </div>
         </div>
 
-        {/* Thermal & PD mini */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '.55rem' }}>
+        {/* Info Grid */}
+        <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <Thermometer size={10} style={{ color: thermal.color }} />
-            <span style={{ color: thermal.color, fontWeight: 800 }}>{snapshot.hottestPoint ? `${snapshot.hottestPoint.value.toFixed(0)}°C` : '—'}</span>
+            <span style={{ fontSize: '.6rem', fontWeight: 800, color: thermal.color }}>{snapshot.hottestPoint ? `${snapshot.hottestPoint.value.toFixed(0)}°C` : '—'}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <Zap size={10} style={{ color: snapshot.warningPdPoints > 0 ? '#f59e0b' : 'var(--admin-text-muted)' }} />
-            <span style={{ color: snapshot.warningPdPoints > 0 ? '#f59e0b' : 'var(--admin-text-muted)', fontWeight: 800 }}>{snapshot.warningPdPoints > 0 ? `${snapshot.warningPdPoints} PD` : 'Sạch'}</span>
+            <span style={{ fontSize: '.6rem', fontWeight: 800, color: snapshot.warningPdPoints > 0 ? '#f59e0b' : 'var(--admin-text-muted)' }}>
+              {snapshot.warningPdPoints > 0 ? `${snapshot.warningPdPoints} PD` : 'Safe'}
+            </span>
           </div>
-        </div>
-
-        <div style={{ marginLeft: 'auto', fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
-          {snapshot.onlineDevices}/{snapshot.devices.length}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Wifi size={10} style={{ color: 'var(--admin-success)' }} />
+            <span style={{ fontSize: '.55rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>{snapshot.onlineDevices}/{snapshot.devices.length}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Shield size={10} style={{ color: snapshot.openAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-accent)' }} />
+            <span style={{ fontSize: '.55rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>{snapshot.openAlerts} alerts</span>
+          </div>
         </div>
       </div>
     </div>
@@ -197,7 +551,7 @@ function HealthGauge({ score }: { score: number | null }) {
           data: [display, 100 - display],
           backgroundColor: [health.color, 'var(--admin-layer-2)'],
           borderWidth: 0,
-          borderRadius: display > 0 ? 4 : 0,
+          borderRadius: 0,
           circumference: 270,
           rotation: 225,
         }]
@@ -235,8 +589,8 @@ function ThermalBar({ value, label, color }: { value: number | null; label: stri
         <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{label}</span>
         <span style={{ fontSize: '.65rem', fontWeight: 900, color }}>{value != null ? `${value.toFixed(1)}°C` : 'N/A'}</span>
       </div>
-      <div style={{ height: 6, background: 'var(--admin-layer-2)', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3, transition: 'width 0.5s ease' }} />
+      <div style={{ height: 6, background: 'var(--admin-layer-2)', borderRadius: 0, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 0, transition: 'width 0.5s ease' }} />
       </div>
     </div>
   );
@@ -251,7 +605,7 @@ function AnalysisCard({ icon, title, children, onClick, accentColor }: {
   return (
     <div style={{
       background: 'var(--admin-layer-2)',
-      borderRadius: 6,
+      borderRadius: 0,
       border: '1px solid var(--admin-border)',
       borderLeft: accentColor ? `3px solid ${accentColor}` : undefined,
       overflow: 'hidden'
@@ -292,7 +646,7 @@ function CabinetMiniRow({ t1, t2, t3, pdVal }: { t1: number | null; t2: number |
             <div key={label} style={{
               textAlign: 'center',
               background: 'var(--admin-bg)',
-              borderRadius: 4,
+              borderRadius: 0,
               padding: '3px 6px',
               flex: 1
             }}>
@@ -326,7 +680,7 @@ export default function CentralAnalyticsLayout() {
   const [stations, setStations] = useState<StationAnalyticsSnapshot[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [showAnalysisOverlay, setShowAnalysisOverlay] = useState(false);
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
@@ -336,6 +690,7 @@ export default function CentralAnalyticsLayout() {
   const markerMapRef = useRef<Record<string, any>>({});
   const [leafletReady, setLeafletReady] = useState(false);
   const [mapFitTrigger, setMapFitTrigger] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // ── Data Loading ───────────────────────────────────────────
 
@@ -350,20 +705,49 @@ export default function CentralAnalyticsLayout() {
 
         const snapshots = await Promise.all(
           stationList.map(async (station) => {
-            const [devices, points, healthScores] = await Promise.all([
+            const isChild = !!station.apiUrl;
+
+            const [devices, points, healthScores, remoteKpi] = await Promise.all([
               stationApi.getDevices(station.id).catch(() => [] as Device[]),
               stationApi.getLatestPoints(station.id).catch(() => [] as SensorPoint[]),
               stationApi.getHealthScores(station.id).catch(() => [] as HealthScore[]),
+              isChild ? stationApi.getRemoteKpi(station.id).catch(() => null) : Promise.resolve(null),
             ]);
 
-            const healthValues = healthScores
+            // For child stations, use remote data when local master DB is empty
+            const useRemote = isChild && remoteKpi && !remoteKpi.error;
+
+            const effectivePoints: SensorPoint[] = (useRemote && points.length === 0 && remoteKpi!.points.length > 0)
+              ? remoteKpi!.points.map(p => ({
+                  deviceId: p.deviceId,
+                  pointId: p.pointId,
+                  value: p.value,
+                  unit: p.unit,
+                  quality: p.quality,
+                  time: p.time,
+                  stationId: station.id,
+                } as unknown as SensorPoint))
+              : points;
+
+            const effectiveHealthScores: HealthScore[] = (useRemote && healthScores.length === 0 && remoteKpi!.healthScores.length > 0)
+              ? remoteKpi!.healthScores.map(h => ({
+                  deviceId: h.deviceId,
+                  deviceName: h.deviceName,
+                  deviceType: h.deviceType,
+                  status: h.status,
+                  score: h.score,
+                  risk: h.risk,
+                } as unknown as HealthScore))
+              : healthScores;
+
+            const healthValues = effectiveHealthScores
               .map(item => item.score)
               .filter((value): value is number => Number.isFinite(value));
             const avgHealth = healthValues.length > 0
               ? healthValues.reduce((sum, value) => sum + value, 0) / healthValues.length
               : null;
 
-            const hottest = points
+            const hottest = effectivePoints
               .filter(isThermalPoint)
               .reduce<{ value: number; label: string } | null>((max, point) => {
                 if (typeof point.value !== 'number') return max;
@@ -372,13 +756,28 @@ export default function CentralAnalyticsLayout() {
               }, null);
 
             const stationAlerts = recentAlerts.filter(a => a.stationId === station.id && a.status !== 'closed');
-            const warningPdPoints = points.filter(p => isPdPoint(p) && typeof p.value === 'number' && p.value >= 20).length;
+            const warningPdPoints = effectivePoints.filter(p => isPdPoint(p) && typeof p.value === 'number' && p.value >= 20).length;
+
+            const effectiveDevices: Device[] = (useRemote && devices.length === 0)
+              ? Array.from({ length: remoteKpi!.devicesTotal }, (_, i) => ({
+                  id: `remote-${station.id}-${i}`,
+                  name: `Thiết bị ${i + 1}`,
+                  type: 'unknown',
+                  protocol: 'unknown',
+                  config: {},
+                  status: i < remoteKpi!.devicesOnline ? 'online' : 'offline',
+                  stationId: station.id,
+                  createdAt: '',
+                } as Device))
+              : devices;
+            const effectiveOnline = (useRemote && devices.length === 0) ? remoteKpi!.devicesOnline : devices.filter(d => d.status === 'online').length;
+            const effectiveAlerts = (useRemote && stationAlerts.length === 0) ? remoteKpi!.alertsCount : stationAlerts.length;
 
             return {
-              station, devices, points, healthScores,
+              station, devices: effectiveDevices, points: effectivePoints, healthScores: effectiveHealthScores,
               avgHealth,
-              onlineDevices: devices.filter(d => d.status === 'online').length,
-              openAlerts: stationAlerts.length,
+              onlineDevices: effectiveOnline,
+              openAlerts: effectiveAlerts,
               warningPdPoints,
               hottestPoint: hottest,
             };
@@ -520,7 +919,10 @@ export default function CentralAnalyticsLayout() {
           Alerts: <b style="color:${hasAlerts ? 'var(--admin-danger)' : 'inherit'}">${sn.openAlerts}</b>
         </div>
       `);
-      marker.on('click', () => setSelectedStationId(sn.station.id));
+      marker.on('click', () => {
+        setSelectedStationId(sn.station.id);
+        setShowAnalysisOverlay(true);
+      });
 
       markerMapRef.current[sn.station.id] = marker;
       bounds.push([loc.lat, loc.lng]);
@@ -591,70 +993,86 @@ export default function CentralAnalyticsLayout() {
       {/* ── Top Header Bar ─────────────────────────────────── */}
       <div className="central-analytics-header" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '6px 18px',
+        padding: '0 20px',
         background: 'var(--admin-panel)',
         borderBottom: '1px solid var(--admin-border)',
-        minHeight: 44,
-        gap: 12,
-        flexWrap: 'wrap'
+        height: 48,
+        gap: 20,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Crosshair size={18} style={{ color: 'var(--admin-accent)' }} />
-          <h2 style={{ margin: 0, fontSize: '.78rem', fontWeight: 900, color: 'var(--admin-text)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            TRUNG TÂM ĐIỀU HÀNH PHÂN TÍCH
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Crosshair size={20} style={{ color: 'var(--admin-accent)' }} />
+          <h2 style={{ margin: 0, fontSize: '.85rem', fontWeight: 950, color: 'var(--admin-text)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+            PHÂN TÍCH ĐA TRẠM
           </h2>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <KpiBadge label="Trạm" value={fleetSummary.totalStations} icon={<Radio size={14} />} color="var(--admin-accent)" />
-          <KpiBadge label="Health TB" value={fleetSummary.avgHealth != null ? `${fleetSummary.avgHealth.toFixed(0)}%` : '—'} icon={<Activity size={14} />} color={getHealthClass(fleetSummary.avgHealth).color} />
-          <KpiBadge label="Cảnh báo" value={fleetSummary.totalAlerts} icon={<AlertTriangle size={14} />} color={fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)'} />
-          <KpiBadge label="Hotspot" value={fleetSummary.hottest ? `${fleetSummary.hottest.value.toFixed(0)}°C` : '—'} icon={<Thermometer size={14} />} color="var(--admin-danger)" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Tổng trạm:</span>
+              <span style={{ fontSize: '.9rem', fontWeight: 900, color: 'var(--admin-accent)' }}>{fleetSummary.totalStations}</span>
+            </div>
+            <div style={{ width: 1, height: 16, background: 'var(--admin-border)', alignSelf: 'center' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Cảnh báo:</span>
+              <span style={{ fontSize: '.9rem', fontWeight: 900, color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }}>{fleetSummary.totalAlerts}</span>
+            </div>
+            <div style={{ width: 1, height: 16, background: 'var(--admin-border)', alignSelf: 'center' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Thiết bị Online:</span>
+              <span style={{ fontSize: '.9rem', fontWeight: 900, color: 'var(--admin-text)' }}>{fleetSummary.totalOnline}/{fleetSummary.totalDevices}</span>
+            </div>
+          </div>
+          <div style={{ width: 1, height: 32, background: 'var(--admin-border)' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+             <Activity size={18} className="pulse-slow" style={{ color: 'var(--admin-success)' }} />
+             <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-success)', letterSpacing: '0.05em' }}>HỆ THỐNG ĐANG GIÁM SÁT</span>
+          </div>
         </div>
       </div>
 
-      {/* ── Main Content: 3 Panels ────────────────────────── */}
+      {/* ── Main Content: Left Panel + Map ───────────────── */}
       <div className="central-analytics-main" style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         {/* ── Left Panel: Station List ────────────────────── */}
         <div className="central-analytics-left" style={{
-          width: leftPanelCollapsed ? 0 : 260,
-          minWidth: leftPanelCollapsed ? 0 : 260,
+          width: leftPanelCollapsed ? 0 : 280,
+          minWidth: leftPanelCollapsed ? 0 : 280,
           display: 'flex',
           flexDirection: 'column',
           background: 'var(--admin-panel)',
           borderRight: leftPanelCollapsed ? 'none' : '1px solid var(--admin-border)',
           overflow: 'hidden',
-          transition: 'width 0.3s ease, min-width 0.3s ease'
+          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          zIndex: 10
         }}>
           {!leftPanelCollapsed && (
             <>
               {/* Search */}
-              <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--admin-border)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-layer-2)', borderRadius: 4, padding: '2px 10px', border: '1px solid var(--admin-border)' }}>
-                  <Search size={12} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} />
+              <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-bg)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--admin-layer-2)', borderRadius: 0, padding: '4px 12px', border: '1px solid var(--admin-border)' }}>
+                  <Search size={14} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} />
                   <input
-                    placeholder="Tìm trạm..."
+                    placeholder="TÌM KIẾM TRẠM..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     style={{
                       flex: 1, border: 'none', background: 'transparent', color: 'var(--admin-text)',
-                      fontSize: '.65rem', fontWeight: 700, outline: 'none', padding: '4px 0'
+                      fontSize: '.7rem', fontWeight: 800, outline: 'none', padding: '6px 0', textTransform: 'uppercase'
                     }}
                   />
-                  {searchQuery && <X size={12} style={{ color: 'var(--admin-text-muted)', cursor: 'pointer', flexShrink: 0 }} onClick={() => setSearchQuery('')} />}
                 </div>
               </div>
 
               {/* Station list */}
-              <div style={{ flex: 1, overflowY: 'auto' }}>
+              <div style={{ flex: 1, overflowY: 'auto' }} className="custom-hud-scroll">
                 {loading ? (
-                  <div style={{ padding: 30, textAlign: 'center' }}>
-                    <Activity size={24} className="pulse-slow" style={{ color: 'var(--admin-accent)' }} />
-                    <div style={{ marginTop: 10, fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>Đang tải...</div>
+                  <div style={{ padding: 40, textAlign: 'center' }}>
+                    <Activity size={32} className="pulse-slow" style={{ color: 'var(--admin-accent)' }} />
+                    <div style={{ marginTop: 14, fontSize: '.7rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.1em' }}>ĐANG TẢI DỮ LIỆU...</div>
                   </div>
                 ) : filteredStations.length === 0 ? (
-                  <div style={{ padding: 30, textAlign: 'center', fontSize: '.65rem', color: 'var(--admin-text-muted)' }}>
-                    {searchQuery ? 'Không tìm thấy trạm' : 'Chưa có trạm nào'}
+                  <div style={{ padding: 40, textAlign: 'center', fontSize: '.7rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
+                    {searchQuery ? 'KHÔNG TÌM THẤY TRẠM' : 'CHƯA CÓ TRẠM NÀO'}
                   </div>
                 ) : (
                   filteredStations.map(sn => (
@@ -662,7 +1080,15 @@ export default function CentralAnalyticsLayout() {
                       key={sn.station.id}
                       snapshot={sn}
                       selected={sn.station.id === selectedStationId}
-                      onClick={() => setSelectedStationId(sn.station.id === selectedStationId ? null : sn.station.id)}
+                      onClick={() => {
+                        setSelectedStationId(sn.station.id);
+                        setShowAnalysisOverlay(true);
+                        // Fit map to station
+                        const loc = parseLocation(sn.station.location);
+                        if (loc.lat && loc.lng && leafletMap.current) {
+                          leafletMap.current.setView([loc.lat, loc.lng], 14, { animate: true });
+                        }
+                      }}
                     />
                   ))
                 )}
@@ -675,297 +1101,92 @@ export default function CentralAnalyticsLayout() {
         <button
           onClick={() => setLeftPanelCollapsed(v => !v)}
           style={{
-            position: 'absolute', left: leftPanelCollapsed ? 0 : 260, top: '50%', transform: 'translateY(-50%)',
-            zIndex: 10, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)',
-            color: 'var(--admin-text-muted)', width: 22, height: 48, borderRadius: '0 4px 4px 0',
+            position: 'absolute', left: leftPanelCollapsed ? 0 : 280, top: '50%', transform: 'translateY(-50%)',
+            zIndex: 11, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)',
+            color: 'var(--admin-accent)', width: 20, height: 60, borderRadius: 0,
             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'left 0.3s ease',
-            borderLeft: leftPanelCollapsed ? '1px solid var(--admin-border)' : 'none'
+            transition: 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            borderLeft: leftPanelCollapsed ? '1px solid var(--admin-border)' : 'none',
+            boxShadow: '4px 0 10px rgba(0,0,0,0.3)'
           }}
         >
-          {leftPanelCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} style={{ transform: 'rotate(90deg)' }} />}
+          {leftPanelCollapsed ? <ChevronRight size={14} strokeWidth={3} /> : <ChevronRight size={14} strokeWidth={3} style={{ transform: 'rotate(180deg)' }} />}
         </button>
 
         {/* ── Center: Map ─────────────────────────────────── */}
-        <div className="central-analytics-map" style={{ flex: 1, position: 'relative', background: '#0a1628' }}>
+        <div className="central-analytics-map" style={{ flex: 1, position: 'relative', background: 'var(--admin-bg)' }}>
           <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
+          {showAnalysisOverlay && selectedSnapshot && (
+            <StationAnalysisOverlay 
+              snapshot={selectedSnapshot} 
+              onClose={() => setShowAnalysisOverlay(false)} 
+              drillIntoStation={drillIntoStation}
+              navigateToAnalytics={navigateToAnalytics}
+            />
+          )}
+
           {loading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.7)', zIndex: 5 }}>
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.8)', zIndex: 1009 }}>
               <div style={{ textAlign: 'center' }}>
-                <Activity size={32} className="pulse-slow" style={{ color: 'var(--admin-accent)' }} />
-                <div style={{ marginTop: 8, fontSize: '.7rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.05em' }}>TỔNG HỢP DỮ LIỆU...</div>
+                <Loader2 size={40} className="pulse-slow" style={{ color: 'var(--admin-accent)' }} />
+                <div style={{ marginTop: 12, fontSize: '.8rem', color: 'var(--admin-text-muted)', fontWeight: 900, letterSpacing: '0.2em' }}>ĐANG ĐỒNG BỘ DỮ LIỆU ĐA TRẠM...</div>
               </div>
             </div>
           )}
 
+          {/* Map Title Overlay */}
+          <div style={{ position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 5, pointerEvents: 'none' }}>
+             <div style={{ background: 'var(--admin-layer-2)', padding: '8px 24px', borderRadius: 0, border: '1px solid var(--admin-border)', borderBottom: '2px solid var(--admin-accent)', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <MapPin size={16} style={{ color: 'var(--admin-accent)' }} />
+                <span style={{ fontSize: '.75rem', fontWeight: 950, color: '#fff', letterSpacing: '0.15em', textTransform: 'uppercase' }}>BẢN ĐỒ GIÁM SÁT TRẠM BIẾN ÁP</span>
+             </div>
+          </div>
+
           {/* Map zoom controls */}
-          <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ position: 'absolute', bottom: 30, right: 20, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button
               className="btn-industrial"
               onClick={() => leafletMap.current?.zoomIn()}
-              style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.7rem', padding: 0 }}
+              style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', padding: 0, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', color: '#fff', borderRadius: 0, cursor: 'pointer' }}
             >+</button>
             <button
               className="btn-industrial"
               onClick={() => leafletMap.current?.zoomOut()}
-              style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.7rem', padding: 0 }}
+              style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', padding: 0, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', color: '#fff', borderRadius: 0, cursor: 'pointer' }}
             >−</button>
             <button
               className="btn-industrial"
               onClick={() => setMapFitTrigger(t => t + 1)}
-              style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+              style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer' }}
               title="Fit all stations"
-            ><Maximize2 size={12} /></button>
+            ><Maximize2 size={16} /></button>
           </div>
-        </div>
-
-        {/* Right panel toggle */}
-        <button
-          onClick={() => setRightPanelCollapsed(v => !v)}
-          style={{
-            position: 'absolute', right: rightPanelCollapsed ? 0 : 340, top: '50%', transform: 'translateY(-50%)',
-            zIndex: 10, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)',
-            color: 'var(--admin-text-muted)', width: 22, height: 48, borderRadius: '4px 0 0 4px',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'right 0.3s ease',
-            borderRight: rightPanelCollapsed ? '1px solid var(--admin-border)' : 'none'
-          }}
-        >
-          {rightPanelCollapsed ? <ChevronRight size={12} style={{ transform: 'rotate(180deg)' }} /> : <ChevronDown size={12} style={{ transform: 'rotate(-90deg)' }} />}
-        </button>
-
-        {/* ── Right Panel: Detail / Overview ──────────────── */}
-        <div className="central-analytics-right" style={{
-          width: rightPanelCollapsed ? 0 : 340,
-          minWidth: rightPanelCollapsed ? 0 : 340,
-          display: 'flex',
-          flexDirection: 'column',
-          background: 'var(--admin-panel)',
-          borderLeft: rightPanelCollapsed ? 'none' : '1px solid var(--admin-border)',
-          overflow: 'hidden',
-          transition: 'width 0.3s ease, min-width 0.3s ease'
-        }}>
-          {!rightPanelCollapsed && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {selectedSnapshot ? (
-                /* ── Station Detail Scorecard ──────────────────── */
-                <>
-                  {/* Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 16, borderBottom: '1px solid var(--admin-border)' }}>
-                    <div>
-                      <div style={{ fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-accent)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 6 }}>Scorecard Trạm</div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 900, color: 'var(--admin-text)', letterSpacing: '0.02em' }}>{selectedSnapshot.station.name}</div>
-                      <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)', marginTop: 2 }}>{selectedSnapshot.station.code || 'NO-CODE'}</div>
-                    </div>
-                    <button 
-                      onClick={() => setSelectedStationId(null)} 
-                      style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 6, color: 'var(--admin-text-muted)', cursor: 'pointer', padding: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
-                      onMouseEnter={e => { e.currentTarget.style.color = 'var(--admin-text)'; e.currentTarget.style.borderColor = 'var(--admin-text-muted)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.color = 'var(--admin-text-muted)'; e.currentTarget.style.borderColor = 'var(--admin-border)'; }}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-
-                  {/* Primary KPI: Health */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 0 20px' }}>
-                    <HealthGauge score={selectedSnapshot.avgHealth} />
-                    <div style={{ marginTop: 12, padding: '4px 14px', background: `${getHealthClass(selectedSnapshot.avgHealth).color}15`, border: `1px solid ${getHealthClass(selectedSnapshot.avgHealth).color}30`, borderRadius: 20, color: getHealthClass(selectedSnapshot.avgHealth).color, fontSize: '.65rem', fontWeight: 900, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                      {getHealthClass(selectedSnapshot.avgHealth).label}
-                    </div>
-                  </div>
-
-                  {/* Secondary KPIs Grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, color: 'var(--admin-text-muted)' }}>
-                        <Wifi size={13} style={{ color: 'var(--admin-success)' }} /> <span style={{ fontSize: '.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Kết nối</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                        <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1 }}>{selectedSnapshot.onlineDevices}</span>
-                        <span style={{ fontSize: '.75rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>/ {selectedSnapshot.devices.length} thiết bị</span>
-                      </div>
-                    </div>
-                    
-                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 14 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, color: 'var(--admin-text-muted)' }}>
-                        <Thermometer size={13} style={{ color: 'var(--admin-danger)' }} /> <span style={{ fontSize: '.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Điểm nóng</span>
-                      </div>
-                      <div style={{ fontSize: '1.4rem', fontWeight: 900, color: getThermalClass(selectedSnapshot.hottestPoint?.value ?? null).color, lineHeight: 1 }}>
-                        {selectedSnapshot.hottestPoint ? `${selectedSnapshot.hottestPoint.value.toFixed(1)}°` : '—'}
-                      </div>
-                    </div>
-
-                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: '12px 14px', gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <Zap size={16} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cảnh báo Phóng điện</div>
-                          <div style={{ fontSize: '.9rem', fontWeight: 900, color: getPdClass(selectedSnapshot.warningPdPoints).color, marginTop: 2 }}>
-                            {selectedSnapshot.warningPdPoints > 0 ? `${selectedSnapshot.warningPdPoints} điểm phát hiện` : 'Hệ thống an toàn'}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Context Actions */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {(cabinetSummary?.thermalCameraCount ?? 0) > 0 && (
-                      <button 
-                        onClick={() => navigateToAnalytics(selectedSnapshot.station.id, 'thermal')} 
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-hover)'; e.currentTarget.style.borderColor = 'var(--admin-text-muted)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'var(--admin-panel)'; e.currentTarget.style.borderColor = 'var(--admin-border)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Thermometer size={14} style={{ color: 'var(--admin-danger)' }} />
-                          <span style={{ fontSize: '.75rem', fontWeight: 800, color: 'var(--admin-text)' }}>Phân tích AI Nhiệt</span>
-                        </div>
-                        <ChevronRight size={14} style={{ color: 'var(--admin-text-muted)' }} />
-                      </button>
-                    )}
-                    {(cabinetSummary?.pdCameraCount ?? 0) > 0 && (
-                      <button 
-                        onClick={() => navigateToAnalytics(selectedSnapshot.station.id, 'pd')} 
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 8, cursor: 'pointer', transition: 'all 0.2s' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-hover)'; e.currentTarget.style.borderColor = 'var(--admin-text-muted)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'var(--admin-panel)'; e.currentTarget.style.borderColor = 'var(--admin-border)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Zap size={14} style={{ color: '#f59e0b' }} />
-                          <span style={{ fontSize: '.75rem', fontWeight: 800, color: 'var(--admin-text)' }}>Phân tích Phóng điện</span>
-                        </div>
-                        <ChevronRight size={14} style={{ color: 'var(--admin-text-muted)' }} />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Alerts Warning */}
-                  {selectedSnapshot.openAlerts > 0 && (
-                    <div style={{ marginTop: 'auto', background: 'rgba(239,68,68,0.1)', borderLeft: '3px solid var(--admin-danger)', padding: '12px 16px', borderRadius: '0 8px 8px 0' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <AlertTriangle size={16} style={{ color: 'var(--admin-danger)' }} />
-                        <span style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-danger)', letterSpacing: '0.05em' }}>{selectedSnapshot.openAlerts} CẢNH BÁO ĐANG MỞ</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Action */}
-                  <button
-                    onClick={() => drillIntoStation(selectedSnapshot.station.id)}
-                    style={{
-                      marginTop: selectedSnapshot.openAlerts > 0 ? 16 : 'auto',
-                      padding: '14px',
-                      fontSize: '.75rem',
-                      fontWeight: 900,
-                      background: 'var(--admin-accent)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 8,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      letterSpacing: '0.08em',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 14px rgba(59, 130, 246, 0.4)',
-                      transition: 'transform 0.2s, box-shadow 0.2s'
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(59, 130, 246, 0.5)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(59, 130, 246, 0.4)'; }}
-                  >
-                    <TrendingUp size={15} /> TRUY XUẤT CHI TIẾT
-                  </button>
-                </>
-              ) : (
-                /* ── Fleet Overview Scorecard ──────────────────── */
-                <>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '10px 0 20px', borderBottom: '1px solid var(--admin-border)', marginBottom: 16 }}>
-                    <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(59, 130, 246, 0.1)', color: 'var(--admin-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12, border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-                      <Shield size={24} />
-                    </div>
-                    <div style={{ fontSize: '.9rem', fontWeight: 900, color: 'var(--admin-text)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Tổng quan hệ thống</div>
-                    <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>Chọn một trạm để xem chi tiết</div>
-                  </div>
-
-                  <div style={{ display: 'grid', gap: 12 }}>
-                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(59, 130, 246, 0.1)', color: 'var(--admin-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Radio size={18} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Tổng trạm</div>
-                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>{fleetSummary.totalStations}</div>
-                      </div>
-                    </div>
-
-                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(16, 185, 129, 0.1)', color: 'var(--admin-success)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Wifi size={18} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Thiết bị Online</div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginTop: 4 }}>
-                          <span style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1 }}>{fleetSummary.totalOnline}</span>
-                          <span style={{ fontSize: '.8rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>/{fleetSummary.totalDevices}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ background: 'var(--admin-layer-1)', border: fleetSummary.totalAlerts > 0 ? '1px solid rgba(239, 68, 68, 0.3)' : '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 8, background: fleetSummary.totalAlerts > 0 ? 'rgba(239, 68, 68, 0.1)' : 'var(--admin-layer-2)', color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <AlertTriangle size={18} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cảnh báo mở</div>
-                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>{fleetSummary.totalAlerts}</div>
-                      </div>
-                    </div>
-
-                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', color: 'var(--admin-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Thermometer size={18} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hotspot toàn hệ thống</div>
-                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>
-                          {fleetSummary.hottest ? `${fleetSummary.hottest.value.toFixed(1)}°C` : 'N/A'}
-                        </div>
-                        {fleetSummary.hottest && (
-                          <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>{fleetSummary.hottest.stationName}</div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 10, padding: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: 8, background: fleetSummary.totalPdWarnings > 0 ? 'rgba(245, 158, 11, 0.1)' : 'var(--admin-layer-2)', color: fleetSummary.totalPdWarnings > 0 ? '#f59e0b' : 'var(--admin-text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Zap size={18} />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Điểm PD cảnh báo</div>
-                        <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', lineHeight: 1, marginTop: 4 }}>{fleetSummary.totalPdWarnings}</div>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
       {/* ── Animations ────────────────────────────────────── */}
       <style>{`
         .pulse-slow {
-          animation: pulse-slow 2s infinite ease-in-out;
+          animation: pulse-slow 2.5s infinite ease-in-out;
         }
         @keyframes pulse-slow {
-          0%, 100% { opacity: 0.3; transform: scale(1); }
-          50% { opacity: 0.8; transform: scale(1.1); }
+          0%, 100% { opacity: 0.4; transform: scale(1); }
+          50% { opacity: 0.9; transform: scale(1.05); }
+        }
+        .custom-hud-scroll::-webkit-scrollbar {
+          width: 4px;
+          height: 4px;
+        }
+        .custom-hud-scroll::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.02);
+        }
+        .custom-hud-scroll::-webkit-scrollbar-thumb {
+          background: var(--admin-border);
+          border-radius: 2px;
+        }
+        .custom-hud-scroll::-webkit-scrollbar-thumb:hover {
+          background: var(--admin-accent);
         }
       `}</style>
     </div>

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import Chart from 'chart.js/auto';
 import { getCSSColor } from '@/utils/theme-colors';
 import { stationApi } from '@/services/StationApiService';
+import { useStationStore } from '@/store';
 
 const SC = { good: '#10B981', warning: '#F59E0B', danger: '#EF4444' } as const;
 type Range = '7d' | '30d' | '90d';
@@ -149,7 +150,7 @@ export default function CabinetAnalyticsTab() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const stationId = await stationApi.getFirstStationId();
+        const stationId = await useStationStore.getState().getFirstStationId();
         if (!stationId) {
           setLoading(false);
           return;
@@ -193,7 +194,7 @@ export default function CabinetAnalyticsTab() {
     const fetchHistory = async () => {
       try {
         setHistoryLoading(true);
-        const stationId = await stationApi.getFirstStationId();
+        const stationId = await useStationStore.getState().getFirstStationId();
         if (!stationId) return;
 
         const rangeCfg = RANGES.find(r => r.value === range)!;

@@ -84,7 +84,39 @@ public class MeasurementsController : ControllerBase
             }
         }
 
-        // 5. Nếu chưa có dữ liệu cache, mô phỏng/kéo dữ liệu từ DB (Dành cho trạm con hoặc dữ liệu lịch sử vừa sync)
+        // 5. Nếu chưa có dữ liệu cache, thử đọc SensorReadings đã sync từ DB (trạm con push lên)
+        if (result.Count == 0 && !isFleet && stationId.HasValue)
+        {
+            var since = DateTime.UtcNow.AddHours(-1);
+            var synced = await _db.SensorReadings
+                .Where(r => r.StationId == stationId.Value && r.Time >= since)
+                .OrderByDescending(r => r.Time)
+                .Take(2000)
+                .ToListAsync();
+
+            if (synced.Count > 0)
+            {
+                var latest = synced
+                    .GroupBy(r => new { r.DeviceId, r.PointId })
+                    .Select(g => g.First())
+                    .ToList();
+
+                foreach (var r in latest)
+                {
+                    result.Add(new
+                    {
+                        deviceId = r.DeviceId,
+                        pointId  = r.PointId,
+                        value    = r.Value,
+                        unit     = r.Unit ?? "°C",
+                        quality  = r.Quality,
+                        time     = r.Time
+                    });
+                }
+            }
+        }
+
+        // 6. Fallback mock cho trạm local có devices nhưng chưa có dữ liệu thực
         if (result.Count == 0 && devices.Count > 0)
         {
             var rand = new Random();

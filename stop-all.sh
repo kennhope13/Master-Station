@@ -13,6 +13,18 @@ is_pid_running() {
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
 }
 
+kill_port_process() {
+    local port="$1"
+    local pids
+    pids=$(lsof -ti TCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    [ -z "$pids" ] && return 0
+    echo "  Port $port còn bị chiếm (PID: $pids) — đang dừng..."
+    echo "$pids" | xargs kill 2>/dev/null || true
+    sleep 2
+    pids=$(lsof -ti TCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    [ -n "$pids" ] && echo "$pids" | xargs kill -9 2>/dev/null || true
+}
+
 pid_matches_project() {
     local pid="$1"
     local expected="$2"
@@ -55,11 +67,14 @@ echo ""
 echo "[1/4] Dừng go2rtc trạm tổng..."
 sudo docker rm -f stationos-central-go2rtc >/dev/null 2>&1 && echo "  ✅ Đã dừng stationos-central-go2rtc" || true
 
-# ── 2. Chỉ dừng tiến trình đã được script này ghi nhận ────
+# ── 2. Dừng tiến trình theo PID file, sau đó giải phóng port ──
 echo "[2/4] Dừng Backend, AI Engine, Frontend do trạm tổng khởi tạo..."
 stop_managed_process "backend" "dotnet run --project $ROOT/backend/StationOS.Api"
 stop_managed_process "frontend" "npm run dev -- --host"
 stop_managed_process "ai_engine" "main.py"
+# Fallback: kill bất kỳ process nào còn chiếm port của trạm tổng
+kill_port_process 6000
+kill_port_process 6173
 
 # ── 3. Giữ nguyên Database ────────────────────────────────
 echo "[3/4] Database PostgreSQL giữ nguyên (bảo lưu dữ liệu)."

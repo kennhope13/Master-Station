@@ -6,7 +6,7 @@
 // ============================================================
 
 import { apiFetch, apiMutate } from './BaseApiService';
-import type { Station } from '@/types/api.types';
+import type { Station, CameraDevice } from '@/types/api.types';
 
 export class StationService {
   /** Lấy danh sách tất cả trạm điện đang quản lý. */
@@ -22,8 +22,8 @@ export class StationService {
   }
 
   /** Tạo trạm mới. */
-  async createStation(name: string, code: string, location: string, apiUrl?: string): Promise<Station> {
-    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl });
+  async createStation(name: string, code: string, location: string, apiUrl?: string, webUrl?: string): Promise<Station> {
+    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl });
   }
 
   /** Kiểm tra kết nối tới trạm con. */
@@ -31,9 +31,38 @@ export class StationService {
     return apiMutate('POST', '/stations/test-connection', { url });
   }
 
-  /** Lấy KPI thực từ trạm con. */
-  async getRemoteKpi(id: string): Promise<{ devicesOnline: number; devicesTotal: number; alertsCount: number; error?: string }> {
+  /** Lấy KPI thực từ trạm con (bao gồm devices, alerts, sensor points, health scores). */
+  async getRemoteKpi(id: string): Promise<{
+    devicesOnline: number;
+    devicesTotal: number;
+    alertsCount: number;
+    points: Array<{ deviceId: string; pointId: string; value: number; unit: string; quality: number; time: string }>;
+    healthScores: Array<{ deviceId: string; deviceName: string; deviceType: string; status: string; score: number; risk: string }>;
+    go2rtcBase?: string;
+    rtspBase?: string;
+    webUiUrl?: string;
+    error?: string;
+  }> {
     return apiFetch(`/stations/${id}/remote-kpi`);
+  }
+
+  /** Lấy danh sách camera từ trạm con qua proxy master station. */
+  async getRemoteCameras(id: string): Promise<{
+    go2rtcBase: string | null;
+    rtspBase: string | null;
+    cameras: Array<{ device: CameraDevice; streamUrls: Record<string, string> }>;
+  }> {
+    return apiFetch(`/stations/${id}/remote-cameras`);
+  }
+
+  /** Lấy JWT token từ trạm con để SSO. */
+  async getRemoteToken(id: string): Promise<{ token: string }> {
+    return apiFetch(`/stations/${id}/remote-token`);
+  }
+
+  /** Cập nhật thông tin trạm. */
+  async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; webUrl?: string; status?: string }): Promise<void> {
+    return apiMutate<void>('PUT', `/stations/${id}`, data);
   }
 
   /** Xóa trạm. */

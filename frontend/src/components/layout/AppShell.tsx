@@ -85,7 +85,6 @@ export default function AppShell() {
     }
   }, [user, navigate]);
 
-  if (!user) return null;
 
   // Trạm tổng = tài khoản 'multi' HOẶC admin không bị giới hạn trạm (không có station_ids)
   const isCentralUser = isCentralUserAccount(user);
@@ -114,7 +113,7 @@ export default function AppShell() {
   // - Restricted admin (trạm con): ẩn settings, license
   // - Global admin (kể cả khi drill-down): giữ nguyên toàn bộ CHILD_ADMIN_NAV
   const adminNavItems = (isCentralMode ? CENTRAL_ADMIN_NAV : CHILD_ADMIN_NAV).filter(item => {
-    if (user.is_restricted || (user.station_ids && user.station_ids.length > 0)) {
+    if (user && (user.is_restricted || (user.station_ids && user.station_ids.length > 0))) {
       return !['settings', 'license'].includes(item.id);
     }
     return true;
@@ -386,7 +385,7 @@ export default function AppShell() {
   /** Lọc và render danh sách NavLink theo vai trò người dùng, hỗ trợ sub-menu khi active. */
   const renderNav = (items: NavItem[]) =>
     items
-      .filter(i => !i.roles || i.roles.includes(user.role))
+      .filter(i => !i.roles || (user && i.roles.includes(user.role)))
       .map(i => {
         const hasChildren = i.children && i.children.length > 0;
         const isCurrentActive = window.location.pathname.startsWith(i.path);
@@ -427,6 +426,8 @@ export default function AppShell() {
       });
 
   const themeClass = `theme-${theme}`;
+
+  if (!user) return null;
 
   return (
     <div className={`app-shell admin-container ${themeClass}`}>

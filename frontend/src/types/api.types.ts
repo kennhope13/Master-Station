@@ -29,8 +29,10 @@ export interface Station {
   /** JSON string từ backend: {"lat": 10.768, "lng": 106.790, "address": "..."} */
   location?: string;
   createdAt?: string;
-  /** URL API của trạm con, ví dụ: http://192.168.1.100:6000 */
+  /** URL API của trạm con, ví dụ: http://192.168.1.100:5000 */
   apiUrl?: string;
+  /** URL giao diện web của trạm con, ví dụ: http://192.168.1.100:4173. Nếu để trống sẽ tự suy từ apiUrl. */
+  webUrl?: string;
   connectionStatus?: 'online' | 'offline' | 'unknown' | string;
   lastSeenAt?: string;
 }

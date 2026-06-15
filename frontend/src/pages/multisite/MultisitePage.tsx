@@ -7,7 +7,8 @@ import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
   Search, Map as MapIcon, AlertTriangle,
   X, ShieldCheck, Wifi,
-  ChevronLeft, ChevronRight, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video,
+  ChevronLeft, ChevronRight, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video, Settings,
+  ArrowLeft,
   Download, RefreshCw, Calendar, Clock, Loader2, Filter, Bell, Zap
 } from 'lucide-react';
 import { stationApi } from '@/services/StationApiService';
@@ -157,7 +158,6 @@ export default function MultisitePage() {
     }, { replace: true });
   };
 
-  const [statusFilter, setStatusFilter] = useState<'all' | 'warning' | 'normal'>('all');
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(false);
@@ -203,11 +203,18 @@ export default function MultisitePage() {
   const [newStationLng, setNewStationLng] = useState('');
   const [newStationAddress, setNewStationAddress] = useState('');
   const [newStationApiUrl, setNewStationApiUrl] = useState('');
+  const [newStationWebUrl, setNewStationWebUrl] = useState('');
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [connMs, setConnMs] = useState<number | null>(null);
   const [geoStatus, setGeoStatus] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle');
   const [isSaving, setIsSaving] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isOpeningStation, setIsOpeningStation] = useState(false);
+  const [editingStation, setEditingStation] = useState<import('@/types/api.types').Station | null>(null);
+  const [editWebUrl, setEditWebUrl] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [remoteKpis, setRemoteKpis] = useState<Record<string, { devicesOnline: number; devicesTotal: number; alertsCount: number }>>({});
   const [isAuthReady, setIsAuthReady] = useState(() => !!authService.getToken());
   const stationStatusRef = useRef<Record<string, string>>({});
@@ -336,38 +343,29 @@ export default function MultisitePage() {
     return trimmed;
   };
 
-  const resolveWebUrl = (apiUrl: string): string => {
-    let base = normalizeUrl((apiUrl || '').trim().replace(/\/$/, ''));
-    if (!base) return '';
+
+  /** Chuẩn hóa input host/IP thành API URL đầy đủ. Mặc định dùng port 5000. */
+  const resolveApiUrl = (raw: string): string => {
+    const trimmed = raw.trim().replace(/\/$/, '');
+    if (!trimmed) return '';
+    const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
     try {
-      const urlObj = new URL(base);
-      if (urlObj.port === '5000') {
-        urlObj.port = '5173';
-      } else if (urlObj.port === '6000') {
-        urlObj.port = '6173';
-      }
-      if (typeof window !== 'undefined' && window.location) {
-        const hostname = window.location.hostname;
-        if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-          if (urlObj.hostname === 'localhost' || urlObj.hostname === '127.0.0.1') {
-            urlObj.hostname = hostname;
-          }
-        }
-      }
-      return urlObj.toString().replace(/\/$/, '');
-    } catch {
-      return base;
-    }
+      const u = new URL(withScheme);
+      // Nếu không có port → dùng 5000 (mặc định backend StationOS)
+      if (!u.port || u.port === '80') u.port = '5000';
+      // Nhầm port frontend → chuyển sang backend
+      if (u.port === '4173' || u.port === '5173' || u.port === '6173') u.port = '5000';
+      return u.toString().replace(/\/$/, '');
+    } catch { return withScheme; }
   };
 
   const handleTestConnection = async () => {
     if (!newStationApiUrl.trim()) return;
-    const url = normalizeUrl(newStationApiUrl);
-    if (url !== newStationApiUrl) setNewStationApiUrl(url);
+    const url = resolveApiUrl(newStationApiUrl);
     setConnStatus('checking');
     setConnMs(null);
     try {
-      const res = await stationApi.testStationConnection(url);
+      const res = await stationApi.testStationConnection(`${url}/health`);
       setConnMs(res.responseMs);
       setConnStatus(res.reachable ? 'ok' : 'fail');
     } catch {
@@ -415,7 +413,7 @@ export default function MultisitePage() {
       return;
     }
     if (!newStationApiUrl.trim()) {
-      alert('Vui lòng nhập URL API của trạm con');
+      alert('Vui lòng nhập địa chỉ IP / host của trạm con');
       return;
     }
 
@@ -426,12 +424,12 @@ export default function MultisitePage() {
         newStationName.trim(),
         newStationCode.trim(),
         JSON.stringify(locationObj),
-        normalizeUrl(newStationApiUrl)
+        resolveApiUrl(newStationApiUrl)
       );
 
       setNewStationName(''); setNewStationCode('');
       setNewStationLat(''); setNewStationLng('');
-      setNewStationAddress(''); setNewStationApiUrl('');
+      setNewStationAddress(''); setNewStationApiUrl(''); setNewStationWebUrl('');
       setConnStatus('idle'); setConnMs(null); setGeoStatus('idle');
       setIsAddModalOpen(false);
       setSelectedProvince(null);
@@ -448,29 +446,24 @@ export default function MultisitePage() {
     }
   };
 
-  /*
   const handleDeleteStation = async () => {
     if (!selectedView) return;
-    
-    const confirmed = await confirmDialog({
-      title: 'Xóa trạm biến áp',
-      message: `Bạn có chắc chắn muốn xóa ${selectedView.station.name} không? Thao tác này không thể hoàn tác và chỉ có thể thực hiện khi trạm không còn thiết bị.`,
-      confirmText: 'Xóa trạm',
-      danger: true
-    });
-    
-    if (!confirmed) return;
-
+    setIsDeleting(true);
     try {
       await stationApi.deleteStation(selectedView.station.id);
+      setShowDeleteConfirm(false);
       setSelectedStationId(null);
+      setViewingStation(null);
+      overviewFittedRef.current = false;
+      setMapHostKey(k => k + 1);
       await fetchStations(true);
-      alert('Đã xóa trạm thành công!');
+      showToast('Đã xóa trạm thành công', 'success');
     } catch (err: any) {
-      alert(err.message || 'Không thể xóa trạm. Vui lòng kiểm tra lại thiết bị của trạm này.');
+      showToast(err.message || 'Không thể xóa trạm. Hãy xóa hết thiết bị của trạm trước.', 'error');
+    } finally {
+      setIsDeleting(false);
     }
   };
-  */
 
   // Compile views with KPIs and alert lists
   const views: StationView[] = useMemo(() => {
@@ -514,14 +507,7 @@ export default function MultisitePage() {
     return result;
   }, [views]);
 
-  const filteredViews = useMemo(() => {
-    return views.filter(v => {
-      if (statusFilter === 'all') return true;
-      if (statusFilter === 'warning') return v.kpi.alerts > 0;
-      if (statusFilter === 'normal') return v.kpi.alerts === 0;
-      return true;
-    });
-  }, [views, statusFilter]);
+  const filteredViews = views;
 
   const groupedViewsByProvince = useMemo(() => {
     const grouped = new Map<string, StationView[]>();
@@ -747,18 +733,19 @@ export default function MultisitePage() {
         const lng = view.location.lng;
         if (lat == null || lng == null) return;
 
-        const isWarning = view.kpi.alerts > 0;
+        const stationOnline = view.station.connectionStatus === 'online';
+        const stationMarkerClass = !stationOnline ? 'pulse-gray' : view.kpi.alerts > 0 ? 'pulse-red' : 'pulse-green';
         const isActive = selectedStationId === view.station.id;
         const icon = L.divIcon({
           className: 'custom-gis-marker',
           html: `
-            <div class="marker-icon-wrapper ${isWarning ? 'pulse-red' : 'pulse-green'} ${isActive ? 'active-marker' : ''}">
+            <div class="marker-icon-wrapper station-marker ${stationMarkerClass} ${isActive ? 'active-marker' : ''}">
               ${STATION_TOWER_ICON}
             </div>
             <div class="marker-label-v3">${view.station.name}</div>
           `,
-          iconSize: [34, 34],
-          iconAnchor: [17, 17],
+          iconSize: [38, 38],
+          iconAnchor: [19, 19],
         });
 
         const marker = L.marker([lat, lng], { icon }).addTo(map);
@@ -774,18 +761,20 @@ export default function MultisitePage() {
       });
     } else {
       provinceMarkerGroups.forEach(group => {
-        const isWarning = group.alerts > 0;
+        const provinceMarkerClass = group.alerts > 0 ? 'pulse-red'
+          : group.onlineStations < group.totalStations ? 'pulse-gray'
+          : 'pulse-green';
         const isActive = selectedProvince === group.province;
         const icon = L.divIcon({
           className: 'custom-gis-marker',
           html: `
-            <div class="marker-icon-wrapper ${isWarning ? 'pulse-red' : 'pulse-green'} ${isActive ? 'active-marker' : ''}">
+            <div class="marker-icon-wrapper province-marker ${provinceMarkerClass} ${isActive ? 'active-marker' : ''}">
               ${PROVINCE_CHIP_ICON}
             </div>
             <div class="marker-label-v3">${group.province} · ${group.totalStations} trạm</div>
           `,
-          iconSize: [36, 36],
-          iconAnchor: [18, 18],
+          iconSize: [44, 44],
+          iconAnchor: [22, 22],
         });
 
         const marker = L.marker([group.lat, group.lng], { icon }).addTo(map);
@@ -853,19 +842,9 @@ export default function MultisitePage() {
           justify-content: center;
           width: 28px;
           height: 28px;
-          border-radius: 6px;
-          color: #fff;
-          background: var(--admin-layer-3);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          backdrop-filter: blur(4px);
+          background: transparent;
+          border: none;
           transition: all 0.3s ease;
-        }
-        .marker-icon-wrapper.active-marker {
-          background: rgba(14, 165, 233, 0.18) !important;
-          border: 2px solid rgba(125, 211, 252, 0.95) !important;
-          color: #e0f2fe !important;
-          box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18), 0 0 14px rgba(14, 165, 233, 0.45);
-          z-index: 10;
         }
         .marker-icon-wrapper svg {
           width: 16px;
@@ -873,19 +852,61 @@ export default function MultisitePage() {
         }
         .marker-icon-wrapper.pulse-green {
           color: var(--admin-success);
-          border-color: var(--admin-success);
-          box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
         }
         .marker-icon-wrapper.pulse-red {
           color: var(--admin-danger);
-          background: rgba(239, 68, 68, 0.1);
-          border-color: var(--admin-danger);
-          box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
-          animation: marker-pulse-red-anim 1.5s infinite alternate;
         }
-        @keyframes marker-pulse-red-anim {
-          0% { transform: scale(0.95); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
-          100% { transform: scale(1.1); box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+        .marker-icon-wrapper.pulse-gray {
+          color: #6b7280;
+        }
+        .marker-icon-wrapper.province-marker,
+        .marker-icon-wrapper.station-marker {
+          background: transparent !important;
+          border: none !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          filter: drop-shadow(0 2px 5px rgba(0,0,0,0.6));
+        }
+        .marker-icon-wrapper.province-marker {
+          width: 40px !important;
+          height: 40px !important;
+        }
+        .marker-icon-wrapper.province-marker svg {
+          width: 34px !important;
+          height: 34px !important;
+        }
+        .marker-icon-wrapper.station-marker {
+          width: 32px !important;
+          height: 32px !important;
+        }
+        .marker-icon-wrapper.station-marker svg {
+          width: 26px !important;
+          height: 26px !important;
+        }
+        .marker-icon-wrapper.province-marker.pulse-red,
+        .marker-icon-wrapper.station-marker.pulse-red {
+          filter: drop-shadow(0 0 8px rgba(239,68,68,0.8)) drop-shadow(0 2px 4px rgba(0,0,0,0.5)) !important;
+          animation: icon-pulse-red 1.5s infinite alternate;
+        }
+        @keyframes icon-pulse-red {
+          0% { filter: drop-shadow(0 0 4px rgba(239,68,68,0.5)) drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
+          100% { filter: drop-shadow(0 0 14px rgba(239,68,68,1)) drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
+        }
+        .marker-icon-wrapper.province-marker.pulse-green,
+        .marker-icon-wrapper.station-marker.pulse-green {
+          filter: drop-shadow(0 0 6px rgba(16,185,129,0.7)) drop-shadow(0 2px 4px rgba(0,0,0,0.5)) !important;
+        }
+        .marker-icon-wrapper.province-marker.pulse-gray,
+        .marker-icon-wrapper.station-marker.pulse-gray {
+          filter: drop-shadow(0 0 4px rgba(107,114,128,0.4)) drop-shadow(0 2px 4px rgba(0,0,0,0.5)) !important;
+          color: #6b7280 !important;
+        }
+        .marker-icon-wrapper.province-marker.active-marker,
+        .marker-icon-wrapper.station-marker.active-marker {
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          filter: drop-shadow(0 0 10px rgba(14,165,233,0.9)) drop-shadow(0 2px 4px rgba(0,0,0,0.5)) !important;
         }
         .marker-label-v3 {
           position: absolute;
@@ -965,6 +986,21 @@ export default function MultisitePage() {
           0% { border-color: rgba(239, 68, 68, 0.2); }
           100% { border-color: rgba(239, 68, 68, 0.6); }
         }
+        .hud-nav-group .btn-industrial {
+          border-radius: 0 !important;
+        }
+        .hud-nav-group .btn-industrial:hover {
+          background: rgba(255,255,255,0.07) !important;
+          border-color: var(--admin-border) !important;
+          color: var(--admin-text) !important;
+          transform: none !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+        }
+        .hud-nav-group .btn-industrial:hover::before,
+        .hud-nav-group .btn-industrial:hover::after {
+          opacity: 0 !important;
+        }
       `}</style>
 
       {activeTab === 'overview' && (
@@ -977,28 +1013,33 @@ export default function MultisitePage() {
             setSelectedProvince(null);
             setSelectedStationId(null);
           }}
-          className="btn-industrial"
           style={{
             position: 'absolute',
-            top: 78,
+            top: 55,
             left: selectedView && showRightPanel ? 214 : 14,
             zIndex: 1008,
-            width: 32,
-            height: 32,
+            width: 44,
+            height: 44,
             padding: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            borderRadius: '4px',
-            border: '1px solid var(--admin-accent)',
-            background: 'rgba(245, 158, 11, 0.15)',
+            border: 'none',
+            background: 'transparent',
             color: 'var(--admin-accent)',
             cursor: 'pointer',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-            backdropFilter: 'blur(8px)',
+            transition: 'all 0.2s',
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.color = '#fff';
+            e.currentTarget.style.transform = 'translateX(-4px)';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.color = 'var(--admin-accent)';
+            e.currentTarget.style.transform = 'none';
           }}
         >
-          <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>←</span>
+          <ArrowLeft size={36} strokeWidth={3} />
         </button>
       )}
 
@@ -1025,13 +1066,13 @@ export default function MultisitePage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{
+          <div className="hud-nav-group" style={{
             display: 'flex',
             gap: 4,
             padding: 3,
             background: 'rgba(15, 23, 42, 0.58)',
             border: '1px solid var(--admin-border)',
-            borderRadius: 4,
+            borderRadius: 0,
             boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)'
           }}>
             <button
@@ -1287,9 +1328,9 @@ export default function MultisitePage() {
             <LiveStationPicker
               views={views}
               onOpenStation={station => {
-                const base = resolveWebUrl(station.apiUrl || '');
-                if (!base) return;
-                window.open(`${base}/login?embed=1&u=admin&p=Admin%40123&next=/realtime`, '_blank');
+                localStorage.setItem('multisite_return_tab', 'truc_tiep');
+                setViewingStation(station.id);
+                navigate(`/realtime?stationId=${encodeURIComponent(station.id)}`);
               }}
             />
           </Suspense>
@@ -1406,42 +1447,6 @@ export default function MultisitePage() {
               }}
             >
               <div style={{ padding: '0 8px 6px 8px', borderBottom: '1px solid var(--admin-border-light)' }}>
-                <div style={{ display: 'flex', gap: 1, marginTop: 4 }}>
-                  <button
-                    onClick={() => setStatusFilter('all')}
-                    style={{
-                      flex: 1, fontSize: 8, padding: '2px 0', border: '1px solid var(--admin-border)',
-                      background: statusFilter === 'all' ? 'var(--admin-border)' : 'transparent',
-                      color: statusFilter === 'all' ? 'var(--admin-text)' : 'var(--admin-text-muted)',
-                      fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    TẤT CẢ
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('warning')}
-                    style={{
-                      flex: 1, fontSize: 8, padding: '2px 0', border: '1px solid var(--admin-border)',
-                      background: statusFilter === 'warning' ? 'var(--admin-border)' : 'transparent',
-                      color: statusFilter === 'warning' ? 'var(--admin-danger)' : 'var(--admin-text-muted)',
-                      fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    LỖI
-                  </button>
-                  <button
-                    onClick={() => setStatusFilter('normal')}
-                    style={{
-                      flex: 1, fontSize: 8, padding: '2px 0', border: '1px solid var(--admin-border)',
-                      background: statusFilter === 'normal' ? 'var(--admin-border)' : 'transparent',
-                      color: statusFilter === 'normal' ? 'var(--admin-success)' : 'var(--admin-text-muted)',
-                      fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    OK
-                  </button>
-                </div>
-
                 <button
                   className="btn-industrial"
                   style={{
@@ -1547,19 +1552,39 @@ export default function MultisitePage() {
                                   <span style={{ fontSize: '0.6rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
                                     {v.kpi.devicesOnline}/{v.kpi.devicesTotal}
                                   </span>
-                                  {isWarning ? (
+                                  {!isOnline ? (
                                     <span style={{
-                                      fontSize: 8, background: 'rgba(239,68,68,0.15)', color: 'var(--admin-danger)',
-                                      border: '1px solid rgba(239,68,68,0.3)', padding: '0px 3px', fontWeight: 900,
-                                      height: 12, display: 'flex', alignItems: 'center'
+                                      fontSize: 8, fontWeight: 900, height: 12, padding: '0 3px',
+                                      display: 'flex', alignItems: 'center',
+                                      background: 'rgba(107,114,128,0.15)', color: '#9ca3af',
+                                      border: '1px solid rgba(107,114,128,0.35)'
                                     }}>
-                                      🔴{v.kpi.alerts}
+                                      OFFLINE
+                                    </span>
+                                  ) : v.kpi.alarmsCount > 0 ? (
+                                    <span style={{
+                                      fontSize: 8, fontWeight: 900, height: 12, padding: '0 3px',
+                                      display: 'flex', alignItems: 'center',
+                                      background: 'rgba(239,68,68,0.18)', color: '#ff4444',
+                                      border: '1px solid rgba(239,68,68,0.5)'
+                                    }}>
+                                      🔴{v.kpi.alarmsCount} BĐ
+                                    </span>
+                                  ) : v.kpi.warningsCount > 0 ? (
+                                    <span style={{
+                                      fontSize: 8, fontWeight: 900, height: 12, padding: '0 3px',
+                                      display: 'flex', alignItems: 'center',
+                                      background: 'rgba(245,158,11,0.15)', color: 'var(--admin-accent)',
+                                      border: '1px solid rgba(245,158,11,0.4)'
+                                    }}>
+                                      ⚠{v.kpi.warningsCount} CB
                                     </span>
                                   ) : (
                                     <span style={{
-                                      fontSize: 8, background: 'rgba(16,185,129,0.1)', color: 'var(--admin-success)',
-                                      border: '1px solid rgba(16,185,129,0.2)', padding: '0px 3px', fontWeight: 900,
-                                      height: 12, display: 'flex', alignItems: 'center'
+                                      fontSize: 8, fontWeight: 900, height: 12, padding: '0 3px',
+                                      display: 'flex', alignItems: 'center',
+                                      background: 'rgba(16,185,129,0.1)', color: 'var(--admin-success)',
+                                      border: '1px solid rgba(16,185,129,0.2)'
                                     }}>
                                       🟢OK
                                     </span>
@@ -1573,10 +1598,11 @@ export default function MultisitePage() {
                     ))
                   ) : (
                     visibleProvinceGroups.map(group => {
-                      const provinceAlerts = group.views.reduce((sum, view) => sum + view.kpi.alerts, 0);
-                      const totalDevices = group.views.reduce((sum, view) => sum + view.kpi.devicesTotal, 0);
-                      const onlineDevices = group.views.reduce((sum, view) => sum + view.kpi.devicesOnline, 0);
-                      const hasWarning = provinceAlerts > 0;
+                      const totalDevices   = group.views.reduce((s, v) => s + v.kpi.devicesTotal, 0);
+                      const onlineDevices  = group.views.reduce((s, v) => s + v.kpi.devicesOnline, 0);
+                      const offlineCount   = group.views.filter(v => v.station.connectionStatus !== 'online').length;
+                      const alarmsCount    = group.views.reduce((s, v) => s + v.kpi.alarmsCount, 0);
+                      const warningsCount  = group.views.reduce((s, v) => s + v.kpi.warningsCount, 0);
 
                       return (
                         <div
@@ -1596,14 +1622,9 @@ export default function MultisitePage() {
                                 dangerouslySetInnerHTML={{ __html: PROVINCE_CHIP_ICON }}
                               />
                               <span style={{
-                                fontSize: '0.66rem',
-                                fontWeight: 900,
-                                color: 'var(--admin-accent)',
-                                letterSpacing: '0.06em',
-                                textTransform: 'uppercase',
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis'
+                                fontSize: '0.66rem', fontWeight: 900, color: 'var(--admin-accent)',
+                                letterSpacing: '0.06em', textTransform: 'uppercase',
+                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
                               }}>
                                 {group.province}
                               </span>
@@ -1613,39 +1634,51 @@ export default function MultisitePage() {
                             </span>
                           </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingLeft: 22 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, paddingLeft: 22 }}>
                             <span style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>
                               {onlineDevices}/{totalDevices} online
                             </span>
-                            {hasWarning ? (
-                              <span style={{
-                                fontSize: 8,
-                                background: 'rgba(239,68,68,0.15)',
-                                color: 'var(--admin-danger)',
-                                border: '1px solid rgba(239,68,68,0.3)',
-                                padding: '0px 4px',
-                                fontWeight: 900,
-                                height: 12,
-                                display: 'flex',
-                                alignItems: 'center'
-                              }}>
-                                🔴{provinceAlerts}
-                              </span>
-                            ) : (
-                              <span style={{
-                                fontSize: 8,
-                                background: 'rgba(16,185,129,0.1)',
-                                color: 'var(--admin-success)',
-                                border: '1px solid rgba(16,185,129,0.2)',
-                                padding: '0px 4px',
-                                fontWeight: 900,
-                                height: 12,
-                                display: 'flex',
-                                alignItems: 'center'
-                              }}>
-                                🟢OK
-                              </span>
-                            )}
+                            {/* Badges — hiện cả 2 nếu vừa offline vừa có cảnh báo */}
+                            <div style={{ display: 'flex', gap: 3, alignItems: 'center', flexShrink: 0 }}>
+                              {offlineCount > 0 && (
+                                <span style={{
+                                  fontSize: 8, fontWeight: 900, height: 12,
+                                  display: 'flex', alignItems: 'center', padding: '0 4px',
+                                  background: 'rgba(107,114,128,0.15)', color: '#9ca3af',
+                                  border: '1px solid rgba(107,114,128,0.35)'
+                                }}>
+                                  {offlineCount} OFL
+                                </span>
+                              )}
+                              {alarmsCount > 0 ? (
+                                <span style={{
+                                  fontSize: 8, fontWeight: 900, height: 12,
+                                  display: 'flex', alignItems: 'center', padding: '0 4px',
+                                  background: 'rgba(239,68,68,0.18)', color: '#ff4444',
+                                  border: '1px solid rgba(239,68,68,0.5)'
+                                }}>
+                                  🔴{alarmsCount} BĐ
+                                </span>
+                              ) : warningsCount > 0 ? (
+                                <span style={{
+                                  fontSize: 8, fontWeight: 900, height: 12,
+                                  display: 'flex', alignItems: 'center', padding: '0 4px',
+                                  background: 'rgba(245,158,11,0.15)', color: 'var(--admin-accent)',
+                                  border: '1px solid rgba(245,158,11,0.4)'
+                                }}>
+                                  ⚠{warningsCount} CB
+                                </span>
+                              ) : offlineCount === 0 ? (
+                                <span style={{
+                                  fontSize: 8, fontWeight: 900, height: 12,
+                                  display: 'flex', alignItems: 'center', padding: '0 4px',
+                                  background: 'rgba(16,185,129,0.1)', color: 'var(--admin-success)',
+                                  border: '1px solid rgba(16,185,129,0.2)'
+                                }}>
+                                  🟢OK
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1708,107 +1741,161 @@ export default function MultisitePage() {
                   transition: 'opacity 0.2s ease'
                 }}
               >
-                <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--admin-border-light)', paddingBottom: 6 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 9, fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase' }}>
-                        Chi tiết
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+
+                  {/* Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 6, borderBottom: '1px solid var(--admin-border-light)' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '0.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        Trạm con
                       </div>
-                      <h3 style={{
-                        fontSize: '0.7rem', fontWeight: 800, margin: '1px 0', color: 'var(--admin-text)',
-                        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
-                      }}>
-                        {selectedView.station.code || selectedView.station.id}
-                      </h3>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--admin-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {selectedView.station.code || selectedView.station.id.slice(0, 8).toUpperCase()}
+                      </div>
+                      <div style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {selectedView.station.name}
+                      </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      <button
+                        onClick={() => { setEditingStation(selectedView.station); setEditWebUrl(selectedView.station.webUrl || ''); }}
+                        title="Cấu hình URL giao diện web"
+                        style={{
+                          background: 'transparent', border: '1px solid var(--admin-border)',
+                          cursor: 'pointer', color: 'var(--admin-text-muted)',
+                          padding: '3px 5px', display: 'flex', alignItems: 'center'
+                        }}
+                      >
+                        <Settings size={10} />
+                      </button>
                       <button
                         onClick={() => navigate(`/alerts-history?stationId=${selectedView.station.id}`)}
-                        style={{ background: 'var(--admin-accent)', border: 'none', cursor: 'pointer', color: '#fff', padding: '2px 6px', borderRadius: 2, fontSize: '0.6rem', fontWeight: 700 }}
-                        title="Xem lịch sử hệ thống của trạm này"
+                        style={{
+                          background: 'transparent', border: '1px solid var(--admin-border)',
+                          cursor: 'pointer', color: 'var(--admin-text-muted)',
+                          padding: '2px 6px', fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.04em'
+                        }}
                       >
                         LỊCH SỬ
                       </button>
-                      <button
-                        onClick={() => setSelectedStationId(null)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--admin-text-muted)', padding: 1 }}
-                      >
+                      <button onClick={() => setSelectedStationId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--admin-text-muted)', padding: 2, display: 'flex' }}>
                         <X size={12} />
                       </button>
                     </div>
                   </div>
 
+                  {/* Trạng thái kết nối */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 6px', background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                        background: selectedView.station.connectionStatus === 'online' ? 'var(--admin-success)' : '#6b7280',
+                        boxShadow: selectedView.station.connectionStatus === 'online' ? '0 0 5px var(--admin-success)' : 'none'
+                      }} />
+                      <span style={{
+                        fontSize: '0.65rem', fontWeight: 900,
+                        color: selectedView.station.connectionStatus === 'online' ? 'var(--admin-success)' : '#9ca3af',
+                        letterSpacing: '0.06em'
+                      }}>
+                        {selectedView.station.connectionStatus === 'online' ? 'ONLINE' : 'OFFLINE'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.55rem', color: 'var(--admin-text-muted)' }}>
+                      {selectedView.station.lastSeenAt ? fmtDateTime(selectedView.station.lastSeenAt) : '—'}
+                    </span>
+                  </div>
+
+                  {/* KPI row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
+                      <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em' }}>THIẾT BỊ</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 900, color: 'var(--admin-text)', fontFamily: 'monospace', marginTop: 1 }}>
+                        {selectedView.kpi.devicesOnline}<span style={{ color: 'var(--admin-text-muted)', fontWeight: 400 }}>/{selectedView.kpi.devicesTotal}</span>
+                      </div>
+                    </div>
+                    <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
+                      <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em' }}>CẢNH BÁO</div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 900, fontFamily: 'monospace', marginTop: 1, color: selectedView.kpi.alarmsCount > 0 ? 'var(--admin-danger)' : selectedView.kpi.warningsCount > 0 ? 'var(--admin-accent)' : 'var(--admin-text)' }}>
+                        {selectedView.kpi.alerts}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Nút vào trạm */}
                   {selectedView.station.apiUrl ? (
                     <button
-                      onClick={() => {
-                        const base = resolveWebUrl(selectedView.station.apiUrl || '');
-                        window.open(`${base}/login?embed=1&u=admin&p=Admin%40123&next=/realtime`, '_blank');
+                      disabled={isOpeningStation}
+                      onClick={async () => {
+                        // webUrl từ backend hoặc fallback tính ở client
+                        const raw = selectedView.station.webUrl?.trim() || (() => {
+                          try {
+                            const u = new URL(normalizeUrl(selectedView.station.apiUrl!));
+                            if (u.port === '5000') u.port = '4173';
+                            else if (u.port === '6000') u.port = '6173';
+                            return u.toString().replace(/\/$/, '');
+                          } catch { return selectedView.station.apiUrl!; }
+                        })();
+
+                        // Nếu trạm con cùng máy với trạm tổng → Electron chỉ bind localhost
+                        // thay IP bằng localhost để browser kết nối được
+                        let baseUrl = raw.replace(/\/$/, '');
+                        try {
+                          const u = new URL(baseUrl);
+                          if (u.hostname === window.location.hostname) {
+                            u.hostname = 'localhost';
+                            baseUrl = u.toString().replace(/\/$/, '');
+                          }
+                        } catch { /* giữ nguyên */ }
+
+                        setIsOpeningStation(true);
+                        try {
+                          let url = baseUrl;
+                          try {
+                            const { token } = await stationApi.getRemoteToken(selectedView.station.id);
+                            if (token) url = `${baseUrl}?token=${encodeURIComponent(token)}`;
+                          } catch { /* fallback: mở không token */ }
+                          window.open(url, `station_${selectedView.station.id}`, 'width=1440,height=900,noopener');
+                        } finally {
+                          setIsOpeningStation(false);
+                        }
                       }}
                       style={{
-                        width: '100%', marginTop: 8, padding: '6px 0',
-                        background: 'rgba(16,185,129,0.12)', border: '1px solid var(--admin-success)',
-                        color: 'var(--admin-success)', cursor: 'pointer', fontSize: '0.7rem',
-                        fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                        letterSpacing: 0.5, textTransform: 'uppercase'
+                        width: '100%', padding: '7px 0',
+                        background: isOpeningStation ? 'rgba(245,158,11,0.05)' : 'rgba(245,158,11,0.1)',
+                        border: '1px solid var(--admin-accent)',
+                        color: 'var(--admin-accent)', cursor: isOpeningStation ? 'wait' : 'pointer', fontSize: '0.68rem',
+                        fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                        letterSpacing: '0.06em', textTransform: 'uppercase', opacity: isOpeningStation ? 0.7 : 1
                       }}
                     >
-                      <LogIn size={12} /> Vào trạm
+                      <LogIn size={12} /> {isOpeningStation ? 'Đang xác thực...' : 'Vào trạm'}
                     </button>
                   ) : (
                     <div style={{
-                      width: '100%', marginTop: 8, padding: '6px 0',
-                      border: '1px solid var(--admin-border)', textAlign: 'center',
-                      color: 'var(--admin-text-muted)', fontSize: '0.65rem', fontWeight: 700
-                    }}>
-                      Chưa cấu hình URL trạm
-                    </div>
+                      width: '100%', padding: '6px 0', border: '1px solid var(--admin-border)',
+                      textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '0.6rem', fontWeight: 700
+                    }}>Chưa cấu hình URL API</div>
                   )}
 
-                  <div className="custom-hud-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '8px 0' }}>
-                    <div style={{ background: 'var(--admin-hover)', border: '1px solid var(--admin-border-light)', padding: 6 }}>
-                      <div style={{ fontSize: 8, color: 'var(--admin-text-muted)', fontWeight: 800 }}>KẾT NỐI TRẠM</div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
-                        <span style={{ fontSize: '0.82rem', fontWeight: 900, color: selectedView.station.connectionStatus === 'online' ? 'var(--admin-success)' : 'var(--admin-danger)' }}>
-                          {selectedView.station.connectionStatus === 'online' ? 'ONLINE' : 'OFFLINE'}
-                        </span>
-                        <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)', textAlign: 'right' }}>
-                          {selectedView.station.lastSeenAt ? fmtDateTime(selectedView.station.lastSeenAt) : 'Chưa có dữ liệu'}
-                        </span>
-                      </div>
+                  {/* Nút xóa trạm */}
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    style={{
+                      width: '100%', padding: '5px 0',
+                      background: 'transparent', border: '1px solid rgba(239,68,68,0.2)',
+                      color: 'rgba(239,68,68,0.6)', cursor: 'pointer', fontSize: '0.58rem',
+                      fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                      letterSpacing: '0.06em', textTransform: 'uppercase'
+                    }}
+                  >
+                    <X size={9} /> Xóa trạm này
+                  </button>
+
+                  {/* Danh sách cảnh báo */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <div style={{ fontSize: '0.55rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>
+                      Cảnh báo hiện tại
                     </div>
-
-                    <div style={{ background: 'var(--admin-hover)', border: '1px solid var(--admin-border-light)', padding: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 900,
-                        color: selectedView.kpi.alerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)'
-                      }}>
-                        {selectedView.kpi.alerts > 0 ? Math.max(95 - selectedView.kpi.alerts * 15, 30) : 100}%
-                      </span>
-                      <div style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 8, color: 'var(--admin-text-muted)', fontWeight: 800 }}>HEALTH</span>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 4 }}>
-                      <div style={{ background: 'var(--admin-hover)', border: '1px solid var(--admin-border-light)', padding: 4 }}>
-                        <div style={{ fontSize: 8, color: 'var(--admin-text-muted)', fontWeight: 800 }}>ONLINE</div>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 800 }}>
-                          {selectedView.kpi.devicesOnline}/{selectedView.kpi.devicesTotal}
-                        </div>
-                      </div>
-
-                      <div style={{ background: 'var(--admin-hover)', border: '1px solid var(--admin-border-light)', padding: 4 }}>
-                        <div style={{ fontSize: 8, color: 'var(--admin-text-muted)', fontWeight: 800 }}>ALERTS</div>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: selectedView.kpi.alerts > 0 ? 'var(--admin-danger)' : 'var(--admin-text)' }}>
-                          {selectedView.kpi.alerts}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ fontSize: 8, fontWeight: 800, color: 'var(--admin-text-muted)', marginBottom: 4, textTransform: 'uppercase' }}>
-                        Alerts
-                      </div>
                       {selectedView.alertsList.length === 0 ? (
                         <div style={{
                           flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -1846,7 +1933,6 @@ export default function MultisitePage() {
                   </div>
                 </div>
               </div>
-            </div>
           )}
 
           {views.length === 0 && (
@@ -2002,15 +2088,15 @@ export default function MultisitePage() {
                 )}
               </div>
 
-              {/* URL API trạm con */}
+              {/* Địa chỉ trạm con */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
-                  URL TRẠM CON *
+                  ĐỊA CHỈ IP TRẠM CON *
                 </label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input
                     type="text"
-                    placeholder="192.168.10.102:5173  (http:// tự động thêm)"
+                    placeholder="192.168.10.102"
                     value={newStationApiUrl}
                     onChange={e => { setNewStationApiUrl(e.target.value); setConnStatus('idle'); setConnMs(null); }}
                     style={{
@@ -2036,10 +2122,11 @@ export default function MultisitePage() {
                 )}
                 {connStatus === 'fail' && (
                   <span style={{ fontSize: '0.68rem', color: 'var(--admin-danger)' }}>
-                    ● Không thể kết nối — kiểm tra lại URL và trạng thái trạm con
+                    ● Không thể kết nối tới trạm con
                   </span>
                 )}
               </div>
+
             </div>
 
             {/* Modal Footer */}
@@ -2049,7 +2136,7 @@ export default function MultisitePage() {
               borderTop: '1px solid var(--admin-border)',
               display: 'flex', justifyContent: 'flex-end', gap: 10
             }}>
-              <button 
+              <button
                 onClick={() => setIsAddModalOpen(false)}
                 disabled={isSaving}
                 className="btn-industrial"
@@ -2074,6 +2161,133 @@ export default function MultisitePage() {
       )}
 
 
+
+      {/* Edit station web URL */}
+      {editingStation && (
+        <div className="modal-overlay active" onClick={() => { if (!isSavingEdit) setEditingStation(null); }}>
+          <div className="modal-content" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, letterSpacing: '0.05em' }}>
+                CẤU HÌNH URL GIAO DIỆN — {editingStation.name}
+              </span>
+              <button className="modal-close" onClick={() => setEditingStation(null)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                  URL API BACKEND (chỉ đọc)
+                </label>
+                <div style={{
+                  padding: '7px 10px', background: 'var(--admin-layer-1)',
+                  border: '1px solid var(--admin-border)', fontSize: '0.75rem',
+                  color: 'var(--admin-text-muted)', fontFamily: 'monospace'
+                }}>
+                  {editingStation.apiUrl || '(chưa cấu hình)'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                  URL GIAO DIỆN WEB *
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="http://192.168.10.102:4173"
+                  defaultValue={editingStation.webUrl || ''}
+                  onChange={e => setEditWebUrl(e.target.value)}
+                  onFocus={e => { if (!editWebUrl) setEditWebUrl(editingStation.webUrl || ''); }}
+                  style={{
+                    background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
+                    padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none', width: '100%', boxSizing: 'border-box'
+                  }}
+                />
+                <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
+                  URL đầy đủ để mở giao diện trạm trong trình duyệt (bao gồm giao thức và cổng)
+                </span>
+              </div>
+            </div>
+            <div style={{
+              padding: '12px 24px', borderTop: '1px solid var(--admin-border)',
+              display: 'flex', justifyContent: 'flex-end', gap: 10
+            }}>
+              <button className="btn-industrial" onClick={() => setEditingStation(null)} disabled={isSavingEdit}
+                style={{ padding: '6px 16px', fontSize: '0.75rem' }}>Hủy</button>
+              <button
+                className="btn-industrial btn-primary"
+                disabled={isSavingEdit || !editWebUrl.trim()}
+                onClick={async () => {
+                  setIsSavingEdit(true);
+                  try {
+                    const webUrlNorm = normalizeUrl(editWebUrl.trim().replace(/\/$/, ''));
+                    await stationApi.updateStation(editingStation.id, {
+                      name: editingStation.name,
+                      code: editingStation.code,
+                      location: editingStation.location,
+                      apiUrl: editingStation.apiUrl,
+                      webUrl: webUrlNorm,
+                      status: editingStation.status
+                    });
+                    setEditingStation(null);
+                    setEditWebUrl('');
+                    await fetchStations(true);
+                  } catch { alert('Lưu thất bại'); }
+                  finally { setIsSavingEdit(false); }
+                }}
+                style={{ padding: '6px 16px', fontSize: '0.75rem', fontWeight: 700,
+                  background: 'var(--admin-accent)', color: '#fff', border: 'none' }}
+              >
+                {isSavingEdit ? 'Đang lưu...' : 'Lưu'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete station confirm */}
+      {showDeleteConfirm && selectedView && (
+        <div className="modal-overlay active" onClick={() => { if (!isDeleting) setShowDeleteConfirm(false); }}>
+          <div className="modal-content" style={{ width: 400, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-body" style={{ padding: '32px 24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                <AlertTriangle size={36} style={{ color: 'var(--admin-danger)' }} />
+              </div>
+              <h3 style={{ margin: '0 0 6px', fontSize: '1rem', color: 'var(--admin-danger)', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Xóa trạm
+              </h3>
+              <p style={{ margin: '0 0 4px', fontSize: '.88rem', fontWeight: 700, color: 'var(--admin-text)' }}>
+                {selectedView.station.name}
+              </p>
+              {selectedView.station.code && (
+                <p style={{ margin: '0 0 12px', fontSize: '.72rem', color: 'var(--admin-accent)', fontFamily: 'monospace', fontWeight: 800 }}>
+                  [{selectedView.station.code}]
+                </p>
+              )}
+              <p style={{ margin: '0 0 24px', opacity: 0.65, fontSize: '.8rem', lineHeight: 1.55 }}>
+                Thao tác này <strong style={{ color: 'var(--admin-danger)' }}>không thể hoàn tác</strong>.<br />
+                Trạm sẽ bị xóa vĩnh viễn. Hãy đảm bảo đã xóa hết thiết bị của trạm trước.
+              </p>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="btn-industrial"
+                  disabled={isDeleting}
+                  style={{ minWidth: 100 }}
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleDeleteStation}
+                  className="btn-industrial btn-danger"
+                  disabled={isDeleting}
+                  style={{ minWidth: 130 }}
+                >
+                  {isDeleting ? 'Đang xóa...' : 'Xác nhận xóa'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Logout confirm */}
       {showLogoutConfirm && (

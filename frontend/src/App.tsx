@@ -8,6 +8,7 @@ import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppShell from '@/components/layout/AppShell';
 import MultisitePage from '@/pages/multisite/MultisitePage';
+import LiveCameraPopup from '@/pages/multisite/LiveCameraPopup';
 
 // Lazy import — mỗi trang là một chunk riêng, tải khi cần
 const DashboardPage = React.lazy(() => import('@/pages/dashboard/DashboardPage'));
@@ -102,6 +103,7 @@ export default function App() {
 
           {/* Trạm tổng — không cần đăng nhập, tự auto-login */}
           <Route path="/multisite" element={<MultisitePage />} />
+          <Route path="/live-camera" element={<LiveCameraPopup />} />
 
           {/* AppShell bọc toàn bộ layout (sidebar + header + content) */}
           <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>

@@ -48,6 +48,8 @@ public static class DbInitializer
         // Đảm bảo các cột được thêm vào kể cả khi migration đã bị đánh dấu "applied" mà DDL chưa chạy
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Rules"" ADD COLUMN IF NOT EXISTS ""RuleSet"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ApiUrl"" text;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""WebUrl"" text;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""LastContactAt"" timestamptz;");
 
         var authService = services.GetRequiredService<AuthService>();
         await authService.SeedAdminIfNotExistsAsync();

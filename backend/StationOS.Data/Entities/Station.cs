@@ -18,4 +18,8 @@ public class Station
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     /// <summary>URL API của trạm con (dùng để trạm tổng kết nối vào). Ví dụ: http://192.168.1.100:5000</summary>
     public string? ApiUrl { get; set; }
+    /// <summary>URL giao diện web của trạm con (dùng để mở cửa sổ vào trạm). Ví dụ: http://192.168.1.100:4173</summary>
+    public string? WebUrl { get; set; }
+    /// <summary>Lần cuối trạm tổng kết nối thành công tới trạm con (ping, remote-kpi, remote-cameras).</summary>
+    public DateTime? LastContactAt { get; set; }
 }

@@ -60,16 +60,21 @@ stop_managed_process() {
     rm -f "$pid_file"
 }
 
-report_port_conflict() {
+# Giải phóng port bằng cách kill bất kỳ process nào đang listen trên đó
+kill_port_process() {
     local port="$1"
-    local lines
-    lines=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
-    if [ -n "$lines" ]; then
-        echo "⚠️  Port $port đang bị tiến trình khác sử dụng:"
-        echo "$lines"
-        return 1
+    local pids
+    pids=$(lsof -ti TCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    [ -z "$pids" ] && return 0
+    echo "  Port $port bị chiếm (PID: $pids) — đang dừng..."
+    echo "$pids" | xargs kill 2>/dev/null || true
+    sleep 2
+    pids=$(lsof -ti TCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo "  Buộc dừng port $port (PID: $pids)"
+        echo "$pids" | xargs kill -9 2>/dev/null || true
+        sleep 1
     fi
-    return 0
 }
 
 echo "=================================================="
@@ -77,12 +82,15 @@ echo "   TRẠM TỔNG (CENTRAL HUB) — KHỞI ĐỘNG"
 echo "=================================================="
 echo ""
 
-# ── 1. Chỉ dừng tiến trình do script này quản lý ──────────
+# ── 1. Dừng tiến trình cũ + giải phóng port ───────────────
 echo "[1/5] Dừng tiến trình cũ của trạm tổng..."
 stop_managed_process "backend"
 stop_managed_process "frontend"
 stop_managed_process "ai_engine"
-echo "✅ Đã xử lý tiến trình cũ của trạm tổng."
+# Giải phóng port dù PID file không tồn tại hoặc không khớp
+kill_port_process 6000
+kill_port_process 6173
+echo "✅ Đã giải phóng port và dừng tiến trình cũ."
 
 # ── 2. Khởi động Database (chỉ container của trạm tổng) ───
 echo "[2/5] Khởi động Database trạm tổng (stationos-central-db, port 6432)..."
@@ -111,10 +119,6 @@ fi
 # ── 4. Khởi động Backend .NET ──────────────────────────────
 echo "[4/5] Khởi động Backend trạm tổng (port 6000)..."
 export DOTNET_CLI_HOME=/tmp
-if ! report_port_conflict 6000; then
-    echo "❌ Không thể khởi động Backend vì port 6000 không thuộc tiến trình của trạm tổng."
-    exit 1
-fi
 
 # Dùng --no-build nếu binary đã tồn tại → khởi động tức thì (không mất 60-90s compile)
 BACKEND_BIN="$ROOT/backend/StationOS.Api/bin/Debug/net8.0/StationOS.Api"
@@ -179,10 +183,6 @@ echo ""
 # ── 6. Khởi động Frontend Vite (foreground) ───────────────
 cd "$ROOT/frontend"
 [ ! -d "node_modules" ] && echo "📦 Cài npm packages..." && npm install
-if ! report_port_conflict 6173; then
-    echo "❌ Không thể khởi động Frontend vì port 6173 không thuộc tiến trình của trạm tổng."
-    exit 1
-fi
 
 npm run dev -- --host &
 FRONTEND_PID=$!

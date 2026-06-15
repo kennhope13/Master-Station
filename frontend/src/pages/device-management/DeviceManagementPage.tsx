@@ -158,7 +158,7 @@ export default function DeviceManagementPage({
       const filtered = allRules.filter(r => r.deviceId === dev.id);
       setDeviceRules(filtered);
 
-      const firstId = stationId || await stationApi.getFirstStationId();
+      const firstId = stationId || await useStationStore.getState().getFirstStationId();
       if (firstId) {
         const pts = await stationApi.getLatestPoints(firstId).catch(() => []);
         if (pts && pts.length > 0) {
@@ -340,7 +340,7 @@ export default function DeviceManagementPage({
       const drillStationId = localStorage.getItem(MULTISITE_DRILL_STATION_KEY);
       const fallbackStationId = embeddedMode === 'central'
         ? null
-        : preferredStationId || viewingStationId || drillStationId || savedStationId || await stationApi.getFirstStationId();
+        : preferredStationId || viewingStationId || drillStationId || savedStationId || await useStationStore.getState().getFirstStationId();
       const id = preferredStationId || fallbackStationId;
       setStationId(id);
       if (id && id !== stationIdOverride) {
