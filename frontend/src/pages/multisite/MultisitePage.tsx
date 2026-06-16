@@ -1015,11 +1015,11 @@ export default function MultisitePage() {
           }}
           style={{
             position: 'absolute',
-            top: 55,
+            top: 80,
             left: selectedView && showRightPanel ? 214 : 14,
             zIndex: 1008,
-            width: 44,
-            height: 44,
+            width: 36,
+            height: 36,
             padding: 0,
             display: 'flex',
             alignItems: 'center',
@@ -1039,7 +1039,7 @@ export default function MultisitePage() {
             e.currentTarget.style.transform = 'none';
           }}
         >
-          <ArrowLeft size={36} strokeWidth={3} />
+          <ArrowLeft size={28} strokeWidth={3} style={{ position: 'relative', top: 1 }} />
         </button>
       )}
 

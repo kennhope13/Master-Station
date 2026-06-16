@@ -463,7 +463,7 @@ export default function AppShell() {
                   boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
                 }}
               >
-                <span style={{ fontSize: '0.8rem', lineHeight: 1 }}>←</span>
+                <span style={{ fontSize: '0.8rem', lineHeight: 1, position: 'relative', top: 1 }}>←</span>
                 <span>Trạm tổng</span>
               </button>
             )}
