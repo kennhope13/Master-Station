@@ -33,6 +33,8 @@ export function fmtTimeRange(range: string): { from: string; to: string } {
       from: new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10),
       to: todayStr,
     };
+  } else if (range === 'all') {
+    return { from: '', to: '' };
   }
   return { from: todayStr, to: todayStr };
 }

@@ -29,6 +29,8 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('auditTab') as TabId) || 'all';
   const [timeRange, setTimeRange] = useState('today');
+  const [customFrom, setCustomFrom] = useState(new Date().toISOString().slice(0, 10));
+  const [customTo, setCustomTo] = useState(new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [searchText, setSearchText] = useState('');
@@ -39,7 +41,13 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
 
   const currentUser = authService.getUser();
   const isCentralMode = isCentralUser(currentUser);
-  const dates = useMemo(() => fmtTimeRange(timeRange), [timeRange]);
+  
+  const dates = useMemo(() => {
+    if (timeRange === 'custom') {
+      return { from: customFrom, to: customTo };
+    }
+    return fmtTimeRange(timeRange);
+  }, [timeRange, customFrom, customTo]);
 
   useEffect(() => {
     if (isCentralMode) {
@@ -50,8 +58,8 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const loadData = useCallback(async () => {
     setLoading(true);
     const from = dates.from ? new Date(dates.from).toISOString() : undefined;
-    const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
-    const params = { from, to, limit: 300, stationId: filterStation || undefined };
+    const to = dates.to ? new Date(dates.to + (dates.to.includes('T') ? '' : 'T23:59:59')).toISOString() : undefined;
+    const params = { from, to, limit: 500, stationId: filterStation || undefined };
     try {
       const [audit, logins] = await Promise.all([stationApi.getAuditLogs(params), stationApi.getLoginLogs(params)]);
       const merged = [
@@ -108,14 +116,34 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
               <option value="audit">HÀNH ĐỘNG</option>
               <option value="login">ĐĂNG NHẬP</option>
            </select>
-           <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>HẠN:</span>
-           <select className="nvr-sel" value={timeRange} onChange={e => setTimeRange(e.target.value)}>
-              <option value="today">HÔM NAY</option>
-              <option value="yesterday">HÔM QUA</option>
-              <option value="7d">7 NGÀY</option>
-              <option value="all">TẤT CẢ</option>
-           </select>
-           <button className="nvr-lb" onClick={loadData}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
+           <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>THỜI GIAN:</span>
+           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+             <select className="nvr-sel" style={{ minWidth: 100 }} value={timeRange} onChange={e => setTimeRange(e.target.value)}>
+                <option value="today">HÔM NAY</option>
+                <option value="yesterday">HÔM QUA</option>
+                <option value="7d">7 NGÀY QUA</option>
+                <option value="custom">CHỌN NGÀY CỤ THỂ</option>
+                <option value="all">TẤT CẢ LỊCH SỬ</option>
+             </select>
+             {timeRange === 'custom' && (
+               <div style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#000', border: '1px solid #334155', padding: '2px 8px', height: 26 }}>
+                 <input 
+                   type="date" 
+                   style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 11, outline: 'none', cursor: 'pointer' }} 
+                   value={customFrom} 
+                   onChange={e => setCustomFrom(e.target.value)} 
+                 />
+                 <span style={{ color: '#475569', fontSize: 10, fontWeight: 900 }}>→</span>
+                 <input 
+                   type="date" 
+                   style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 11, outline: 'none', cursor: 'pointer' }} 
+                   value={customTo} 
+                   onChange={e => setCustomTo(e.target.value)} 
+                 />
+               </div>
+             )}
+           </div>
+           <button className="nvr-lb" title="Làm mới dữ liệu" onClick={loadData}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
         </div>
       </header>
 

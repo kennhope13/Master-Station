@@ -169,6 +169,7 @@ public class StationsController : ControllerBase
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (string Token, DateTime ExpiresAt)> _tokenCache = new();
 
+
     private async Task<string?> GetOrFetchTokenAsync(Guid stationId, string apiBase, bool forceRefresh = false)
     {
         if (!forceRefresh && _tokenCache.TryGetValue(stationId, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
@@ -222,8 +223,10 @@ public class StationsController : ControllerBase
             // 1. Lấy token từ cache hoặc login
             var token = await GetOrFetchTokenAsync(id, apiBase);
             if (string.IsNullOrEmpty(token))
-                return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = "auth_failed" });
-
+            {
+                System.Console.WriteLine($"[StationsController] Không lấy được token cho trạm {station.Name} ({station.ApiUrl})");
+                return StatusCode(502, new { error = "auth_failed", message = $"Không thể đăng nhập trạm {station.Name}" });
+            }
             // Ghi nhận lần kết nối thành công
             station.LastContactAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();

@@ -210,8 +210,8 @@
   overflow: hidden;
 }
 .cdv-view-toggle button {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border: none;

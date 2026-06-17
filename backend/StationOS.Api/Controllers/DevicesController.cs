@@ -7,6 +7,10 @@
 // ============================================================
 
 using System.Text.Json;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -107,6 +111,92 @@ public class DevicesController : ControllerBase
     /// Lấy danh sách thiết bị theo trạm
     /// Query: ?type=camera để lọc theo loại
     /// </summary>
+    private static readonly ConcurrentDictionary<Guid, (string Token, DateTime ExpiresAt)> _tokenCache = new();
+
+    private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            if (element.TryGetProperty(propertyName, out value)) return true;
+            // Try PascalCase
+            string pascal = char.ToUpper(propertyName[0]) + propertyName.Substring(1);
+            if (element.TryGetProperty(pascal, out value)) return true;
+            // Try uppercase
+            string upper = propertyName.ToUpperInvariant();
+            if (element.TryGetProperty(upper, out value)) return true;
+        }
+        value = default;
+        return false;
+    }
+
+    private async Task<string?> GetOrFetchTokenAsync(Guid stationId, string apiBase, bool forceRefresh = false)
+    {
+        if (!forceRefresh && _tokenCache.TryGetValue(stationId, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
+        {
+            return cached.Token;
+        }
+
+        try
+        {
+            var loginClient = _http.CreateClient();
+            var loginBody = JsonContent.Create(new { username = "admin", password = "Admin@123" });
+            var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/login", loginBody);
+            if (!loginRes.IsSuccessStatusCode)
+                return null;
+
+            var loginJson = await loginRes.Content.ReadFromJsonAsync<JsonElement>();
+            if (loginJson.TryGetProperty("token", out var tokenProp))
+            {
+                var token = tokenProp.GetString();
+                if (!string.IsNullOrEmpty(token))
+                {
+                    _tokenCache[stationId] = (token, DateTime.UtcNow.AddMinutes(30));
+                    return token;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"[DevicesController] Error authenticating with child station {stationId}: {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private async Task<(Guid StationId, string ApiUrl)?> FindRemoteStationByDeviceIdAsync(Guid deviceId)
+    {
+        var stations = await _db.Stations
+            .Where(s => s.Status == "active" && !string.IsNullOrWhiteSpace(s.ApiUrl))
+            .ToListAsync();
+
+        var tasks = stations.Select(async s =>
+        {
+            var apiBase = s.ApiUrl.TrimEnd('/');
+            try
+            {
+                var token = await GetOrFetchTokenAsync(s.Id, apiBase);
+                if (!string.IsNullOrEmpty(token))
+                {
+                    using var client = _http.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(2);
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                    var res = await client.GetAsync($"{apiBase}/api/v1/devices/{deviceId}");
+                    if (res.IsSuccessStatusCode)
+                        return (s.Id, apiBase);
+                }
+            }
+            catch {}
+            return ((Guid, string)?)null;
+        });
+
+        var results = await Task.WhenAll(tasks);
+        foreach (var r in results)
+        {
+            if (r.HasValue) return r.Value;
+        }
+        return null;
+    }
+
     [HttpGet("stations/{stationId}/devices")]
     public async Task<IActionResult> GetByStation(Guid stationId, [FromQuery] string? type)
     {
@@ -114,6 +204,73 @@ public class DevicesController : ControllerBase
         var allowed = await _permissions.GetAllowedStationIdsAsync();
         if (allowed != null && !allowed.Contains(stationId))
             return Forbid();
+
+        var station = await _db.Stations.FindAsync(stationId);
+        if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
+        {
+            var apiBase = station.ApiUrl.TrimEnd('/');
+            try
+            {
+                var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                if (!string.IsNullOrEmpty(token))
+                {
+                    station.LastContactAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync();
+
+                    using var client = _http.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(10);
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                    var url = $"{apiBase}/api/v1/devices";
+                    var response = await client.GetAsync(url);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+                        if (json != null)
+                        {
+                            var list = new List<object>();
+                            foreach (var d in json)
+                            {
+                                string? dType = TryGetPropertyIgnoreCase(d, "type", out var tEl) ? tEl.GetString() : null;
+                                if (!string.IsNullOrEmpty(type) && (dType == null || !dType.Contains(type)))
+                                    continue;
+
+                                string? dId = TryGetPropertyIgnoreCase(d, "id", out var idEl) ? idEl.GetString() : null;
+                                string? dName = TryGetPropertyIgnoreCase(d, "name", out var nameEl) ? nameEl.GetString() : null;
+                                string? dProtocol = TryGetPropertyIgnoreCase(d, "protocol", out var protoEl) ? protoEl.GetString() : null;
+                                string? dStatus = TryGetPropertyIgnoreCase(d, "status", out var statEl) ? statEl.GetString() : null;
+                                string? dCreatedAt = TryGetPropertyIgnoreCase(d, "createdAt", out var crEl) ? crEl.GetString() : null;
+
+                                string? dConfigStr = null;
+                                if (TryGetPropertyIgnoreCase(d, "config", out var configEl))
+                                {
+                                    dConfigStr = configEl.ValueKind == JsonValueKind.String 
+                                        ? configEl.GetString() 
+                                        : configEl.GetRawText();
+                                }
+
+                                list.Add(new
+                                {
+                                    Id = dId != null ? Guid.Parse(dId) : Guid.Empty,
+                                    Name = dName ?? "",
+                                    Type = dType ?? "",
+                                    Protocol = dProtocol ?? "",
+                                    Status = dStatus ?? "unknown",
+                                    CreatedAt = dCreatedAt != null ? DateTime.Parse(dCreatedAt) : DateTime.UtcNow,
+                                    StationId = stationId,
+                                    Config = _crypto.RedactPasswordInConfigJson(dConfigStr)
+                                });
+                            }
+                            return Ok(list);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Error fetching remote devices for station {stationId}: {ex.Message}");
+            }
+        }
 
         var query = _db.Devices.Where(d => d.StationId == stationId);
         if (!string.IsNullOrEmpty(type))
@@ -123,11 +280,11 @@ public class DevicesController : ControllerBase
             .OrderBy(d => d.Type).ThenBy(d => d.Name)
             .Select(d => new {
                 d.Id, d.Name, d.Type, d.Protocol,
-                d.Config, d.Status, d.CreatedAt
+                d.Config, d.Status, d.CreatedAt, d.StationId
             }).ToListAsync();
 
         var devices = raw.Select(d => new {
-            d.Id, d.Name, d.Type, d.Protocol, d.Status, d.CreatedAt,
+            d.Id, d.Name, d.Type, d.Protocol, d.Status, d.CreatedAt, d.StationId,
             Config = _crypto.RedactPasswordInConfigJson(d.Config),
         });
         return Ok(devices);
@@ -157,6 +314,39 @@ public class DevicesController : ControllerBase
     [HttpPost("devices/auto-configure")]
     public async Task<IActionResult> AutoConfigure([FromBody] AutoConfigureRequest req)
     {
+        var station = await _db.Stations.FindAsync(req.StationId);
+        if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
+        {
+            var apiBase = station.ApiUrl.TrimEnd('/');
+            try
+            {
+                var token = await GetOrFetchTokenAsync(req.StationId, apiBase);
+                if (!string.IsNullOrEmpty(token))
+                {
+                    using var client = _http.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                    var response = await client.PostAsJsonAsync($"{apiBase}/api/v1/devices/auto-configure", req);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var configureRes = await response.Content.ReadFromJsonAsync<JsonElement>();
+                        return Ok(configureRes);
+                    }
+                    else
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        return StatusCode((int)response.StatusCode, errorContent);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Error forwarding auto-configure to station {req.StationId}: {ex.Message}");
+                return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+            }
+        }
+
         var caps = await _isapi.DiscoverCapabilitiesAsync(req.Ip, req.Username, req.Password);
         if (caps == null)
             return NotFound(new { error = "Không kết nối được hoặc không phải thiết bị Hikvision ISAPI" });
@@ -251,6 +441,47 @@ public class DevicesController : ControllerBase
     [HttpPost("devices")]
     public async Task<IActionResult> Create([FromBody] CreateDeviceRequest req)
     {
+        var station = await _db.Stations.FindAsync(req.StationId);
+        if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
+        {
+            var apiBase = station.ApiUrl.TrimEnd('/');
+            try
+            {
+                var token = await GetOrFetchTokenAsync(req.StationId, apiBase);
+                if (!string.IsNullOrEmpty(token))
+                {
+                    using var client = _http.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(15);
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                    var forwardReq = new {
+                        req.Name,
+                        req.Type,
+                        req.Protocol,
+                        req.Config,
+                        req.Capabilities,
+                        StationId = station.Id
+                    };
+                    var response = await client.PostAsJsonAsync($"{apiBase}/api/v1/devices", forwardReq);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var createdDevice = await response.Content.ReadFromJsonAsync<JsonElement>();
+                        return StatusCode((int)response.StatusCode, createdDevice);
+                    }
+                    else
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        return StatusCode((int)response.StatusCode, errorContent);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Error forwarding create device to station {req.StationId}: {ex.Message}");
+                return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+            }
+        }
+
         // Tôn trọng loại thiết bị user chọn — không tự override.
         // Capabilities chỉ probe để LƯU vào DB (xem được ở UI), không sửa req.Type.
         string? capsJson = null;
@@ -392,7 +623,41 @@ public class DevicesController : ControllerBase
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateDeviceRequest req)
     {
         var device = await _db.Devices.FindAsync(id);
-        if (device == null) return NotFound();
+        if (device == null)
+        {
+            var remoteInfo = await FindRemoteStationByDeviceIdAsync(id);
+            if (remoteInfo != null)
+            {
+                var (stationId, apiBase) = remoteInfo.Value;
+                try
+                {
+                    var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        using var client = _http.CreateClient();
+                        client.Timeout = TimeSpan.FromSeconds(15);
+                        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                        var response = await client.PutAsJsonAsync($"{apiBase}/api/v1/devices/{id}", req);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var updatedDevice = await response.Content.ReadFromJsonAsync<JsonElement>();
+                            return Ok(updatedDevice);
+                        }
+                        else
+                        {
+                            var errorContent = await response.Content.ReadAsStringAsync();
+                            return StatusCode((int)response.StatusCode, errorContent);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+                }
+            }
+            return NotFound();
+        }
 
         device.Name = req.Name ?? device.Name;
         if (req.Config != null)
@@ -443,7 +708,40 @@ public class DevicesController : ControllerBase
     public async Task<IActionResult> Delete(Guid id)
     {
         var device = await _db.Devices.FindAsync(id);
-        if (device == null) return NotFound();
+        if (device == null)
+        {
+            var remoteInfo = await FindRemoteStationByDeviceIdAsync(id);
+            if (remoteInfo != null)
+            {
+                var (stationId, apiBase) = remoteInfo.Value;
+                try
+                {
+                    var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        using var client = _http.CreateClient();
+                        client.Timeout = TimeSpan.FromSeconds(15);
+                        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                        var response = await client.DeleteAsync($"{apiBase}/api/v1/devices/{id}");
+                        if (response.IsSuccessStatusCode)
+                        {
+                            return NoContent();
+                        }
+                        else
+                        {
+                            var errorContent = await response.Content.ReadAsStringAsync();
+                            return StatusCode((int)response.StatusCode, errorContent);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+                }
+            }
+            return NotFound();
+        }
 
         // 1. Nếu là camera → hủy đăng ký stream với go2rtc
         if (device.Type.StartsWith("camera"))
@@ -485,7 +783,33 @@ public class DevicesController : ControllerBase
     public async Task<IActionResult> TestConnection(Guid id)
     {
         var device = await _db.Devices.FindAsync(id);
-        if (device == null) return NotFound();
+        if (device == null)
+        {
+            var remoteInfo = await FindRemoteStationByDeviceIdAsync(id);
+            if (remoteInfo != null)
+            {
+                var (stationId, apiBase) = remoteInfo.Value;
+                try
+                {
+                    var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        using var client = _http.CreateClient();
+                        client.Timeout = TimeSpan.FromSeconds(15);
+                        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                        var response = await client.PostAsync($"{apiBase}/api/v1/devices/{id}/test", null);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var testRes = await response.Content.ReadFromJsonAsync<JsonElement>();
+                            return Ok(testRes);
+                        }
+                    }
+                }
+                catch {}
+            }
+            return NotFound();
+        }
 
         var result = await _deviceService.TestConnectionAsync(device);
         return Ok(new { success = result.Success, message = result.Message, latencyMs = result.LatencyMs });
@@ -838,7 +1162,8 @@ public record CreateDeviceRequest(
     string Name,
     string Type,        // camera | plc_s7 | modbus_tcp — camera subtype auto-detected via ISAPI
     string? Protocol,
-    string? Config      // JSONB: { ip, username, password, rtsp_path, go2rtc_id, ... }
+    string? Config,     // JSONB: { ip, username, password, rtsp_path, go2rtc_id, ... }
+    string? Capabilities // optional capabilities JSON or description
 );
 
 public record UpdateDeviceRequest(

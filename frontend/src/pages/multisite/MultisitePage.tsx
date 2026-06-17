@@ -150,6 +150,7 @@ export default function MultisitePage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as MultisiteTab) || 'overview';
+  const stationIdFromQuery = searchParams.get('stationId');
 
   const setActiveTab = (tab: MultisiteTab) => {
     setSearchParams(prev => {
@@ -190,6 +191,17 @@ export default function MultisitePage() {
       setSelectedProvince(null);
     }
   }, [activeTab, location.key]);
+
+  useEffect(() => {
+    if (!stationIdFromQuery) return;
+    setSelectedStationId(stationIdFromQuery);
+    if (activeTab === 'overview') {
+      setShowRightPanel(true);
+    }
+    if (activeTab === 'devices') {
+      setDevicesSubTab('overview');
+    }
+  }, [activeTab, stationIdFromQuery]);
 
   useEffect(() => {
     overviewFittedRef.current = false;
@@ -341,6 +353,21 @@ export default function MultisitePage() {
     if (!trimmed) return trimmed;
     if (!/^https?:\/\//i.test(trimmed)) return `http://${trimmed}`;
     return trimmed;
+  };
+
+  const getStationEndpointInfo = (station: { apiUrl?: string; webUrl?: string }) => {
+    const rawUrl = (station.apiUrl || station.webUrl || '').trim();
+    if (!rawUrl) return { host: '—', ip: '—', port: '—' };
+
+    try {
+      const parsed = new URL(normalizeUrl(rawUrl));
+      const host = parsed.hostname || '—';
+      const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ? host : '—';
+      const port = parsed.port || (parsed.protocol === 'https:' ? '443' : parsed.protocol === 'http:' ? '80' : '—');
+      return { host, ip, port };
+    } catch {
+      return { host: rawUrl, ip: '—', port: '—' };
+    }
   };
 
 
@@ -1016,7 +1043,7 @@ export default function MultisitePage() {
           style={{
             position: 'absolute',
             top: 80,
-            left: selectedView && showRightPanel ? 214 : 14,
+            left: 14,
             zIndex: 1008,
             width: 36,
             height: 36,
@@ -1399,7 +1426,7 @@ export default function MultisitePage() {
             className="multisite-page-left-panel"
             style={{
               position: 'absolute', top: 74, right: 0, bottom: 0,
-              width: showLeftPanel ? 200 : 0,
+              width: showLeftPanel ? 260 : 0,
               zIndex: 1000, pointerEvents: 'none',
               transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               display: 'flex',
@@ -1503,6 +1530,7 @@ export default function MultisitePage() {
                           const isWarning = v.kpi.alerts > 0;
                           const isActive = selectedStationId === v.station.id;
                           const isOnline = v.station.connectionStatus === 'online';
+                          const endpoint = getStationEndpointInfo(v.station);
 
                           return (
                             <div
@@ -1536,6 +1564,17 @@ export default function MultisitePage() {
                                   }}>
                                     {v.station.name}
                                   </span>
+                                  <span style={{
+                                    fontSize: '0.5rem',
+                                    color: 'var(--admin-text-muted)',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    paddingLeft: 22,
+                                    fontFamily: 'monospace'
+                                  }}>
+                                    {endpoint.host} | {endpoint.ip} | {endpoint.port}
+                                  </span>
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1544,8 +1583,8 @@ export default function MultisitePage() {
                                       width: 7,
                                       height: 7,
                                       borderRadius: '50%',
-                                      background: isOnline ? 'var(--admin-success)' : 'var(--admin-danger)',
-                                      boxShadow: isOnline ? '0 0 6px var(--admin-success)' : '0 0 6px var(--admin-danger)'
+                                      background: isOnline ? 'var(--admin-success)' : '#6b7280',
+                                      boxShadow: isOnline ? '0 0 6px var(--admin-success)' : 'none'
                                     }}
                                     title={isOnline ? 'Online' : 'Offline'}
                                   />
@@ -1693,8 +1732,8 @@ export default function MultisitePage() {
             <div
               className="multisite-page-right-panel"
               style={{
-                position: 'absolute', top: 74, left: 0, bottom: 0,
-                width: showRightPanel ? 200 : 0,
+                position: 'absolute', top: 74, left: 64, bottom: 0,
+                width: showRightPanel ? 280 : 0,
                 zIndex: 1000, pointerEvents: 'none',
                 transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                 display: 'flex',
@@ -1804,6 +1843,25 @@ export default function MultisitePage() {
                       {selectedView.station.lastSeenAt ? fmtDateTime(selectedView.station.lastSeenAt) : '—'}
                     </span>
                   </div>
+
+                  {(() => {
+                    const endpoint = getStationEndpointInfo(selectedView.station);
+                    return (
+                      <div style={{ padding: '5px 6px', background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)' }}>
+                        <div style={{ fontSize: '0.5rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em', marginBottom: 2 }}>
+                          HOST / IP / PORT
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr', gap: '2px 6px', fontSize: '0.58rem', color: 'var(--admin-text)', fontFamily: 'monospace' }}>
+                          <span style={{ color: 'var(--admin-text-muted)' }}>HOST</span>
+                          <span style={{ overflowWrap: 'anywhere' }}>{endpoint.host}</span>
+                          <span style={{ color: 'var(--admin-text-muted)' }}>IP</span>
+                          <span style={{ overflowWrap: 'anywhere' }}>{endpoint.ip}</span>
+                          <span style={{ color: 'var(--admin-text-muted)' }}>PORT</span>
+                          <span>{endpoint.port}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* KPI row */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>

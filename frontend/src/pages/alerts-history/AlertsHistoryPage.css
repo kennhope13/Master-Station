@@ -41,6 +41,25 @@
 .nvr-stat b { color: var(--admin-accent); }
 
 .nvr-sel { background: #000; border: 1px solid #334155; color: #fff; height: 24px; font-size: 10px; font-weight: 800; padding: 0 4px; cursor: pointer; }
+.nvr-date-input {
+  background: #000;
+  border: 1px solid #334155;
+  color: #fff;
+  height: 24px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 0 6px;
+  cursor: pointer;
+  font-family: inherit;
+  outline: none;
+}
+.nvr-date-input:focus {
+  border-color: var(--admin-accent);
+}
+.nvr-date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
 .nvr-lb { background: #1e293b; border: 1px solid #334155; color: #fff; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
 .nvr-lb:hover { background: var(--admin-accent); color: #000; }
 

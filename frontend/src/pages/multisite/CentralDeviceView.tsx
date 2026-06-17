@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle, ArrowUpDown, CheckSquare, ChevronDown, ChevronLeft,
   ChevronRight, ChevronUp, Copy, Cpu, Download, Edit3,
-  GripVertical, LayoutGrid, List, Plus, RefreshCw,
+  List, Plus, RefreshCw,
   RotateCw, Search, Server, Thermometer, Trash2, Video, Wifi, X, Zap,
 } from 'lucide-react';
 import type { Station, Device } from '@/types/api.types';
@@ -209,7 +209,7 @@ export default function CentralDeviceView({
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   // View mode
-  const [viewMode, setViewMode] = useState<ViewMode>('grouped');
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
 
   // Auto-refresh
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -762,33 +762,15 @@ export default function CentralDeviceView({
           {/* View mode toggle (drilldown only) */}
           {isDrilldown && (
             <div className="cdv-view-toggle">
-              {(['grouped', 'table', 'cards'] as ViewMode[]).map(mode => (
-                <button
-                  key={mode}
-                  className={viewMode === mode ? 'active' : ''}
-                  onClick={() => setViewMode(mode)}
-                  title={mode === 'grouped' ? 'Nhóm' : mode === 'table' ? 'Bảng' : 'Thẻ'}
-                >
-                  {mode === 'grouped' ? <GripVertical size={11} /> :
-                   mode === 'table' ? <List size={11} /> :
-                   <LayoutGrid size={11} />}
-                </button>
-              ))}
+              <button
+                className="active"
+                onClick={() => setViewMode('table')}
+                title="Bảng"
+              >
+                <List size={14} />
+              </button>
             </div>
           )}
-
-          {/* Sort buttons (drilldown only) */}
-          {isDrilldown && (Object.keys(SORT_FIELD_LABELS) as SortField[]).map(field => (
-            <button
-              key={field}
-              className={`cdv-chip sort ${sortField === field ? 'active' : ''}`}
-              onClick={() => handleSort(field)}
-            >
-              <ArrowUpDown size={9} />
-              {SORT_FIELD_LABELS[field]}
-              {sortField === field && (sortDir === 'asc' ? ' ↑' : ' ↓')}
-            </button>
-          ))}
 
           {/* Export */}
           <button className="cdv-chip" onClick={handleExportCSV} title="Xuất CSV">
@@ -844,68 +826,6 @@ export default function CentralDeviceView({
         {/* ══════ DASHBOARD: All stations overview ══════ */}
         {!isDrilldown && stations.length > 0 && (
           <div className="cdv-dashboard">
-
-            {/* Fleet Health Panel */}
-            {fleetSummary.totalDevices > 0 && (
-              <div className="cdv-fleet-panel">
-                <FleetDonut
-                  online={fleetSummary.onlineDevices}
-                  maintenance={fleetSummary.maintenanceDevices}
-                  offline={fleetSummary.offlineDevices}
-                  total={fleetSummary.totalDevices}
-                />
-                <div className="cdv-fleet-stats">
-                  <div className="cdv-fleet-title">SỨC KHỎE TOÀN HỆ THỐNG</div>
-                  <div className="cdv-fleet-rows">
-                    <div className="cdv-fleet-row">
-                      <span className="cdv-fleet-dot" style={{ background: 'var(--admin-success)' }} />
-                      <span className="cdv-fleet-label">Online</span>
-                      <div className="cdv-fleet-bar-track">
-                        <div className="cdv-fleet-bar-fill" style={{
-                          width: `${fleetSummary.totalDevices ? (fleetSummary.onlineDevices / fleetSummary.totalDevices) * 100 : 0}%`,
-                          background: 'var(--admin-success)',
-                        }} />
-                      </div>
-                      <span className="cdv-fleet-count" style={{ color: 'var(--admin-success)' }}>
-                        {fleetSummary.onlineDevices}
-                      </span>
-                    </div>
-                    {fleetSummary.maintenanceDevices > 0 && (
-                      <div className="cdv-fleet-row">
-                        <span className="cdv-fleet-dot" style={{ background: 'var(--admin-warning)' }} />
-                        <span className="cdv-fleet-label">Bảo trì</span>
-                        <div className="cdv-fleet-bar-track">
-                          <div className="cdv-fleet-bar-fill" style={{
-                            width: `${(fleetSummary.maintenanceDevices / fleetSummary.totalDevices) * 100}%`,
-                            background: 'var(--admin-warning)',
-                          }} />
-                        </div>
-                        <span className="cdv-fleet-count" style={{ color: 'var(--admin-warning)' }}>
-                          {fleetSummary.maintenanceDevices}
-                        </span>
-                      </div>
-                    )}
-                    <div className="cdv-fleet-row">
-                      <span className="cdv-fleet-dot" style={{ background: 'var(--admin-danger)' }} />
-                      <span className="cdv-fleet-label">Offline</span>
-                      <div className="cdv-fleet-bar-track">
-                        <div className="cdv-fleet-bar-fill" style={{
-                          width: `${fleetSummary.totalDevices ? (fleetSummary.offlineDevices / fleetSummary.totalDevices) * 100 : 0}%`,
-                          background: 'var(--admin-danger)',
-                        }} />
-                      </div>
-                      <span className="cdv-fleet-count" style={{ color: 'var(--admin-danger)' }}>
-                        {fleetSummary.offlineDevices}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="cdv-fleet-meta">
-                    {fleetSummary.stationCount} trạm · {fleetSummary.totalDevices} thiết bị tổng
-                  </div>
-                </div>
-              </div>
-            )}
-
             {stationSummaries.length === 0 ? (
               <div className="cdv-empty">
                 <span>Không có trạm nào khớp với bộ lọc</span>
@@ -918,7 +838,7 @@ export default function CentralDeviceView({
                     <div
                       key={s.id}
                       className="cdv-station-card"
-                      onClick={() => { onSelectStation(s.id); setViewMode('grouped'); expandAllGroups(); }}
+                      onClick={() => { onSelectStation(s.id); setViewMode('table'); }}
                     >
                       {/* Top: name + health ring */}
                       <div className="cdv-station-top">

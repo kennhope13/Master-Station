@@ -14,7 +14,10 @@ type AlertDetail = AlertItem & { history: AlertHistoryEntry[] };
 
 export default function AlertsHistoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const stationId = searchParams.get('stationId') || undefined;
   const [timeRange, setTimeRange] = useState('7d');
+  const [customFrom, setCustomFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [filterStatus, setFilterStatus] = useState('');
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -29,7 +32,15 @@ export default function AlertsHistoryPage() {
   const ackAlertInStore = useAlertStore(s => s.ack);
   const closeAlertInStore = useAlertStore(s => s.close);
 
-  const dates = useMemo(() => fmtTimeRange(timeRange), [timeRange]);
+  const dates = useMemo(() => {
+    if (timeRange === 'custom') {
+      return { from: customFrom, to: customTo };
+    }
+    if (timeRange === 'all') {
+      return { from: '', to: '' };
+    }
+    return fmtTimeRange(timeRange);
+  }, [timeRange, customFrom, customTo]);
 
   useEffect(() => { fetchStations(); }, [fetchStations]);
 
@@ -38,10 +49,10 @@ export default function AlertsHistoryPage() {
     try {
       const from = dates.from ? new Date(dates.from).toISOString() : undefined;
       const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
-      const data = await stationApi.getAlerts(filterStatus || undefined, from, to);
+      const data = await stationApi.getAlerts(filterStatus || undefined, from, to, 200, stationId);
       setAlerts(data);
     } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [dates, filterStatus]);
+  }, [dates, filterStatus, stationId]);
 
   useEffect(() => { loadAlerts(); }, [loadAlerts]);
 
@@ -111,8 +122,26 @@ export default function AlertsHistoryPage() {
               <option value="today">HÔM NAY</option>
               <option value="yesterday">HÔM QUA</option>
               <option value="7d">7 NGÀY</option>
+              <option value="custom">TÙY CHỌN</option>
               <option value="all">TẤT CẢ</option>
            </select>
+           {timeRange === 'custom' && (
+             <div className="nvr-custom-dates" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+               <input
+                 type="date"
+                 className="nvr-date-input"
+                 value={customFrom}
+                 onChange={e => setCustomFrom(e.target.value)}
+               />
+               <span className="rtm-title" style={{ fontSize: 9, opacity: 0.5 }}>-</span>
+               <input
+                 type="date"
+                 className="nvr-date-input"
+                 value={customTo}
+                 onChange={e => setCustomTo(e.target.value)}
+               />
+             </div>
+           )}
            <button className="nvr-lb" onClick={loadAlerts}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
         </div>
       </header>

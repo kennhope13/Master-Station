@@ -26,6 +26,7 @@ import './AnalyticsLayout.css';
 interface StationAnalyticsSnapshot {
   station: Station;
   devices: Device[];
+  deviceTotal: number;
   points: SensorPoint[];
   healthScores: HealthScore[];
   avgHealth: number | null;
@@ -65,6 +66,23 @@ const getPdClass = (count: number) => {
 function parseLocation(raw?: string): { lat?: number; lng?: number; address?: string } {
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { return {}; }
+}
+
+function getStationEndpointInfo(station: Station) {
+  const rawUrl = station.apiUrl || station.webUrl;
+  if (!rawUrl) {
+    return { host: '—', ip: '—', port: '—' };
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname || '—';
+    const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(host) ? host : '—';
+    const port = parsed.port || (parsed.protocol === 'https:' ? '443' : parsed.protocol === 'http:' ? '80' : '—');
+    return { host, ip, port };
+  } catch {
+    return { host: rawUrl, ip: '—', port: '—' };
+  }
 }
 
 // ── Cabinet Summary Helper ─────────────────────────────────────
@@ -134,7 +152,7 @@ function StationTrendChart({ color, data }: { color: string; data: { time: strin
   return <canvas ref={ref} style={{ width: '100%', height: '100%' }} />;
 }
 
-function StationAnalysisOverlay({ snapshot, onClose, drillIntoStation, navigateToAnalytics }: { snapshot: StationAnalyticsSnapshot; onClose: () => void; drillIntoStation: (id: string) => void; navigateToAnalytics: (id: string, tab: string) => void; }) {
+function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openStationAlerts }: { snapshot: StationAnalyticsSnapshot; onClose: () => void; openStationDevices: (id: string) => void; openStationAlerts: (id: string) => void; }) {
   const [activeTab, setActiveTab] = useState<'overview' | 'thermal' | 'pd' | 'live' | 'alerts' | 'diagnostics'>('overview');
   const [localAlerts, setLocalAlerts] = useState<AlertItem[]>([]);
   const [loadingAlerts, setLoadingAlerts] = useState(false);
@@ -143,7 +161,7 @@ function StationAnalysisOverlay({ snapshot, onClose, drillIntoStation, navigateT
   const loadStationAlerts = useCallback(async () => {
     setLoadingAlerts(true);
     try {
-      const res = await stationApi.getAlerts(snapshot.station.id, 'open', undefined, 20);
+      const res = await stationApi.getAlerts('open', undefined, undefined, 20, snapshot.station.id);
       setLocalAlerts(res);
     } catch (err) {
       console.error('Failed to load station alerts', err);
@@ -193,7 +211,7 @@ function StationAnalysisOverlay({ snapshot, onClose, drillIntoStation, navigateT
     >
       <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--admin-layer-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 10, height: 10, borderRadius: 0, background: snapshot.onlineDevices === snapshot.devices.length ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: `0 0 12px ${snapshot.onlineDevices === snapshot.devices.length ? 'var(--admin-success)' : 'var(--admin-danger)'}` }} />
+          <div style={{ width: 10, height: 10, borderRadius: 0, background: snapshot.onlineDevices === snapshot.deviceTotal ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: `0 0 12px ${snapshot.onlineDevices === snapshot.deviceTotal ? 'var(--admin-success)' : 'var(--admin-danger)'}` }} />
           <div>
             <div style={{ fontSize: '.55rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: 2 }}>TRUNG TÂM ĐIỀU HÀNH</div>
             <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#fff', letterSpacing: '0.02em' }}>{snapshot.station.name}</div>
@@ -236,7 +254,7 @@ function StationAnalysisOverlay({ snapshot, onClose, drillIntoStation, navigateT
               </div>
               <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 16 }}>
                 <div style={{ fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Thiết bị Trạm</div>
-                <div style={{ fontSize: '1.6rem', fontWeight: 950, color: '#fff' }}>{snapshot.onlineDevices}<span style={{ fontSize: '.9rem', color: 'var(--admin-text-muted)', marginLeft: 4 }}>/ {snapshot.devices.length}</span></div>
+                <div style={{ fontSize: '1.6rem', fontWeight: 950, color: '#fff' }}>{snapshot.onlineDevices}<span style={{ fontSize: '.9rem', color: 'var(--admin-text-muted)', marginLeft: 4 }}>/ {snapshot.deviceTotal}</span></div>
               </div>
             </div>
 
@@ -257,15 +275,15 @@ function StationAnalysisOverlay({ snapshot, onClose, drillIntoStation, navigateT
               <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Thao tác Nhanh</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <button 
-                  onClick={() => drillIntoStation(snapshot.station.id)}
+                  onClick={() => openStationDevices(snapshot.station.id)}
                   style={{ padding: '12px', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid #3b82f644', borderRadius: 0, color: '#3b82f6', fontSize: '.65rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.25)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.15)'; e.currentTarget.style.transform = 'translateY(0)'; }}
                 >
-                  <Maximize2 size={14} /> SƠ ĐỒ SLD
+                  <Maximize2 size={14} /> THIẾT BỊ TRẠM
                 </button>
                 <button 
-                  onClick={() => navigateToAnalytics(snapshot.station.id, 'alerts')}
+                  onClick={() => openStationAlerts(snapshot.station.id)}
                   style={{ padding: '12px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef444444', borderRadius: 0, color: '#ef4444', fontSize: '.65rem', fontWeight: 900, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s' }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.25)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.15)'; e.currentTarget.style.transform = 'translateY(0)'; }}
@@ -438,12 +456,12 @@ function StationAnalysisOverlay({ snapshot, onClose, drillIntoStation, navigateT
 
       <div style={{ padding: 16, borderTop: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', display: 'flex', gap: 10 }}>
          <button 
-           onClick={() => drillIntoStation(snapshot.station.id)}
+           onClick={() => openStationDevices(snapshot.station.id)}
            style={{ flex: 1, padding: '12px', background: 'transparent', border: '1px solid var(--admin-accent)', color: 'var(--admin-accent)', borderRadius: 0, fontSize: '.7rem', fontWeight: 900, cursor: 'pointer', transition: 'all 0.2s', letterSpacing: '0.05em' }}
            onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-accent)'; e.currentTarget.style.color = '#000'; }}
            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--admin-accent)'; }}
          >
-           VẬN HÀNH CHI TIẾT (FULL VIEW)
+           MỞ TẠI TRẠM TỔNG
          </button>
       </div>
     </div>
@@ -454,6 +472,7 @@ function StationCard({ snapshot, selected, onClick }: { snapshot: StationAnalyti
   const health = getHealthClass(snapshot.avgHealth);
   const thermal = getThermalClass(snapshot.hottestPoint?.value ?? null);
   const hasAlerts = snapshot.openAlerts > 0;
+  const endpoint = getStationEndpointInfo(snapshot.station);
 
   return (
     <div
@@ -478,6 +497,9 @@ function StationCard({ snapshot, selected, onClick }: { snapshot: StationAnalyti
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '.72rem', fontWeight: 800, color: 'var(--admin-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{snapshot.station.name}</div>
           <div style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)', fontFamily: 'monospace' }}>{snapshot.station.code || 'NO-CODE'}</div>
+          <div style={{ marginTop: 3, fontSize: '.52rem', color: 'var(--admin-text-muted)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            H:{endpoint.host} | IP:{endpoint.ip} | P:{endpoint.port}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           {hasAlerts && (
@@ -485,7 +507,7 @@ function StationCard({ snapshot, selected, onClick }: { snapshot: StationAnalyti
               {snapshot.openAlerts}
             </span>
           )}
-          <div style={{ width: 7, height: 7, borderRadius: 0, background: snapshot.onlineDevices === snapshot.devices.length && snapshot.devices.length > 0 ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: snapshot.onlineDevices === snapshot.devices.length && snapshot.devices.length > 0 ? '0 0 6px var(--admin-success)' : '0 0 6px var(--admin-danger)' }} />
+          <div style={{ width: 7, height: 7, borderRadius: 0, background: snapshot.onlineDevices === snapshot.deviceTotal && snapshot.deviceTotal > 0 ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: snapshot.onlineDevices === snapshot.deviceTotal && snapshot.deviceTotal > 0 ? '0 0 6px var(--admin-success)' : '0 0 6px var(--admin-danger)' }} />
         </div>
       </div>
 
@@ -516,7 +538,7 @@ function StationCard({ snapshot, selected, onClick }: { snapshot: StationAnalyti
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <Wifi size={10} style={{ color: 'var(--admin-success)' }} />
-            <span style={{ fontSize: '.55rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>{snapshot.onlineDevices}/{snapshot.devices.length}</span>
+            <span style={{ fontSize: '.55rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>{snapshot.onlineDevices}/{snapshot.deviceTotal}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <Shield size={10} style={{ color: snapshot.openAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-accent)' }} />
@@ -717,7 +739,7 @@ export default function CentralAnalyticsLayout() {
             // For child stations, use remote data when local master DB is empty
             const useRemote = isChild && remoteKpi && !remoteKpi.error;
 
-            const effectivePoints: SensorPoint[] = (useRemote && points.length === 0 && remoteKpi!.points.length > 0)
+            const effectivePoints: SensorPoint[] = (useRemote && remoteKpi!.points.length > 0)
               ? remoteKpi!.points.map(p => ({
                   deviceId: p.deviceId,
                   pointId: p.pointId,
@@ -729,7 +751,7 @@ export default function CentralAnalyticsLayout() {
                 } as unknown as SensorPoint))
               : points;
 
-            const effectiveHealthScores: HealthScore[] = (useRemote && healthScores.length === 0 && remoteKpi!.healthScores.length > 0)
+            const effectiveHealthScores: HealthScore[] = (useRemote && remoteKpi!.healthScores.length > 0)
               ? remoteKpi!.healthScores.map(h => ({
                   deviceId: h.deviceId,
                   deviceName: h.deviceName,
@@ -770,11 +792,18 @@ export default function CentralAnalyticsLayout() {
                   createdAt: '',
                 } as Device))
               : devices;
-            const effectiveOnline = (useRemote && devices.length === 0) ? remoteKpi!.devicesOnline : devices.filter(d => d.status === 'online').length;
-            const effectiveAlerts = (useRemote && stationAlerts.length === 0) ? remoteKpi!.alertsCount : stationAlerts.length;
+            const effectiveDeviceTotal = useRemote
+              ? remoteKpi!.devicesTotal
+              : effectiveDevices.length;
+            const effectiveOnline = useRemote
+              ? remoteKpi!.devicesOnline
+              : devices.filter(d => d.status === 'online').length;
+            const effectiveAlerts = useRemote
+              ? remoteKpi!.alertsCount
+              : stationAlerts.length;
 
             return {
-              station, devices: effectiveDevices, points: effectivePoints, healthScores: effectiveHealthScores,
+              station, devices: effectiveDevices, deviceTotal: effectiveDeviceTotal, points: effectivePoints, healthScores: effectiveHealthScores,
               avgHealth,
               onlineDevices: effectiveOnline,
               openAlerts: effectiveAlerts,
@@ -800,7 +829,7 @@ export default function CentralAnalyticsLayout() {
 
   const fleetSummary = useMemo(() => {
     const totalStations = stations.length;
-    const totalDevices = stations.reduce((s, i) => s + i.devices.length, 0);
+    const totalDevices = stations.reduce((s, i) => s + i.deviceTotal, 0);
     const totalOnline = stations.reduce((s, i) => s + i.onlineDevices, 0);
     const totalAlerts = stations.reduce((s, i) => s + i.openAlerts, 0);
     const totalPdWarnings = stations.reduce((s, i) => s + i.warningPdPoints, 0);
@@ -915,7 +944,7 @@ export default function CentralAnalyticsLayout() {
           <span style="font-size:10px;opacity:.7">${sn.station.code || '—'}</span>
           <hr style="margin:6px 0;border-color:rgba(255,255,255,.1)"/>
           Health: <b style="color:${health.color}">${sn.avgHealth != null ? sn.avgHealth.toFixed(0) : '—'}</b><br/>
-          Devices: ${sn.onlineDevices}/${sn.devices.length}<br/>
+          Devices: ${sn.onlineDevices}/${sn.deviceTotal}<br/>
           Alerts: <b style="color:${hasAlerts ? 'var(--admin-danger)' : 'inherit'}">${sn.openAlerts}</b>
         </div>
       `);
@@ -974,63 +1003,22 @@ export default function CentralAnalyticsLayout() {
 
   // ── Actions ────────────────────────────────────────────────
 
-  const drillIntoStation = useCallback((stationId: string) => {
+  const openStationDevices = useCallback((stationId: string) => {
     localStorage.setItem(MULTISITE_RETURN_TAB_KEY, 'analytics');
-    setViewingStation(stationId);
-    navigate(`/dashboard?station=${stationId}`);
+    setViewingStation(null);
+    navigate(`/multisite?tab=devices&stationId=${encodeURIComponent(stationId)}`);
   }, [navigate, setViewingStation]);
 
-  const navigateToAnalytics = useCallback((stationId: string, tab: string) => {
-    localStorage.setItem('multisite_return_tab', 'analytics');
-    setViewingStation(stationId);
-    navigate(`/analytics?tab=${tab}`);
+  const openStationAlerts = useCallback((stationId: string) => {
+    localStorage.setItem(MULTISITE_RETURN_TAB_KEY, 'analytics');
+    setViewingStation(null);
+    navigate(`/alerts-history?stationId=${encodeURIComponent(stationId)}`);
   }, [navigate, setViewingStation]);
 
   // ── Render ─────────────────────────────────────────────────
 
   return (
     <div className="central-analytics-shell" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', overflow: 'hidden' }}>
-      {/* ── Top Header Bar ─────────────────────────────────── */}
-      <div className="central-analytics-header" style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '0 20px',
-        background: 'var(--admin-panel)',
-        borderBottom: '1px solid var(--admin-border)',
-        height: 48,
-        gap: 20,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Crosshair size={20} style={{ color: 'var(--admin-accent)' }} />
-          <h2 style={{ margin: 0, fontSize: '.85rem', fontWeight: 950, color: 'var(--admin-text)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-            PHÂN TÍCH ĐA TRẠM
-          </h2>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <div style={{ display: 'flex', gap: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Tổng trạm:</span>
-              <span style={{ fontSize: '.9rem', fontWeight: 900, color: 'var(--admin-accent)' }}>{fleetSummary.totalStations}</span>
-            </div>
-            <div style={{ width: 1, height: 16, background: 'var(--admin-border)', alignSelf: 'center' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Cảnh báo:</span>
-              <span style={{ fontSize: '.9rem', fontWeight: 900, color: fleetSummary.totalAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-success)' }}>{fleetSummary.totalAlerts}</span>
-            </div>
-            <div style={{ width: 1, height: 16, background: 'var(--admin-border)', alignSelf: 'center' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Thiết bị Online:</span>
-              <span style={{ fontSize: '.9rem', fontWeight: 900, color: 'var(--admin-text)' }}>{fleetSummary.totalOnline}/{fleetSummary.totalDevices}</span>
-            </div>
-          </div>
-          <div style={{ width: 1, height: 32, background: 'var(--admin-border)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-             <Activity size={18} className="pulse-slow" style={{ color: 'var(--admin-success)' }} />
-             <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-success)', letterSpacing: '0.05em' }}>HỆ THỐNG ĐANG GIÁM SÁT</span>
-          </div>
-        </div>
-      </div>
-
       {/* ── Main Content: Left Panel + Map ───────────────── */}
       <div className="central-analytics-main" style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         {/* ── Left Panel: Station List ────────────────────── */}
@@ -1121,8 +1109,8 @@ export default function CentralAnalyticsLayout() {
             <StationAnalysisOverlay 
               snapshot={selectedSnapshot} 
               onClose={() => setShowAnalysisOverlay(false)} 
-              drillIntoStation={drillIntoStation}
-              navigateToAnalytics={navigateToAnalytics}
+              openStationDevices={openStationDevices}
+              openStationAlerts={openStationAlerts}
             />
           )}
 

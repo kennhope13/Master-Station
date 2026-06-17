@@ -61,15 +61,15 @@ export default function LiveStationPicker({ views }: Props) {
           const borderColor = !online
             ? 'rgba(107,114,128,0.4)'
             : hasAlarm
-            ? 'rgba(239,68,68,0.6)'
+            ? 'rgba(239,68,68,0.45)'
             : hasWarning
-            ? 'rgba(245,158,11,0.5)'
+            ? 'rgba(245,158,11,0.4)'
             : 'rgba(16,185,129,0.3)';
 
           const glowColor = !online ? 'none'
-            : hasAlarm ? '0 0 14px rgba(239,68,68,0.25)'
-            : hasWarning ? '0 0 14px rgba(245,158,11,0.2)'
-            : '0 0 14px rgba(16,185,129,0.12)';
+            : hasAlarm ? '0 0 6px rgba(239,68,68,0.12)'
+            : hasWarning ? '0 0 6px rgba(245,158,11,0.1)'
+            : '0 0 6px rgba(16,185,129,0.08)';
 
           return (
             <button
@@ -92,10 +92,10 @@ export default function LiveStationPicker({ views }: Props) {
               onMouseEnter={e => {
                 (e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)';
                 (e.currentTarget as HTMLElement).style.borderColor = online
-                  ? hasAlarm ? 'rgba(239,68,68,0.9)'
-                  : hasWarning ? 'rgba(245,158,11,0.8)'
-                  : 'rgba(16,185,129,0.6)'
-                  : 'rgba(107,114,128,0.6)';
+                  ? hasAlarm ? 'rgba(239,68,68,0.65)'
+                  : hasWarning ? 'rgba(245,158,11,0.55)'
+                  : 'rgba(16,185,129,0.45)'
+                  : 'rgba(107,114,128,0.5)';
               }}
               onMouseLeave={e => {
                 (e.currentTarget as HTMLElement).style.transform = 'translateY(0)';

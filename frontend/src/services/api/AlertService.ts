@@ -10,9 +10,10 @@ import type { AlertItem, AlertHistoryEntry } from '@/types/api.types';
 
 export class AlertService {
   /** Lấy danh sách cảnh báo. Lọc theo status (open/acked/closed), khoảng thời gian, giới hạn số lượng. */
-  async getAlerts(status?: string, from?: string, to?: string, limit = 200): Promise<AlertItem[]> {
+  async getAlerts(status?: string, from?: string, to?: string, limit = 200, stationId?: string): Promise<AlertItem[]> {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
+    if (stationId) params.set('stationId', stationId);
     if (from)   params.set('from', from);
     if (to)     params.set('to', to);
     params.set('limit', String(limit));

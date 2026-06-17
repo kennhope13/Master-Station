@@ -59,6 +59,7 @@ public class AlertsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] string? status,
+        [FromQuery] Guid? stationId,
         [FromQuery] DateTime? from,
         [FromQuery] DateTime? to,
         [FromQuery] int limit = 200)
@@ -70,6 +71,9 @@ public class AlertsController : ControllerBase
 
         if (!string.IsNullOrEmpty(status))
             q = q.Where(a => a.Status == status);
+
+        if (stationId.HasValue)
+            q = q.Where(a => a.StationId == stationId.Value);
 
         if (from.HasValue) q = q.Where(a => a.TriggeredAt >= from.Value);
         if (to.HasValue)   q = q.Where(a => a.TriggeredAt <= to.Value);
