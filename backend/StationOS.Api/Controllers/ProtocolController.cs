@@ -10,12 +10,13 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StationOS.Services;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/protocols")]
-[Authorize(Roles = "admin,manager")]
+[HasPermission("device:manage")]
 public class ProtocolController : ControllerBase
 {
     private readonly AutoDiscoveryService        _discovery;

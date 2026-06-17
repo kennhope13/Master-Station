@@ -117,6 +117,11 @@ public class AuthService
             claims.Add(new Claim("stationIds", string.Join(",", user.StationIds)));
         }
 
+        if (user.Permissions != null && user.Permissions.Length > 0)
+        {
+            claims.Add(new Claim("permissions", string.Join(",", user.Permissions)));
+        }
+
         var token = new JwtSecurityToken(
             issuer: _config["Jwt:Issuer"],
             audience: _config["Jwt:Audience"],

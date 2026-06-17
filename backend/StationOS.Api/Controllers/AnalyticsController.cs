@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Workers.Polling;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -34,6 +35,7 @@ public class AnalyticsController : ControllerBase
     /// </summary>
     // ── GET /api/v1/analytics/health?stationId= ──────────────
     [HttpGet("health")]
+    [HasPermission("report:view")]
     public async Task<IActionResult> GetHealth([FromQuery] Guid? stationId)
     {
         var devicesQ = _db.Devices.AsQueryable();
@@ -118,6 +120,7 @@ public class AnalyticsController : ControllerBase
     /// </summary>
     // ── GET /api/v1/analytics/trend?stationId=&days=7 ────────
     [HttpGet("trend")]
+    [HasPermission("report:view")]
     public async Task<IActionResult> GetTrend(
         [FromQuery] Guid? stationId,
         [FromQuery] int   days = 7)
@@ -198,7 +201,7 @@ public class AnalyticsController : ControllerBase
     // ── POST /api/v1/analytics/health/recalculate ────────────
     // Xóa zone states cũ + tính lại điểm sức khỏe ngay lập tức
     [HttpPost("health/recalculate")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("report:manage")]
     public async Task<IActionResult> Recalculate([FromQuery] Guid? deviceId)
     {
         // Xóa zone states (bắt đầu lại từ 0 ngày trong vùng)

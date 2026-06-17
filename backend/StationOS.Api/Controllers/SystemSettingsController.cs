@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // SystemSettingsController — Cài đặt hệ thống theo trạm
 // Routes:
 //   GET /api/v1/settings         — Lấy tất cả settings của trạm đầu tiên
@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -67,7 +68,7 @@ public class SystemSettingsController : ControllerBase
     /// Tự động tạo nếu chưa có (upsert)
     /// </summary>
     [HttpPut("{key}")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("settings:manage")]
     public async Task<IActionResult> Update(string key, [FromBody] UpdateSettingRequest req)
     {
         var station = await _db.Stations.FirstOrDefaultAsync();

@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -36,6 +37,7 @@ public class SldController : ControllerBase
     /// <param name="stationId">ID của trạm.</param>
     /// <returns>svgUrl, version, danh sách points đã gắn thiết bị, và unpinned (chưa đặt lên sơ đồ).</returns>
     [HttpGet("{stationId:guid}")]
+    [HasPermission("rule:view")]
     public async Task<IActionResult> Get(Guid stationId)
     {
         // SldFile active của trạm (nếu có)
@@ -129,7 +131,7 @@ public class SldController : ControllerBase
     /// <param name="file">File SVG cần upload.</param>
     /// <returns>sldFileId, svgUrl có version cache-busting, và số version mới.</returns>
     [HttpPost("{stationId:guid}/upload")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> Upload(Guid stationId, IFormFile file)
     {
         if (file == null || file.Length == 0)
@@ -207,7 +209,7 @@ public class SldController : ControllerBase
     /// <param name="req">Thông tin điểm: DeviceId, tọa độ X/Y, bán kính R, label và PointId tùy chọn.</param>
     /// <returns>Điểm vừa tạo kèm thông tin thiết bị liên kết.</returns>
     [HttpPost("{stationId:guid}/points")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> AddPoint(Guid stationId, [FromBody] AddPointRequest req)
     {
         // Lấy SldFile active (hoặc tạo placeholder nếu chưa upload SVG)
@@ -273,7 +275,7 @@ public class SldController : ControllerBase
     /// <param name="req">Các trường cần cập nhật: X, Y, R, Label (tất cả tùy chọn).</param>
     /// <returns>Điểm đã cập nhật hoặc 404 nếu không tìm thấy.</returns>
     [HttpPut("points/{id:guid}")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> UpdatePoint(Guid id, [FromBody] UpdatePointRequest req)
     {
         var point = await _db.SldPoints.FindAsync(id);
@@ -294,7 +296,7 @@ public class SldController : ControllerBase
     /// <param name="id">ID của SldPoint cần xóa.</param>
     /// <returns>Thông báo xóa thành công hoặc 404 nếu không tìm thấy.</returns>
     [HttpDelete("points/{id:guid}")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> DeletePoint(Guid id)
     {
         var point = await _db.SldPoints.FindAsync(id);

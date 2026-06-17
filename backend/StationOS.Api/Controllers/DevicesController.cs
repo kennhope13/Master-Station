@@ -21,6 +21,7 @@ using StationOS.Services;
 using StationOS.Services.Camera;
 using StationOS.Services.Devices;
 using StationOS.Services.Security;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -439,6 +440,7 @@ public class DevicesController : ControllerBase
     /// PLC / Modbus: cần truyền Type thủ công.
     /// </summary>
     [HttpPost("devices")]
+    [HasPermission("device:manage")]
     public async Task<IActionResult> Create([FromBody] CreateDeviceRequest req)
     {
         var station = await _db.Stations.FindAsync(req.StationId);
@@ -620,6 +622,7 @@ public class DevicesController : ControllerBase
     /// Sửa cấu hình thiết bị (IP, tên, config...)
     /// </summary>
     [HttpPut("devices/{id}")]
+    [HasPermission("device:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateDeviceRequest req)
     {
         var device = await _db.Devices.FindAsync(id);
@@ -682,7 +685,7 @@ public class DevicesController : ControllerBase
     /// CHỈ Admin/Manager được phép gọi endpoint này.
     /// </summary>
     [HttpGet("devices/{id}/credentials")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("device:manage")]
     public async Task<IActionResult> GetCredentials(Guid id)
     {
         var device = await _db.Devices.FindAsync(id);
@@ -705,6 +708,7 @@ public class DevicesController : ControllerBase
     /// Xóa thiết bị — nếu là camera thì xóa stream khỏi go2rtc
     /// </summary>
     [HttpDelete("devices/{id}")]
+    [HasPermission("device:manage")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var device = await _db.Devices.FindAsync(id);

@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
 using StationOS.Services;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -107,7 +108,7 @@ public class StationsController : ControllerBase
     /// <param name="req">Thông tin trạm (name, code, location).</param>
     /// <returns>Station vừa tạo với status 201 Created.</returns>
     [HttpPost]
-    [Authorize(Roles = "admin")]
+    [HasPermission("station:manage")]
     public async Task<IActionResult> Create([FromBody] StationRequest req)
     {
         var station = new Station
@@ -129,7 +130,7 @@ public class StationsController : ControllerBase
     /// <param name="req">Thông tin cần cập nhật.</param>
     /// <returns>Station đã cập nhật.</returns>
     [HttpPut("{id}")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("station:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] StationRequest req)
     {
         var station = await _db.Stations.FindAsync(id);
@@ -151,7 +152,7 @@ public class StationsController : ControllerBase
     /// <param name="id">Station ID.</param>
     /// <returns>204 NoContent hoặc 400 nếu còn thiết bị.</returns>
     [HttpDelete("{id}")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("station:manage")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var station = await _db.Stations.FindAsync(id);
@@ -450,7 +451,7 @@ public class StationsController : ControllerBase
 
     /// <summary>Kiểm tra kết nối tới trạm con qua ApiUrl.</summary>
     [HttpPost("test-connection")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("station:manage")]
     public async Task<IActionResult> TestConnection([FromBody] StationPingRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.Url))

@@ -7,6 +7,7 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    public DbSet<Province> Provinces => Set<Province>();
     public DbSet<Station> Stations => Set<Station>();
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<User> Users => Set<User>();
@@ -52,6 +53,16 @@ public class AppDbContext : DbContext
 
         // JSON columns (PostgreSQL JSONB)
         modelBuilder.Entity<Station>().Property(x => x.Location).HasColumnType("jsonb");
+        // Station.ProvinceId FK
+        modelBuilder.Entity<Station>()
+            .HasOne<Province>()
+            .WithMany()
+            .HasForeignKey(s => s.ProvinceId)
+            .OnDelete(DeleteBehavior.SetNull);
+        // User.ProvinceIds — lưu dưới dạng Guid array (PostgreSQL)
+        modelBuilder.Entity<User>().Property(x => x.ProvinceIds).HasColumnType("uuid[]");
+        // User.Permissions — lưu dưới dạng string array (PostgreSQL text[])
+        modelBuilder.Entity<User>().Property(x => x.Permissions).HasColumnType("text[]");
         modelBuilder.Entity<Device>().Property(x => x.Config).HasColumnType("jsonb");
         modelBuilder.Entity<Rule>().Property(x => x.Condition).HasColumnType("jsonb");
         modelBuilder.Entity<Rule>().Property(x => x.Actions).HasColumnType("jsonb");

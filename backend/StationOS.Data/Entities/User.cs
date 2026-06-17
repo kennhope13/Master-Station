@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace StationOS.Data.Entities;
 
@@ -9,8 +9,13 @@ public class User
     [Required] public string PasswordHash { get; set; } = string.Empty;
     public string? FullName { get; set; }
     public string? Email { get; set; }
-    [Required] public string Role { get; set; } = "operator"; // operator | manager | admin
+    [Required] public string Role { get; set; } = "operator"; // operator | manager | admin_station | admin_province | admin
+    /// <summary>Danh sách trạm được phép quản lý (Admin Trạm). null = không giới hạn.</summary>
     public Guid[]? StationIds { get; set; }
+    /// <summary>Danh sách tỉnh được phép quản lý (Admin Tỉnh). null = không giới hạn.</summary>
+    public Guid[]? ProvinceIds { get; set; }
+    /// <summary>Danh sách các mã quyền được cấp (Permissions checklist). Ví dụ: ["station:view", "device:manage"]</summary>
+    public string[]? Permissions { get; set; }
     public bool IsActive { get; set; } = true;
 
     /// <summary>true = user phải đổi password trước khi dùng tiếp.

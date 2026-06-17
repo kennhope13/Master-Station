@@ -5,7 +5,7 @@
 // ============================================================
 
 // ── Auth & User ───────────────────────────────────────────────
-export type UserRole = 'admin' | 'manager' | 'operator';
+export type UserRole = 'admin' | 'admin_province' | 'admin_station' | 'manager' | 'operator';
 
 export interface User {
   user_id: string;
@@ -17,6 +17,8 @@ export interface User {
   created_at: string;
   is_restricted?: boolean;
   station_ids?: string[];
+  province_ids?: string[];
+  permissions?: string[];
 }
 
 // ── Trạm và Thiết bị ─────────────────────────────────────────
@@ -250,7 +252,25 @@ export interface UserItem {
   role: string;           // operator | manager | admin
   isActive: boolean;
   stationIds?: string[];
+  provinceIds?: string[];
+  permissions?: string[];
   createdAt: string;
+}
+
+export interface Province {
+  id: string;
+  name: string;
+  code?: string;
+  description?: string;
+  status: string;
+  createdAt: string;
+  stationCount?: number;
+}
+
+export interface PermissionInfo {
+  key: string;
+  name: string;
+  group: string;
 }
 
 // ── Sơ đồ một sợi (SLD) ──────────────────────────────────────

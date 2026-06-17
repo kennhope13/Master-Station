@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Services;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -56,7 +57,7 @@ public class SyncController : ControllerBase
     /// <returns>Thông báo số item đã reset.</returns>
     // POST /api/v1/sync/trigger — trigger sync ngay (reset retry count của failed items)
     [HttpPost("trigger")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("settings:manage")]
     public async Task<IActionResult> TriggerSync(CancellationToken ct)
     {
         // Reset failed items để retry lại

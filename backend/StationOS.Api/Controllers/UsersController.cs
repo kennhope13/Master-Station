@@ -19,6 +19,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -53,7 +54,7 @@ public class UsersController : ControllerBase
 
     /// <summary>Danh sách users. Restricted admin chỉ thấy user thuộc trạm của mình.</summary>
     [HttpGet]
-    [Authorize(Roles = "admin")]
+    [HasPermission("user:view")]
     public async Task<IActionResult> GetAll()
     {
         var (isRestricted, callerStationIds) = GetCallerScope();
@@ -62,7 +63,7 @@ public class UsersController : ControllerBase
         var all = await query.Select(u => new
         {
             u.Id, u.Username, u.FullName, u.Email,
-            u.Role, u.IsActive, u.StationIds, u.CreatedAt
+            u.Role, u.IsActive, u.StationIds, u.ProvinceIds, u.Permissions, u.CreatedAt
         }).ToListAsync();
 
         if (isRestricted && callerStationIds != null)
@@ -73,9 +74,32 @@ public class UsersController : ControllerBase
         return Ok(all);
     }
 
+    /// <summary>Lấy danh sách các Permission Keys khả dụng cho bảng chọn phân quyền (checklist).</summary>
+    [HttpGet("permissions")]
+    [HasPermission("user:view")]
+    public IActionResult GetAvailablePermissions()
+    {
+        var permissions = new[]
+        {
+            new { Key = "station:view", Name = "Xem Trạm", Group = "Quản lý Trạm" },
+            new { Key = "station:manage", Name = "Cấu hình / Quản lý Trạm", Group = "Quản lý Trạm" },
+            new { Key = "device:view", Name = "Xem Thiết bị / Đo lường", Group = "Vận hành" },
+            new { Key = "device:manage", Name = "Quản lý Thiết bị", Group = "Vận hành" },
+            new { Key = "user:view", Name = "Xem Người dùng", Group = "Quản trị" },
+            new { Key = "user:manage", Name = "Quản lý Người dùng / Phân quyền", Group = "Quản trị" },
+            new { Key = "rule:view", Name = "Xem Quy tắc / SLD", Group = "Cấu hình" },
+            new { Key = "rule:manage", Name = "Cấu hình Quy tắc / SLD", Group = "Cấu hình" },
+            new { Key = "report:view", Name = "Xem Báo cáo / Nhật ký", Group = "Báo cáo" },
+            new { Key = "report:manage", Name = "Tạo Báo cáo thủ công", Group = "Báo cáo" },
+            new { Key = "settings:manage", Name = "Cài đặt hệ thống", Group = "Hệ thống" },
+            new { Key = "license:manage", Name = "Quản lý Bản quyền / Giftcode", Group = "Bản quyền" }
+        };
+        return Ok(permissions);
+    }
+
     /// <summary>Tạo user mới. Restricted admin không tạo được global admin và chỉ gán trạm trong scope.</summary>
     [HttpPost]
-    [Authorize(Roles = "admin")]
+    [HasPermission("user:manage")]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest req)
     {
         var (isRestricted, callerStationIds) = GetCallerScope();
@@ -86,10 +110,10 @@ public class UsersController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 6)
             return BadRequest(new { message = "Mật khẩu phải ít nhất 6 ký tự" });
 
-        var validRoles = new[] { "operator", "manager", "admin" };
+        var validRoles = new[] { "operator", "manager", "admin_station", "admin_province", "admin" };
         var role = req.Role?.ToLower() ?? "operator";
         if (!validRoles.Contains(role))
-            return BadRequest(new { message = "Vai trò không hợp lệ (operator|manager|admin)" });
+            return BadRequest(new { message = "Vai trò không hợp lệ" });
 
         var stationIds = req.StationIds;
 
@@ -114,7 +138,9 @@ public class UsersController : ControllerBase
             Email        = req.Email?.Trim(),
             Role         = role,
             IsActive     = true,
-            StationIds   = stationIds
+            StationIds   = stationIds,
+            ProvinceIds  = req.ProvinceIds,
+            Permissions  = req.Permissions
         };
 
         _db.Users.Add(user);
@@ -123,13 +149,13 @@ public class UsersController : ControllerBase
         return Ok(new
         {
             user.Id, user.Username, user.FullName,
-            user.Email, user.Role, user.IsActive, user.StationIds, user.CreatedAt
+            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.Permissions, user.CreatedAt
         });
     }
 
     /// <summary>Sửa thông tin user. Restricted admin chỉ sửa user trong scope trạm.</summary>
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("user:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest req)
     {
         var (isRestricted, callerStationIds) = GetCallerScope();
@@ -144,7 +170,7 @@ public class UsersController : ControllerBase
         if (req.Email    != null) user.Email    = req.Email.Trim();
         if (req.Role     != null)
         {
-            var validRoles = new[] { "operator", "manager", "admin" };
+            var validRoles = new[] { "operator", "manager", "admin_station", "admin_province", "admin" };
             if (!validRoles.Contains(req.Role.ToLower()))
                 return BadRequest(new { message = "Vai trò không hợp lệ" });
 
@@ -156,21 +182,21 @@ public class UsersController : ControllerBase
             user.Role = req.Role.ToLower();
         }
         if (req.IsActive.HasValue) user.IsActive = req.IsActive.Value;
-        if (req.StationIds != null)
-        {
+        if (req.StationIds  != null) {
             var newIds = req.StationIds;
-            // Restricted admin chỉ gán trạm trong scope của mình
             if (isRestricted && callerStationIds != null)
                 newIds = newIds.Intersect(callerStationIds).ToArray();
             user.StationIds = newIds;
         }
+        if (req.ProvinceIds != null) user.ProvinceIds = req.ProvinceIds;
+        if (req.Permissions != null) user.Permissions = req.Permissions;
 
         await _db.SaveChangesAsync();
 
         return Ok(new
         {
             user.Id, user.Username, user.FullName,
-            user.Email, user.Role, user.IsActive, user.StationIds, user.CreatedAt
+            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.Permissions, user.CreatedAt
         });
     }
 
@@ -219,7 +245,7 @@ public class UsersController : ControllerBase
 
     /// <summary>Vô hiệu hóa user. Restricted admin chỉ vô hiệu user trong scope trạm.</summary>
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("user:manage")]
     public async Task<IActionResult> Deactivate(Guid id)
     {
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -251,7 +277,9 @@ public record CreateUserRequest(
     string? FullName,
     string? Email,
     string? Role,
-    Guid[]? StationIds
+    Guid[]? StationIds,
+    Guid[]? ProvinceIds,
+    string[]? Permissions
 );
 
 public record UpdateUserRequest(
@@ -259,7 +287,9 @@ public record UpdateUserRequest(
     string? Email,
     string? Role,
     bool?   IsActive,
-    Guid[]? StationIds
+    Guid[]? StationIds,
+    Guid[]? ProvinceIds,
+    string[]? Permissions
 );
 
 public record ChangePasswordRequest(

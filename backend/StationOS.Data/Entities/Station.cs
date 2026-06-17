@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
 namespace StationOS.Data.Entities;
 
@@ -22,4 +22,7 @@ public class Station
     public string? WebUrl { get; set; }
     /// <summary>Lần cuối trạm tổng kết nối thành công tới trạm con (ping, remote-kpi, remote-cameras).</summary>
     public DateTime? LastContactAt { get; set; }
+
+    /// <summary>Tỉnh / Vùng mà trạm này thuộc về. null = chưa gán tỉnh.</summary>
+    public Guid? ProvinceId { get; set; }
 }

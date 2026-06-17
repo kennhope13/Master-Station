@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // ReportsController
 // POST /api/v1/reports/generate   — Tạo báo cáo PDF ngay
 // GET  /api/v1/reports            — Danh sách báo cáo
@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Services.Reports;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -35,6 +36,7 @@ public class ReportsController : ControllerBase
     /// <param name="req">Tham số báo cáo: stationId, type, from, to.</param>
     /// <returns>Thông tin báo cáo vừa tạo kèm đường dẫn file PDF.</returns>
     [HttpPost("generate")]
+    [HasPermission("report:manage")]
     public async Task<IActionResult> Generate([FromBody] GenerateRequest req)
     {
         if (req.From >= req.To)
@@ -60,6 +62,7 @@ public class ReportsController : ControllerBase
     /// <param name="limit">Số lượng tối đa trả về (mặc định 50).</param>
     /// <returns>Danh sách báo cáo.</returns>
     [HttpGet]
+    [HasPermission("report:view")]
     public async Task<IActionResult> List([FromQuery] Guid? stationId, [FromQuery] int limit = 50)
     {
         var q = _db.Reports.AsQueryable();
@@ -78,6 +81,7 @@ public class ReportsController : ControllerBase
     /// <param name="id">ID của báo cáo.</param>
     /// <returns>File PDF với tên theo loại và kỳ báo cáo, hoặc 404 nếu không tìm thấy.</returns>
     [HttpGet("{id:guid}/download")]
+    [HasPermission("report:view")]
     public async Task<IActionResult> Download(Guid id)
     {
         var report = await _db.Reports.FindAsync(id);
@@ -109,7 +113,7 @@ public class ReportsController : ControllerBase
     /// <param name="id">ID của báo cáo cần xóa.</param>
     /// <returns>204 NoContent nếu thành công hoặc 404 nếu không tìm thấy.</returns>
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("report:manage")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var report = await _db.Reports.FindAsync(id);

@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // MaintenanceController — Quản lý lịch bảo trì
 // GET    /api/v1/maintenance                     — Danh sách tasks
 // POST   /api/v1/maintenance                     — Tạo task mới
@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -35,6 +36,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="deviceId">Lọc theo thiết bị (tùy chọn).</param>
     /// <returns>Danh sách task bảo trì kèm tên thiết bị liên kết.</returns>
     [HttpGet]
+    [HasPermission("maintenance:view")]
     public async Task<IActionResult> GetAll(
         [FromQuery] Guid? stationId,
         [FromQuery] string? status,
@@ -71,6 +73,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="req">Thông tin task bảo trì cần tạo.</param>
     /// <returns>Task bảo trì vừa tạo.</returns>
     [HttpPost]
+    [HasPermission("maintenance:manage")]
     public async Task<IActionResult> Create([FromBody] CreateMaintenanceRequest req)
     {
         var task = new MaintenanceTask
@@ -106,6 +109,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="req">Các trường cần cập nhật.</param>
     /// <returns>Task bảo trì đã được cập nhật hoặc 404 nếu không tìm thấy.</returns>
     [HttpPut("{id:guid}")]
+    [HasPermission("maintenance:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateMaintenanceRequest req)
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
@@ -136,7 +140,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="id">ID của task bảo trì cần xóa.</param>
     /// <returns>Thông báo xóa thành công hoặc 404 nếu không tìm thấy.</returns>
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("maintenance:manage")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
@@ -152,6 +156,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="id">ID của task bảo trì.</param>
     /// <returns>Task bảo trì đã cập nhật trạng thái hoặc 404 nếu không tìm thấy.</returns>
     [HttpPost("{id:guid}/start")]
+    [HasPermission("maintenance:manage")]
     public async Task<IActionResult> Start(Guid id)
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
@@ -176,6 +181,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="req">Ghi chú khi hoàn thành (tùy chọn).</param>
     /// <returns>Task bảo trì đã cập nhật hoặc 404 nếu không tìm thấy.</returns>
     [HttpPost("{id:guid}/complete")]
+    [HasPermission("maintenance:manage")]
     public async Task<IActionResult> Complete(Guid id, [FromBody] CompleteRequest? req = null)
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
@@ -217,6 +223,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="alertId">ID của Alert nguồn.</param>
     /// <returns>Task bảo trì vừa tạo hoặc 404 nếu không tìm thấy alert.</returns>
     [HttpPost("from-alert/{alertId:guid}")]
+    [HasPermission("maintenance:manage")]
     public async Task<IActionResult> CreateFromAlert(Guid alertId)
     {
         var alert = await _db.Alerts.FindAsync(alertId);
@@ -254,6 +261,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="days">Số ngày tính từ hôm nay (mặc định 7).</param>
     /// <returns>Danh sách task bảo trì sắp tới, sắp xếp theo ngày dự kiến.</returns>
     [HttpGet("upcoming")]
+    [HasPermission("maintenance:view")]
     public async Task<IActionResult> GetUpcoming(
         [FromQuery] Guid? stationId,
         [FromQuery] int days = 7)
@@ -289,6 +297,7 @@ public class MaintenanceController : ControllerBase
     /// <param name="stationId">Lọc theo trạm (tùy chọn).</param>
     /// <returns>Danh sách gợi ý bảo trì kèm mức độ ưu tiên và ngày đề xuất.</returns>
     [HttpGet("suggestions")]
+    [HasPermission("maintenance:view")]
     public async Task<IActionResult> GetSuggestions([FromQuery] Guid? stationId)
     {
         var suggestions = new List<object>();

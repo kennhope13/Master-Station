@@ -6,7 +6,7 @@
 // ============================================================
 
 import { apiFetch, apiMutate } from './BaseApiService';
-import type { UserItem, SmtpConfig, SyncStatus } from '@/types/api.types';
+import type { UserItem, SmtpConfig, SyncStatus, PermissionInfo, Province } from '@/types/api.types';
 
 export class SystemService {
   // ── Users ─────────────────────────────────────────────────
@@ -14,6 +14,16 @@ export class SystemService {
   /** Lấy danh sách tài khoản người dùng. */
   async getUsers(): Promise<UserItem[]> {
     return apiFetch<UserItem[]>('/users');
+  }
+
+  /** Lấy danh sách quyền hạn khả dụng. */
+  async getAvailablePermissions(): Promise<PermissionInfo[]> {
+    return apiFetch<PermissionInfo[]>('/users/permissions');
+  }
+
+  /** Lấy danh sách tỉnh khả dụng. */
+  async getProvinces(): Promise<Province[]> {
+    return apiFetch<Province[]>('/provinces');
   }
 
   /** Tạo tài khoản mới. data cần có username, password, role, fullname. */

@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // RulesController — CRUD cho Rule Engine
 // GET/POST/PUT/DELETE /api/v1/rules
 // ============================================================
@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
 using StationOS.Services;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -90,7 +91,7 @@ public class RulesController : ControllerBase
     /// <returns>Rule vừa tạo.</returns>
     // POST /api/v1/rules
     [HttpPost]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> Create([FromBody] RuleRequest req)
     {
         var station = await _db.Stations.FirstOrDefaultAsync();
@@ -118,7 +119,7 @@ public class RulesController : ControllerBase
     /// <returns>Rule đã cập nhật.</returns>
     // PUT /api/v1/rules/{id}
     [HttpPut("{id:guid}")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] RuleRequest req)
     {
         var rule = await _db.Rules.FindAsync(id);
@@ -157,7 +158,7 @@ public class RulesController : ControllerBase
     /// <returns>204 NoContent nếu thành công.</returns>
     // DELETE /api/v1/rules/{id}
     [HttpDelete("{id:guid}")]
-    [Authorize(Roles = "admin")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var rule = await _db.Rules.FindAsync(id);
@@ -171,7 +172,7 @@ public class RulesController : ControllerBase
     /// <param name="id">Rule ID.</param>
     /// <returns>Trạng thái enabled mới của rule.</returns>
     [HttpPatch("{id}/toggle")]
-    [Authorize(Roles = "admin,manager")]
+    [HasPermission("rule:manage")]
     public async Task<IActionResult> Toggle(Guid id)
     {
         var rule = await _db.Rules.FindAsync(id);

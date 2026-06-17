@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { stationApi, UserItem, Station, LoginLogEntry } from '@/services/StationApiService';
+import { stationApi, UserItem, Station, LoginLogEntry, PermissionInfo, Province } from '@/services/StationApiService';
 import { confirmDialog } from '@/utils/confirm';
 import { authService } from '@/services/AuthService';
 import { useStationStore } from '@/store';
@@ -21,16 +21,20 @@ interface UserManagementPageProps {
 }
 
 const ROLE_CFG = {
-  admin:    { label: 'ADMIN',    color: 'var(--admin-danger)',  bg: 'rgba(239,68,68,0.1)' },
-  manager:  { label: 'MANAGER',  color: '#f59e0b',              bg: 'rgba(245,158,11,0.1)' },
-  operator: { label: 'OPERATOR', color: 'var(--admin-success)', bg: 'rgba(16,185,129,0.1)' },
+  admin:          { label: 'ADMIN TOÀN CỤC', color: 'var(--admin-danger)',  bg: 'rgba(239,68,68,0.1)' },
+  admin_province: { label: 'ADMIN TỈNH',     color: '#8b5cf6',              bg: 'rgba(139,92,246,0.1)' },
+  admin_station:  { label: 'ADMIN TRẠM',     color: '#06b6d4',              bg: 'rgba(6,182,212,0.1)' },
+  manager:        { label: 'MANAGER',        color: '#f59e0b',              bg: 'rgba(245,158,11,0.1)' },
+  operator:       { label: 'OPERATOR',       color: 'var(--admin-success)', bg: 'rgba(16,185,129,0.1)' },
 } as const;
 
 export default function UserManagementPage({ embeddedMode = 'default' }: UserManagementPageProps) {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserItem[]>([]);
   const [stationsList, setStationsList] = useState<Station[]>([]);
+  const [provincesList, setProvincesList] = useState<Province[]>([]);
   const [loginLogs, setLoginLogs] = useState<LoginLogEntry[]>([]);
+  const [availablePermissions, setAvailablePermissions] = useState<PermissionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStationId, setFilterStationId] = useState('');
   const [searchText, setSearchText] = useState('');
@@ -42,14 +46,18 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   const loadData = async () => {
     setLoading(true);
     try {
-      const [u, s, logs] = await Promise.all([
+      const [u, s, logs, perms, provs] = await Promise.all([
         stationApi.getUsers(),
         stationApi.getStations(),
-        stationApi.getLoginLogs({ limit: 500 } as any)
+        stationApi.getLoginLogs({ limit: 500 } as any),
+        stationApi.getAvailablePermissions(),
+        stationApi.getProvinces()
       ]);
       setUsers(u);
       setStationsList(s);
       setLoginLogs(logs);
+      setAvailablePermissions(perms);
+      setProvincesList(provs);
     }
     catch (e) { console.error('Lỗi tải dữ liệu:', e); }
     finally { setLoading(false); }
@@ -81,13 +89,13 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
   const openAddModal = () => {
     setEditingUserId(null);
-    setFormData({ username: '', fullName: '', email: '', password: '', confirmPassword: '', role: 'operator', isActive: true, stationIds: [] });
+    setFormData({ username: '', fullName: '', email: '', password: '', confirmPassword: '', role: 'operator', isActive: true, stationIds: [], provinceIds: [], permissions: [] });
     setIsUserModalOpen(true);
   };
 
   const openEditModal = (u: UserItem) => {
     setEditingUserId(u.id);
-    setFormData({ username: u.username, fullName: u.fullName || '', email: u.email || '', password: '', confirmPassword: '', role: u.role, isActive: u.isActive, stationIds: u.stationIds || [] });
+    setFormData({ username: u.username, fullName: u.fullName || '', email: u.email || '', password: '', confirmPassword: '', role: u.role, isActive: u.isActive, stationIds: u.stationIds || [], provinceIds: u.provinceIds || [], permissions: u.permissions || [] });
     setIsUserModalOpen(true);
   };
 
@@ -113,16 +121,18 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     username: '', fullName: '', email: '',
     password: '', confirmPassword: '',
     role: 'operator', isActive: true,
-    stationIds: [] as string[]
+    stationIds: [] as string[],
+    provinceIds: [] as string[],
+    permissions: [] as string[]
   });
 
   const [pwData, setPwData] = useState({ newPassword: '', confirmPassword: '' });
 
   const saveUser = async () => {
-    const { username, fullName, email, password, confirmPassword, role, isActive, stationIds } = formData;
+    const { username, fullName, email, password, confirmPassword, role, isActive, stationIds, provinceIds, permissions } = formData;
     if (editingUserId) {
       try {
-        await stationApi.updateUser(editingUserId, { fullName, email, role, isActive, stationIds });
+        await stationApi.updateUser(editingUserId, { fullName, email, role, isActive, stationIds, provinceIds, permissions });
         setIsUserModalOpen(false);
         loadData();
       } catch (e: any) { alert(`Lỗi: ${e.message}`); }
@@ -130,7 +140,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
       if (!username) return;
       if (password !== confirmPassword) { alert('Mật khẩu không khớp'); return; }
       try {
-        await stationApi.createUser({ username, password, fullName, email, role, stationIds });
+        await stationApi.createUser({ username, password, fullName, email, role, stationIds, provinceIds, permissions });
         setIsUserModalOpen(false);
         loadData();
       } catch (e: any) { alert(`Lỗi: ${e.message}`); }
@@ -295,7 +305,8 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
               {filteredUsers.map(u => {
                 const role = ROLE_CFG[u.role as keyof typeof ROLE_CFG] ?? ROLE_CFG.operator;
                 const lastActive = getLastActive(u.username);
-                const assignedStations = u.stationIds?.map(id => stationsList.find(s => s.id === id)).filter(Boolean) ?? [];
+                const assignedStations = u.role === 'admin_province' ? [] : (u.stationIds?.map(id => stationsList.find(s => s.id === id)).filter(Boolean) ?? []);
+                const assignedProvinces = u.role === 'admin_province' ? (u.provinceIds?.map(id => provincesList.find(p => p.id === id)).filter(Boolean) ?? []) : [];
                 const isOnline = lastActive && (Date.now() - new Date(lastActive).getTime() < 15 * 60 * 1000);
 
                 return (
@@ -318,14 +329,28 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                     </td>
                     <td style={TD_STYLE}>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {assignedStations.length === 0 ? (
-                          <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Tất cả các trạm</span>
+                        {u.role === 'admin' ? (
+                          <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Toàn cục (Tất cả trạm)</span>
+                        ) : u.role === 'admin_province' ? (
+                          assignedProvinces.length === 0 ? (
+                            <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Chưa gán tỉnh</span>
+                          ) : (
+                            assignedProvinces.map(p => (
+                              <span key={p!.id} style={{ fontSize: '.6rem', background: 'rgba(139,92,246,0.1)', color: '#8b5cf6', padding: '1px 5px', border: '1px solid rgba(139,92,246,0.2)', borderRadius: 2 }}>
+                                {p!.name}
+                              </span>
+                            ))
+                          )
                         ) : (
-                          assignedStations.map(s => (
-                            <span key={s!.id} style={{ fontSize: '.6rem', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', padding: '1px 5px', border: '1px solid var(--admin-border)', borderRadius: 2 }}>
-                              {s!.code || s!.name}
-                            </span>
-                          ))
+                          assignedStations.length === 0 ? (
+                            <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Chưa gán trạm</span>
+                          ) : (
+                            assignedStations.map(s => (
+                              <span key={s!.id} style={{ fontSize: '.6rem', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', padding: '1px 5px', border: '1px solid var(--admin-border)', borderRadius: 2 }}>
+                                {s!.code || s!.name}
+                              </span>
+                            ))
+                          )
                         )}
                       </div>
                     </td>
@@ -361,45 +386,154 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
       {/* MODALS */}
       {isUserModalOpen && (
         <div className="modal-overlay active">
-          <div className="modal-content" style={{ width: 500 }}>
+          <div className="modal-content" style={{ width: 860, maxWidth: '95vw' }}>
             <div className="modal-header">
               <h3>{editingUserId ? `CẬP NHẬT NHÂN SỰ` : 'THÊM NHÂN SỰ MỚI'}</h3>
               <button className="modal-close-btn" onClick={() => setIsUserModalOpen(false)}>✕</button>
             </div>
-            <div className="modal-body">
-               {!editingUserId && <div className="form-group"><label>Tên đăng nhập *</label><input className="form-input" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>}
-               <div className="form-group"><label>Họ và tên</label><input className="form-input" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} /></div>
-               <div className="form-group"><label>Email</label><input className="form-input" type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
-               {!editingUserId && (
-                 <div className="form-grid-2">
-                   <div className="form-group"><label>Mật khẩu *</label><input className="form-input" type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
-                   <div className="form-group"><label>Xác nhận *</label><input className="form-input" type="password" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} /></div>
-                 </div>
-               )}
-               <div className="form-group">
-                 <label>Vai trò hệ thống</label>
-                 <div style={{ display: 'flex', gap: 15, marginTop: 5 }}>
-                   {['operator', 'manager', 'admin'].map(r => (
-                     <label key={r} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '.75rem', cursor: 'pointer' }}>
-                       <input type="radio" name="role" value={r} checked={formData.role === r} onChange={e => setFormData({...formData, role: e.target.value})} /> 
-                       {r.toUpperCase()}
-                     </label>
-                   ))}
-                 </div>
-               </div>
-               <div className="form-group">
-                  <label>Trạm được phân công</label>
-                  <div style={{ maxHeight: 150, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)' }}>
-                    {stationsList.map(s => (
-                      <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={formData.stationIds.includes(s.id)} onChange={() => {
-                          const next = formData.stationIds.includes(s.id) ? formData.stationIds.filter(id => id !== s.id) : [...formData.stationIds, s.id];
-                          setFormData({...formData, stationIds: next});
-                        }} /> {s.name} ({s.code})
-                      </label>
-                    ))}
+            <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                {/* ── CỘT TRÁI: Thông tin cơ bản ── */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ fontSize: '.7rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', borderBottom: '1px solid var(--admin-border)', paddingBottom: 6 }}>
+                    Thông tin tài khoản
                   </div>
-               </div>
+                  {!editingUserId && <div className="form-group"><label>Tên đăng nhập *</label><input className="form-input" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>}
+                  <div className="form-group"><label>Họ và tên</label><input className="form-input" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} /></div>
+                  <div className="form-group"><label>Email</label><input className="form-input" type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
+                  {!editingUserId && (
+                    <div className="form-grid-2">
+                      <div className="form-group"><label>Mật khẩu *</label><input className="form-input" type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
+                      <div className="form-group"><label>Xác nhận *</label><input className="form-input" type="password" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} /></div>
+                    </div>
+                  )}
+                  <div className="form-group">
+                    <label>Vai trò hệ thống</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px 12px', marginTop: 5 }}>
+                      {Object.entries(ROLE_CFG).map(([r, cfg]) => (
+                        <label key={r} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '.75rem', cursor: 'pointer' }}>
+                          <input type="radio" name="role" value={r} checked={formData.role === r} onChange={e => setFormData({...formData, role: e.target.value})} /> 
+                          {cfg.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {formData.role === 'admin_province' && (
+                    <div className="form-group">
+                      <label>Tỉnh được phân công</label>
+                      <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
+                        {provincesList.map(p => (
+                          <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={formData.provinceIds.includes(p.id)} onChange={() => {
+                              const next = formData.provinceIds.includes(p.id) ? formData.provinceIds.filter(id => id !== p.id) : [...formData.provinceIds, p.id];
+                              setFormData({...formData, provinceIds: next});
+                            }} /> {p.name} {p.code ? `(${p.code})` : ''}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {['admin_station', 'manager', 'operator'].includes(formData.role) && (
+                    <div className="form-group">
+                      <label>Trạm được phân công</label>
+                      <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
+                        {stationsList.map(s => (
+                          <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={formData.stationIds.includes(s.id)} onChange={() => {
+                              const next = formData.stationIds.includes(s.id) ? formData.stationIds.filter(id => id !== s.id) : [...formData.stationIds, s.id];
+                              setFormData({...formData, stationIds: next});
+                            }} /> {s.name} ({s.code})
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {formData.role === 'admin' && (
+                    <div style={{ padding: 10, background: 'rgba(239,68,68,0.1)', border: '1px dashed var(--admin-danger)', color: 'var(--admin-danger)', fontSize: '.7rem', fontWeight: 700, borderRadius: 4 }}>
+                      ⚡ Tài khoản ADMIN mặc định có toàn bộ quyền hệ thống và bỏ qua các bộ lọc giới hạn trạm.
+                    </div>
+                  )}
+                </div>
+
+                {/* ── CỘT PHẢI: Phân quyền chi tiết ── */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ fontSize: '.7rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', borderBottom: '1px solid var(--admin-border)', paddingBottom: 6 }}>
+                    Quyền hạn chi tiết
+                  </div>
+                  {formData.role === 'admin' ? (
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 30, border: '1px dashed var(--admin-border)', borderRadius: 4, background: 'var(--admin-layer-2)' }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: '2rem', marginBottom: 8 }}>🔓</div>
+                        <div style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--admin-danger)' }}>FULL QUYỀN</div>
+                        <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>Admin Toàn Cục tự động có tất cả quyền</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ 
+                      flex: 1,
+                      overflowY: 'auto', 
+                      border: '1px solid var(--admin-border)', 
+                      padding: 14, 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      gap: 14, 
+                      background: 'var(--admin-layer-2)',
+                      borderRadius: 4
+                    }}>
+                      {/* Nút chọn/bỏ tất cả */}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          type="button"
+                          className="btn-industrial" 
+                          style={{ fontSize: '.6rem', padding: '3px 10px' }}
+                          onClick={() => setFormData({...formData, permissions: availablePermissions.map(p => p.key)})}
+                        >✓ Chọn tất cả</button>
+                        <button 
+                          type="button"
+                          className="btn-industrial" 
+                          style={{ fontSize: '.6rem', padding: '3px 10px' }}
+                          onClick={() => setFormData({...formData, permissions: []})}
+                        >✕ Bỏ tất cả</button>
+                      </div>
+                      {Object.entries(
+                        availablePermissions.reduce((acc, p) => {
+                          if (!acc[p.group]) acc[p.group] = [];
+                          acc[p.group]!.push(p);
+                          return acc;
+                        }, {} as Record<string, PermissionInfo[]>)
+                      ).map(([groupName, groupPerms]) => (
+                        <div key={groupName}>
+                          <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 4, height: 14, background: 'var(--admin-accent)', borderRadius: 2, display: 'inline-block' }} />
+                            {groupName}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
+                            {groupPerms.map(p => (
+                              <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.72rem', cursor: 'pointer', padding: '3px 0' }}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={formData.permissions.includes(p.key)} 
+                                  onChange={() => {
+                                    const next = formData.permissions.includes(p.key) 
+                                      ? formData.permissions.filter(k => k !== p.key) 
+                                      : [...formData.permissions, p.key];
+                                    setFormData({...formData, permissions: next});
+                                  }} 
+                                /> 
+                                <span>{p.name}</span>
+                                <span style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)', fontFamily: 'monospace', marginLeft: 'auto', opacity: 0.7 }}>({p.key})</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="modal-footer">
               <button className="btn-industrial" onClick={() => setIsUserModalOpen(false)}>Hủy</button>

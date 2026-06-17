@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
-import { fmtDateTime, fmtTimeRange } from '@/utils/format';
+import { fmtDateTime } from '@/utils/format';
 import { createRealtimeHub } from '@/services/realtime.service';
 import { showToast } from '@/utils/toast';
 
@@ -59,6 +59,37 @@ function extractProvinceName(location?: StationLocation): string {
   );
 
   return preferred || segments[segments.length - 1] || 'Chưa phân tỉnh';
+}
+
+function parseIsoDate(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function formatIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function monthLabel(date: Date): string {
+  return date.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' }).toUpperCase();
+}
+
+function buildCalendarDays(month: Date): Array<Date | null> {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstDay = new Date(year, monthIndex, 1);
+  const lastDay = new Date(year, monthIndex + 1, 0);
+  const days: Array<Date | null> = [];
+  const leading = (firstDay.getDay() + 6) % 7;
+
+  for (let i = 0; i < leading; i++) days.push(null);
+  for (let day = 1; day <= lastDay.getDate(); day++) days.push(new Date(year, monthIndex, day));
+  while (days.length % 7 !== 0) days.push(null);
+
+  return days;
 }
 
 const PROVINCE_CHIP_ICON = `
@@ -2398,6 +2429,7 @@ function CentralReportsView({
     // table
     th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
+    tdNoWrap: { whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' as const },
     pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
     pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 1, background: c, flexShrink: 0 } as React.CSSProperties),
     pillLbl: { fontSize: '.7rem', fontWeight: 700 } as React.CSSProperties,
@@ -2570,8 +2602,6 @@ function CentralReportsView({
    ───────────────────────────────────────────────────────────── */
 
 type LogType = 'all' | 'audit' | 'login' | 'notify' | 'rule';
-type TimeRange = 'today' | '7d' | '30d' | 'all';
-
 interface MergedLogItem {
   id: string;
   ts: string;
@@ -2612,20 +2642,23 @@ const LOG_TYPE_COLORS: Record<LogType, string> = {
 
 function CentralLogView({ stations }: { stations: Station[] }) {
   const [logType, setLogType] = useState<LogType>('all');
-  const [timeRange, setTimeRange] = useState<TimeRange>('today');
+  const [selectedDate, setSelectedDate] = useState(() => formatIsoDate(new Date()));
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => parseIsoDate(formatIsoDate(new Date())));
   const [scopeStationId, setScopeStationId] = useState('');
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<MergedLogItem[]>([]);
   const [selectedLog, setSelectedLog] = useState<MergedLogItem | null>(null);
   const [showDetail, setShowDetail] = useState(true);
+  const calendarRef = useRef<HTMLDivElement>(null);
 
-  const dates = useMemo(() => fmtTimeRange(timeRange === 'all' ? '30d' : timeRange), [timeRange]);
+  const dates = useMemo(() => ({ from: selectedDate, to: selectedDate }), [selectedDate]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
-    const from = timeRange === 'all' ? undefined : dates.from ? new Date(dates.from).toISOString() : undefined;
-    const to = timeRange === 'all' ? undefined : dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
+    const from = dates.from ? new Date(dates.from).toISOString() : undefined;
+    const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
     const sid = scopeStationId || undefined;
     try {
       const [audit, login, notify, rule] = await Promise.all([
@@ -2669,9 +2702,24 @@ function CentralLogView({ stations }: { stations: Station[] }) {
 
       setLogs(merged);
     } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [dates, scopeStationId, timeRange]);
+  }, [dates, scopeStationId]);
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  useEffect(() => {
+    if (!calendarOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+        setCalendarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [calendarOpen]);
+
+  useEffect(() => {
+    if (selectedDate) setCalendarMonth(parseIsoDate(selectedDate));
+  }, [selectedDate]);
 
   const filtered = useMemo(() => {
     let source = logType === 'all' ? logs : logs.filter(l => l.type === logType);
@@ -2685,12 +2733,16 @@ function CentralLogView({ stations }: { stations: Station[] }) {
     );
   }, [logs, logType, searchText]);
 
+  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
+  const todayIso = useMemo(() => formatIsoDate(new Date()), []);
+
   const S = {
     toolbar: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', flexShrink: 0, flexWrap: 'wrap' as const },
     btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
     btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
     dropdown: { height: 28, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 160 } as React.CSSProperties,
     input: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', minWidth: 160 } as React.CSSProperties,
+    dateButton: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', width: 145, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' } as React.CSSProperties,
     th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
     pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
@@ -2699,6 +2751,16 @@ function CentralLogView({ stations }: { stations: Station[] }) {
     muted: { color: 'var(--admin-text-muted)' } as React.CSSProperties,
     empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, height: '100%', color: 'var(--admin-text-muted)', opacity: 0.5 } as React.CSSProperties,
     spin: { animation: 'crv-spin 1s linear infinite' } as React.CSSProperties,
+    calendarPopup: { position: 'absolute' as const, top: 'calc(100% + 6px)', left: 0, width: 240, background: '#0b0f14', border: '1px solid var(--admin-border)', borderRadius: 0, boxShadow: '0 12px 32px rgba(0,0,0,.45)', padding: 10, zIndex: 30 },
+    calendarHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+    calendarNav: { width: 24, height: 24, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 0 } as React.CSSProperties,
+    calendarTitle: { fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text)', letterSpacing: '.06em' } as React.CSSProperties,
+    calendarWeek: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 },
+    calendarWeekLabel: { textAlign: 'center' as const, fontSize: '.52rem', color: 'var(--admin-text-muted)', fontWeight: 700, padding: '4px 0' } as React.CSSProperties,
+    calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 },
+    calendarDay: { height: 28, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 700, cursor: 'pointer', borderRadius: 0 } as React.CSSProperties,
+    calendarDayMuted: { height: 28, border: '1px solid transparent', background: 'transparent', color: 'rgba(255,255,255,.18)', fontSize: '.62rem', fontWeight: 700, cursor: 'default', borderRadius: 0 } as React.CSSProperties,
+    calendarFooter: { display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 6 },
   };
 
   const LogTypeIcon = ({ type }: { type: LogType }) => {
@@ -2726,13 +2788,92 @@ function CentralLogView({ stations }: { stations: Station[] }) {
 
         <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
 
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>THỜI GIAN</span>
-        {(Object.entries({ today: 'HÔM NAY', '7d': '7 NGÀY', '30d': '30 NGÀY', all: 'TẤT CẢ' }) as [TimeRange, string][]).map(([v, label]) => (
-          <button key={v} style={timeRange === v ? S.btnActive('var(--admin-accent)') : S.btn}
-            onClick={() => setTimeRange(v)}>
-            <Clock size={10} />{label}
+        <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>NGÀY</span>
+          <Calendar size={12} style={S.muted} />
+          <button
+            type="button"
+            onClick={() => setCalendarOpen(v => !v)}
+            style={S.dateButton}
+            aria-label="Chọn ngày xem nhật ký"
+          >
+            <span>{selectedDate.split('-').reverse().join('/')}</span>
+            <Calendar size={12} />
           </button>
-        ))}
+          {calendarOpen && (
+            <div style={S.calendarPopup}>
+              <div style={S.calendarHeader}>
+                <button
+                  type="button"
+                  style={S.calendarNav}
+                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <div style={S.calendarTitle}>{monthLabel(calendarMonth)}</div>
+                <button
+                  type="button"
+                  style={S.calendarNav}
+                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+              <div style={S.calendarWeek}>
+                {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(label => (
+                  <div key={label} style={S.calendarWeekLabel}>{label}</div>
+                ))}
+              </div>
+              <div style={S.calendarGrid}>
+                {calendarDays.map((day, index) => {
+                  if (!day) return <div key={`empty-${index}`} style={S.calendarDayMuted} />;
+                  const iso = formatIsoDate(day);
+                  const isSelected = iso === selectedDate;
+                  const isToday = iso === todayIso;
+                  return (
+                    <button
+                      key={iso}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(iso);
+                        setCalendarOpen(false);
+                      }}
+                      style={{
+                        ...S.calendarDay,
+                        borderColor: isSelected ? 'var(--admin-accent)' : isToday ? '#3b475a' : 'var(--admin-border)',
+                        background: isSelected ? 'rgba(245, 158, 11, 0.16)' : isToday ? '#111827' : 'var(--admin-layer-2)',
+                        color: isSelected ? 'var(--admin-accent)' : 'var(--admin-text)',
+                      }}
+                    >
+                      {day.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={S.calendarFooter}>
+                <button
+                  type="button"
+                  style={{ ...S.btn, flex: 1, justifyContent: 'center' }}
+                  onClick={() => {
+                    const today = formatIsoDate(new Date());
+                    setSelectedDate(today);
+                    setCalendarMonth(parseIsoDate(today));
+                    setCalendarOpen(false);
+                  }}
+                >
+                  HÔM NAY
+                </button>
+                <button
+                  type="button"
+                  style={{ ...S.btn, flex: 1, justifyContent: 'center' }}
+                  onClick={() => setCalendarOpen(false)}
+                >
+                  ĐÓNG
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
 
@@ -2811,13 +2952,13 @@ function CentralLogView({ stations }: { stations: Station[] }) {
           ) : filtered.length === 0 ? (
             <div style={S.empty}><FileText size={32} /><p>{logs.length === 0 ? 'Chưa có dữ liệu nhật ký. Nhấn nút tải lại.' : 'Không có kết quả phù hợp.'}</p></div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <thead><tr>
                 <th style={{ ...S.th, width: 140 }}>THỜI GIAN</th>
-                <th style={{ ...S.th, width: 100 }}>TRẠM</th>
-                <th style={{ ...S.th, width: 100 }}>LOẠI</th>
+                <th style={{ ...S.th, width: 180 }}>TRẠM</th>
+                <th style={{ ...S.th, width: 120 }}>LOẠI</th>
                 <th style={S.th}>NỘI DUNG</th>
-                <th style={{ ...S.th, width: 130 }}>NGƯỜI DÙNG</th>
+                <th style={{ ...S.th, width: 180 }}>NGƯỜI DÙNG</th>
               </tr></thead>
               <tbody>
                 {filtered.map(l => {
@@ -2830,25 +2971,27 @@ function CentralLogView({ stations }: { stations: Station[] }) {
                         cursor: 'pointer',
                         background: isSelected ? 'var(--admin-layer-2)' : 'transparent',
                       }}>
-                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.62rem', ...S.muted }}>
+                      <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'monospace', fontSize: '.62rem', ...S.muted }} title={fmtDateTime(l.ts)}>
                         {fmtDateTime(l.ts)}
                       </td>
-                      <td style={S.td}>
-                        <span style={{ fontSize: '.62rem', fontWeight: 600 }}>
+                      <td style={{ ...S.td, ...S.tdNoWrap }} title={l.stationName || '—'}>
+                        <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {l.stationName || <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span>}
                         </span>
                       </td>
-                      <td style={S.td}>
-                        <div style={S.pill(c)}>
+                      <td style={{ ...S.td, ...S.tdNoWrap }}>
+                        <div style={{ ...S.pill(c), whiteSpace: 'nowrap' }}>
                           <span style={S.pillBar(c)} />
                           <span style={S.pillLbl}>{LOG_TYPE_LABELS[l.type]}</span>
                         </div>
                       </td>
-                      <td style={S.td}>
-                        <span style={{ fontWeight: 700, fontSize: '.68rem' }}>{l.action}</span>
-                        {l.detail && <span style={{ ...S.muted, fontSize: '.58rem', marginLeft: 6 }}>{l.detail}</span>}
+                      <td style={{ ...S.td, ...S.tdNoWrap }} title={[l.action, l.detail].filter(Boolean).join(' ')}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+                          <span style={{ fontWeight: 700, fontSize: '.68rem', whiteSpace: 'nowrap', flexShrink: 0 }}>{l.action}</span>
+                          {l.detail && <span style={{ ...S.muted, fontSize: '.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.detail}</span>}
+                        </div>
                       </td>
-                      <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.6rem', ...S.muted }}>
+                      <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'monospace', fontSize: '.6rem', ...S.muted }} title={l.user.toUpperCase()}>
                         {l.user.toUpperCase()}
                       </td>
                     </tr>

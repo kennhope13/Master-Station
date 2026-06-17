@@ -1,10 +1,12 @@
-﻿// ============================================================
-// PermissionService — Lọc dữ liệu theo trạm được phân quyền
+// ============================================================
+// PermissionService — Lọc dữ liệu theo phân cấp 3 tầng
 //
-// Logic:
-//   Admin / Manager → không bị lọc (thấy tất cả)
-//   Operator có StationIds → chỉ thấy trạm trong danh sách
-//   Operator không có StationIds → thấy tất cả (backward compat)
+// Cấp bậc:
+//   admin           → Admin Toàn Cục: thấy TẤT CẢ tỉnh & trạm
+//   admin_province  → Admin Tỉnh: thấy trạm thuộc tỉnh được gán (ProvinceIds)
+//   admin_station   → Admin Trạm: thấy trạm được gán (StationIds)
+//   manager         → Manager Trạm: thấy trạm được gán (StationIds)
+//   operator        → Operator: thấy trạm được gán (StationIds)
 // ============================================================
 
 using System.Security.Claims;
@@ -26,34 +28,119 @@ public class PermissionService
     }
 
     /// <summary>
-    /// Trả về danh sách StationId được phép xem.
-    /// null = không hạn chế (admin/manager hoặc operator chưa phân trạm).
+    /// Trả về danh sách StationId mà user hiện tại được phép xem/quản lý.
+    /// null = không hạn chế (Admin Toàn Cục).
+    /// Empty array = không có quyền trên bất kỳ trạm nào.
     /// </summary>
-    /// <summary>Lấy danh sách station ID mà user hiện tại được phép truy cập. null = tất cả (admin).</summary>
     public async Task<Guid[]?> GetAllowedStationIdsAsync()
     {
         var user = _http.HttpContext?.User;
-        if (user == null) return null;
+        if (user == null) return Array.Empty<Guid>();
 
         var userIdStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (!Guid.TryParse(userIdStr, out var userId)) return null;
+        if (!Guid.TryParse(userIdStr, out var userId)) return Array.Empty<Guid>();
 
         var dbUser = await _db.Users
             .AsNoTracking()
-            .Select(u => new { u.Id, u.Role, u.StationIds })
+            .Select(u => new { u.Id, u.Role, u.StationIds, u.ProvinceIds })
             .FirstOrDefaultAsync(u => u.Id == userId);
 
-        if (dbUser == null) return null;
+        if (dbUser == null) return Array.Empty<Guid>();
 
-        // Nếu User có danh sách StationIds cụ thể -> Bắt buộc chỉ được xem các trạm đó
-        // (Áp dụng cho cả Admin trạm con và Operator)
+        // ── Tầng 1: Admin Toàn Cục ──────────────────────────────────
+        // Không bị lọc — thấy tất cả
+        if (dbUser.Role == "admin")
+            return null;
+
+        // ── Tầng 2: Admin Tỉnh ──────────────────────────────────────
+        // Thấy tất cả trạm thuộc các tỉnh được gán
+        if (dbUser.Role == "admin_province")
+        {
+            if (dbUser.ProvinceIds == null || dbUser.ProvinceIds.Length == 0)
+                return Array.Empty<Guid>(); // chưa gán tỉnh → không thấy gì
+
+            // Lấy tất cả stationId thuộc các tỉnh đó
+            var stationIds = await _db.Stations
+                .AsNoTracking()
+                .Where(s => s.ProvinceId != null && dbUser.ProvinceIds.Contains(s.ProvinceId!.Value))
+                .Select(s => s.Id)
+                .ToArrayAsync();
+
+            return stationIds;
+        }
+
+        // ── Tầng 3: Admin Trạm / Manager / Operator ─────────────────
+        // Chỉ thấy các trạm được gán trực tiếp
         if (dbUser.StationIds != null && dbUser.StationIds.Length > 0)
             return dbUser.StationIds;
 
-        // Nếu là Admin/Manager trạm tổng (không gán StationIds) -> Xem tất cả
-        if (dbUser.Role is "admin" or "manager")
-            return null;
+        // Không có StationIds → không thấy trạm nào
+        return Array.Empty<Guid>();
+    }
 
-        return null; // Mặc định xem hết nếu không có cấu hình giới hạn
+    /// <summary>
+    /// Kiểm tra user hiện tại có quyền quản lý trạm cụ thể không.
+    /// </summary>
+    public async Task<bool> CanAccessStationAsync(Guid stationId)
+    {
+        var allowed = await GetAllowedStationIdsAsync();
+        if (allowed == null) return true; // Admin Toàn Cục
+        return allowed.Contains(stationId);
+    }
+
+    /// <summary>
+    /// Trả về danh sách ProvinceId mà user hiện tại được phép quản lý.
+    /// null = không hạn chế (Admin Toàn Cục).
+    /// </summary>
+    public async Task<Guid[]?> GetAllowedProvinceIdsAsync()
+    {
+        var user = _http.HttpContext?.User;
+        if (user == null) return Array.Empty<Guid>();
+
+        var userIdStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdStr, out var userId)) return Array.Empty<Guid>();
+
+        var dbUser = await _db.Users
+            .AsNoTracking()
+            .Select(u => new { u.Id, u.Role, u.ProvinceIds })
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (dbUser == null) return Array.Empty<Guid>();
+
+        if (dbUser.Role == "admin") return null; // tất cả
+
+        if (dbUser.Role == "admin_province")
+            return dbUser.ProvinceIds ?? Array.Empty<Guid>();
+
+        return Array.Empty<Guid>(); // các role thấp hơn không quản lý tỉnh
+    }
+
+    /// <summary>
+    /// Kiểm tra người dùng hiện tại có được cấp quyền cụ thể hay không.
+    /// Quyền có thể gán động qua checklist.
+    /// admin (Admin Toàn Cục) luôn có full quyền.
+    /// </summary>
+    public async Task<bool> HasPermissionAsync(string permissionKey)
+    {
+        var user = _http.HttpContext?.User;
+        if (user == null) return false;
+
+        var userIdStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!Guid.TryParse(userIdStr, out var userId)) return false;
+
+        var dbUser = await _db.Users
+            .AsNoTracking()
+            .Select(u => new { u.Id, u.Role, u.Permissions })
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (dbUser == null) return false;
+
+        // Admin Toàn Cục luôn có full quyền (cái to nhất có full)
+        if (dbUser.Role == "admin") return true;
+
+        // Kiểm tra trong danh sách quyền được cấp động
+        if (dbUser.Permissions == null || dbUser.Permissions.Length == 0) return false;
+
+        return dbUser.Permissions.Contains(permissionKey);
     }
 }

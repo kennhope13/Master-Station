@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // LicenseController — Quản lý license key
 // GET  /api/v1/license/status   — public, trả về trạng thái
 // POST /api/v1/license/activate — yêu cầu admin JWT
@@ -8,6 +8,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StationOS.Services;
+using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
 
@@ -44,7 +45,7 @@ public class LicenseController : ControllerBase
     /// <summary>Kích hoạt license key cho hệ thống. Yêu cầu quyền admin.</summary>
     /// <param name="req">License key cần kích hoạt.</param>
     /// <returns>Thông báo kích hoạt thành công hoặc lỗi nếu key không hợp lệ.</returns>
-    [Authorize(Roles = "admin")]
+    [HasPermission("license:manage")]
     [HttpPost("activate")]
     public async Task<IActionResult> Activate([FromBody] LicenseKeyRequest req)
     {

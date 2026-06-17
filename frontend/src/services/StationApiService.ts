@@ -21,7 +21,7 @@ import type {
   Station, Device, CameraDevice, RoiPoint, CameraType, SensorPoint, Rule, AlertItem,
   AlertHistoryEntry, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, UserItem,
   SldPoint, SldUnpinnedDevice, SldData, ReportItem, MaintenanceTask, MaintenanceSuggestion,
-  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary
+  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary, PermissionInfo, Province
 } from '@/types/api.types';
 
 // Re-export tất cả types để component không cần import từ 2 nơi
@@ -29,7 +29,7 @@ export type {
   Station, Device, CameraDevice, RoiPoint, CameraType, SensorPoint, Rule, AlertItem,
   AlertHistoryEntry, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, UserItem,
   SldPoint, SldUnpinnedDevice, SldData, ReportItem, MaintenanceTask, MaintenanceSuggestion,
-  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary,
+  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary, PermissionInfo, Province,
   PredictionHistoryPoint, TrainingStatus
 };
 
@@ -126,6 +126,8 @@ class StationApiService {
 
   // ── Systems ───────────────────────────────────────────────
   getUsers = systemService.getUsers.bind(systemService);
+  getAvailablePermissions = systemService.getAvailablePermissions.bind(systemService);
+  getProvinces = systemService.getProvinces.bind(systemService);
   createUser = systemService.createUser.bind(systemService);
   updateUser = systemService.updateUser.bind(systemService);
   deactivateUser = systemService.deleteUser.bind(systemService);

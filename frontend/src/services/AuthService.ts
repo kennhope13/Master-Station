@@ -47,7 +47,8 @@ class AuthService {
                 active: true,
                 created_at: new Date().toISOString(),
                 is_restricted: payload['isRestricted'] === 'true' || !!payload['stationIds'],
-                station_ids: payload['stationIds'] ? payload['stationIds'].split(',') : undefined
+                station_ids: payload['stationIds'] ? payload['stationIds'].split(',') : undefined,
+                permissions: payload['permissions'] ? payload['permissions'].split(',') : []
             };
 
             const refreshToken = data.refreshToken ?? '';
@@ -92,6 +93,14 @@ class AuthService {
     public hasRole(...roles: UserRole[]): boolean {
         const user = this.getUser();
         return user ? roles.includes(user.role) : false;
+    }
+
+    /** Kiểm tra người dùng hiện tại có quyền cụ thể hay không. */
+    public hasPermission(permissionKey: string): boolean {
+        const user = this.getUser();
+        if (!user) return false;
+        if (user.role === 'admin') return true;
+        return user.permissions?.includes(permissionKey) ?? false;
     }
 }
 

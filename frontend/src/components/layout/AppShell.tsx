@@ -24,34 +24,34 @@ import {
 
 interface NavSubItem { id: string; path: string; label: string }
 // roles: undefined = tất cả vai trò; có giá trị = chỉ vai trò trong mảng mới thấy
-interface NavItem { id: string; path: string; icon: React.ReactNode; label: string; roles?: string[]; children?: NavSubItem[] }
+interface NavItem { id: string; path: string; icon: React.ReactNode; label: string; roles?: string[]; permission?: string; children?: NavSubItem[] }
 
 const CENTRAL_NAV: NavItem[] = [
-  { id: 'multisite', path: '/multisite', icon: <Map size={19} strokeWidth={1.5} />, label: 'Tổng quan' },
-  { id: 'alerts-history', path: '/alerts-history', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Nhật ký' },
-  { id: 'reports', path: '/reports', icon: <FileText size={19} strokeWidth={1.5} />, label: 'Báo cáo', roles: ['admin', 'manager'] },
-  { id: 'audit-log', path: '/audit-log', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký hệ thống', roles: ['admin'] },
+  { id: 'multisite', path: '/multisite', icon: <Map size={19} strokeWidth={1.5} />, label: 'Tổng quan', permission: 'station:view' },
+  { id: 'alerts-history', path: '/alerts-history', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Nhật ký', permission: 'rule:view' },
+  { id: 'reports', path: '/reports', icon: <FileText size={19} strokeWidth={1.5} />, label: 'Báo cáo', permission: 'report:view' },
+  { id: 'audit-log', path: '/audit-log', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký hệ thống', permission: 'settings:manage' },
 ];
 
 const CENTRAL_ADMIN_NAV: NavItem[] = [
-  { id: 'user-management', path: '/user-management', icon: <Users size={19} strokeWidth={1.5} />, label: 'Người dùng', roles: ['admin'] },
+  { id: 'user-management', path: '/user-management', icon: <Users size={19} strokeWidth={1.5} />, label: 'Người dùng', permission: 'user:view' },
 ];
 
 const CHILD_NAV: NavItem[] = [
-  { id: 'dashboard', path: '/dashboard', icon: <LayoutDashboard size={19} strokeWidth={1.5} />, label: 'Tổng quan' },
-  { id: 'realtime', path: '/realtime', icon: <Video size={19} strokeWidth={1.5} />, label: 'Trực tiếp' },
-  { id: 'alerts-history', path: '/alerts-history', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Lịch sử hệ thống' },
-  { id: 'analytics', path: '/analytics', icon: <LineChart size={19} strokeWidth={1.5} />, label: 'Phân tích' },
-  { id: 'reports', path: '/reports', icon: <FileText size={19} strokeWidth={1.5} />, label: 'Báo cáo', roles: ['admin', 'manager'] },
-  { id: 'maintenance', path: '/maintenance', icon: <Wrench size={19} strokeWidth={1.5} />, label: 'Bảo trì', roles: ['admin', 'manager'] },
-  { id: 'audit-log', path: '/audit-log', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký hệ thống', roles: ['admin'] },
+  { id: 'dashboard', path: '/dashboard', icon: <LayoutDashboard size={19} strokeWidth={1.5} />, label: 'Tổng quan', permission: 'station:view' },
+  { id: 'realtime', path: '/realtime', icon: <Video size={19} strokeWidth={1.5} />, label: 'Trực tiếp', permission: 'device:view' },
+  { id: 'alerts-history', path: '/alerts-history', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Lịch sử hệ thống', permission: 'rule:view' },
+  { id: 'analytics', path: '/analytics', icon: <LineChart size={19} strokeWidth={1.5} />, label: 'Phân tích', permission: 'report:view' },
+  { id: 'reports', path: '/reports', icon: <FileText size={19} strokeWidth={1.5} />, label: 'Báo cáo', permission: 'report:view' },
+  { id: 'maintenance', path: '/maintenance', icon: <Wrench size={19} strokeWidth={1.5} />, label: 'Bảo trì', permission: 'maintenance:view' },
+  { id: 'audit-log', path: '/audit-log', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký hệ thống', permission: 'settings:manage' },
 ];
 
 const CHILD_ADMIN_NAV: NavItem[] = [
-  { id: 'device-management', path: '/device-management', icon: <Radio size={19} strokeWidth={1.5} />, label: 'Thiết bị', roles: ['admin'] },
-  { id: 'rule-engine', path: '/rule-engine', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Cài đặt cảnh báo', roles: ['admin'] },
-  { id: 'user-management', path: '/user-management', icon: <Users size={19} strokeWidth={1.5} />, label: 'Người dùng', roles: ['admin'] },
-  { id: 'settings', path: '/settings', icon: <Settings size={19} strokeWidth={1.5} />, label: 'Cài đặt', roles: ['admin'] },
+  { id: 'device-management', path: '/device-management', icon: <Radio size={19} strokeWidth={1.5} />, label: 'Thiết bị', permission: 'device:manage' },
+  { id: 'rule-engine', path: '/rule-engine', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Cài đặt cảnh báo', permission: 'rule:manage' },
+  { id: 'user-management', path: '/user-management', icon: <Users size={19} strokeWidth={1.5} />, label: 'Người dùng', permission: 'user:view' },
+  { id: 'settings', path: '/settings', icon: <Settings size={19} strokeWidth={1.5} />, label: 'Cài đặt', permission: 'settings:manage' },
 ];
 
 const THEME_NAMES: Record<string, string> = {
@@ -113,6 +113,9 @@ export default function AppShell() {
   // - Restricted admin (trạm con): ẩn settings, license
   // - Global admin (kể cả khi drill-down): giữ nguyên toàn bộ CHILD_ADMIN_NAV
   const adminNavItems = (isCentralMode ? CENTRAL_ADMIN_NAV : CHILD_ADMIN_NAV).filter(item => {
+    if (item.permission && !authService.hasPermission(item.permission)) {
+      return false;
+    }
     if (user && (user.is_restricted || (user.station_ids && user.station_ids.length > 0))) {
       return !['settings', 'license'].includes(item.id);
     }
@@ -385,7 +388,12 @@ export default function AppShell() {
   /** Lọc và render danh sách NavLink theo vai trò người dùng, hỗ trợ sub-menu khi active. */
   const renderNav = (items: NavItem[]) =>
     items
-      .filter(i => !i.roles || (user && i.roles.includes(user.role)))
+      .filter(i => {
+        if (i.permission) {
+          return authService.hasPermission(i.permission);
+        }
+        return !i.roles || (user && i.roles.includes(user.role));
+      })
       .map(i => {
         const hasChildren = i.children && i.children.length > 0;
         const isCurrentActive = window.location.pathname.startsWith(i.path);
