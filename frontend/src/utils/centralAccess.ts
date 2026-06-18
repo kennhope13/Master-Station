@@ -5,7 +5,12 @@ export const MULTISITE_RETURN_TAB_KEY = 'multisite_return_tab';
 
 export function isCentralUser(user?: User | null): boolean {
   if (!user) return false;
-  return user.username === 'multi' || (user.role === 'admin' && (!user.station_ids || user.station_ids.length === 0));
+  return (
+    user.username === 'multi' ||
+    (user.role === 'admin' && (!user.station_ids || user.station_ids.length === 0)) ||
+    user.role === 'admin_province' ||
+    user.role === 'operator_province'
+  );
 }
 
 export function isCentralDrillDown(user?: User | null): boolean {

@@ -10,6 +10,7 @@ public class User
     public string? FullName { get; set; }
     public string? Email { get; set; }
     [Required] public string Role { get; set; } = "operator"; // operator | manager | admin_station | admin_province | admin
+    public Guid? TeamId { get; set; } // Nullable foreign key to Team
     /// <summary>Danh sách trạm được phép quản lý (Admin Trạm). null = không giới hạn.</summary>
     public Guid[]? StationIds { get; set; }
     /// <summary>Danh sách tỉnh được phép quản lý (Admin Tỉnh). null = không giới hạn.</summary>

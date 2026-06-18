@@ -6,7 +6,7 @@
 // ============================================================
 
 import { apiFetch, apiMutate } from './BaseApiService';
-import type { UserItem, SmtpConfig, SyncStatus, PermissionInfo, Province } from '@/types/api.types';
+import type { UserItem, SmtpConfig, SyncStatus, PermissionInfo, Province, Team } from '@/types/api.types';
 
 export class SystemService {
   // ── Users ─────────────────────────────────────────────────
@@ -14,6 +14,33 @@ export class SystemService {
   /** Lấy danh sách tài khoản người dùng. */
   async getUsers(): Promise<UserItem[]> {
     return apiFetch<UserItem[]>('/users');
+  }
+
+  // ── Teams ─────────────────────────────────────────────────
+
+  /** Lấy danh sách tổ/đội. */
+  async getTeams(): Promise<Team[]> {
+    return apiFetch<Team[]>('/teams');
+  }
+
+  /** Lấy thông tin chi tiết tổ/đội. */
+  async getTeam(id: string): Promise<Team> {
+    return apiFetch<Team>(`/teams/${id}`);
+  }
+
+  /** Tạo tổ mới. */
+  async createTeam(data: { name: string; description?: string; provinceId: string; stationIds?: string[] }): Promise<Team> {
+    return apiMutate('POST', '/teams', data);
+  }
+
+  /** Cập nhật tổ. */
+  async updateTeam(id: string, data: { name: string; description?: string; provinceId: string; stationIds?: string[] }): Promise<Team> {
+    return apiMutate('PUT', `/teams/${id}`, data);
+  }
+
+  /** Xóa tổ. */
+  async deleteTeam(id: string): Promise<void> {
+    return apiMutate('DELETE', `/teams/${id}`);
   }
 
   /** Lấy danh sách quyền hạn khả dụng. */

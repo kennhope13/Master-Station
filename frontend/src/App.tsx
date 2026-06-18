@@ -119,12 +119,12 @@ export default function App() {
             <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><ReportsPage /></ProtectedRoute>} />
             <Route path="maintenance" element={<ProtectedRoute roles={['admin', 'manager']}><MaintenancePage /></ProtectedRoute>} />
             <Route path="audit-log" element={<ProtectedRoute roles={['admin']}><AuditLogPage /></ProtectedRoute>} />
-              <Route path="device-management" element={<ProtectedRoute roles={['admin']}><DeviceManagementPage /></ProtectedRoute>} />
-            <Route path="device-management/:deviceId/thermal-config" element={<ProtectedRoute roles={['admin']}><ThermalConfigPage /></ProtectedRoute>} />
-            <Route path="user-management" element={<ProtectedRoute roles={['admin']}><UserManagementPage /></ProtectedRoute>} />
-            <Route path="rule-engine" element={<ProtectedRoute roles={['admin']}><RuleEnginePage /></ProtectedRoute>} />
+              <Route path="device-management" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><DeviceManagementPage /></ProtectedRoute>} />
+            <Route path="device-management/:deviceId/thermal-config" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><ThermalConfigPage /></ProtectedRoute>} />
+            <Route path="user-management" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><UserManagementPage /></ProtectedRoute>} />
+            <Route path="rule-engine" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><RuleEnginePage /></ProtectedRoute>} />
             <Route path="settings" element={<ProtectedRoute roles={['admin']} denyRestricted><SettingsPage /></ProtectedRoute>} />
-            <Route path="license" element={<ProtectedRoute roles={['admin']} denyRestricted><LicensePage /></ProtectedRoute>} />
+            <Route path="license" element={<ProtectedRoute roles={['admin', 'admin_province']}><LicensePage /></ProtectedRoute>} />
             <Route path="*" element={<div style={{color:'var(--admin-text)', padding:20}}>404 - Page not found</div>} />
           </Route>
         </Routes>

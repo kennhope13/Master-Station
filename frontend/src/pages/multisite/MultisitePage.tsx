@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore } from '@/store';
-import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry } from '@/types/api.types';
+import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask } from '@/types/api.types';
 import type { StationView, StationLocation, StationKpi } from './types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
@@ -23,16 +23,18 @@ const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView
 const LiveStationPicker = lazy(() => import('@/pages/multisite/LiveStationPicker'));
 const UserManagementPage = lazy(() => import('@/pages/user-management/UserManagementPage'));
 
-type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'audit_log' | 'reports' | 'users';
+type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'alerts_history' | 'maintenance' | 'audit_log' | 'reports' | 'users';
 
 const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
   overview: 'GIÁM SÁT TỔNG QUAN',
   truc_tiep: 'TRỰC TIẾP',
   analytics: 'PHÂN TÍCH',
   devices: 'THIẾT BỊ',
+  alerts_history: 'LỊCH SỬ CẢNH BÁO',
+  maintenance: 'BẢO TRÌ',
   audit_log: 'NHẬT KÝ',
   reports: 'BÁO CÁO',
-  users: 'QUẢN TRỊ NHÂN SỰ & TRẠM',
+  users: 'NGƯỜI DÙNG',
 };
 
 
@@ -63,7 +65,7 @@ function extractProvinceName(location?: StationLocation): string {
 
 function parseIsoDate(value: string): Date {
   const [year, month, day] = value.split('-').map(Number);
-  return new Date(year, (month || 1) - 1, day || 1);
+  return new Date(year || 1970, (month || 1) - 1, day || 1);
 }
 
 function formatIsoDate(date: Date): string {
@@ -260,6 +262,11 @@ export default function MultisitePage() {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [remoteKpis, setRemoteKpis] = useState<Record<string, { devicesOnline: number; devicesTotal: number; alertsCount: number }>>({});
   const [isAuthReady, setIsAuthReady] = useState(() => !!authService.getToken());
+  const [provinces, setProvinces] = useState<Province[]>([]);
+
+  useEffect(() => {
+    stationApi.getProvinces().then(setProvinces).catch(() => {});
+  }, []);
   const stationStatusRef = useRef<Record<string, string>>({});
   const stationNameRef = useRef<Record<string, string>>({});
   const kpiRefreshAtRef = useRef<Record<string, number>>({});
@@ -567,11 +574,19 @@ export default function MultisitePage() {
 
   const filteredViews = views;
 
+  const getProvinceName = useCallback((station: Station) => {
+    if (station.provinceId && provinces.length > 0) {
+      const match = provinces.find(p => p.id === station.provinceId);
+      if (match) return match.name;
+    }
+    return extractProvinceName(parseLocation(station.location));
+  }, [provinces]);
+
   const groupedViewsByProvince = useMemo(() => {
     const grouped = new Map<string, StationView[]>();
 
     filteredViews.forEach(view => {
-      const province = extractProvinceName(view.location);
+      const province = getProvinceName(view.station);
       const existing = grouped.get(province) || [];
       existing.push(view);
       grouped.set(province, existing);
@@ -583,7 +598,7 @@ export default function MultisitePage() {
         province,
         views: provinceViews.sort((a, b) => a.station.name.localeCompare(b.station.name, 'vi'))
       }));
-  }, [filteredViews]);
+  }, [filteredViews, getProvinceName]);
 
   const visibleProvinceGroups = useMemo(() => {
     if (!selectedProvince) return groupedViewsByProvince;
@@ -630,8 +645,8 @@ export default function MultisitePage() {
 
   const provinceStationViews = useMemo(() => {
     if (!selectedProvince) return [];
-    return views.filter(view => extractProvinceName(view.location) === selectedProvince);
-  }, [views, selectedProvince]);
+    return views.filter(view => getProvinceName(view.station) === selectedProvince);
+  }, [views, selectedProvince, getProvinceName]);
 
   // Alias tương thích cho các đoạn JSX/refresh cũ còn tham chiếu tên trước đó.
   const filteredStationStats = filteredViews;
@@ -1059,6 +1074,13 @@ export default function MultisitePage() {
         .hud-nav-group .btn-industrial:hover::after {
           opacity: 0 !important;
         }
+        .hud-nav-group::-webkit-scrollbar {
+          display: none;
+        }
+        .hud-nav-group .btn-industrial {
+          flex-shrink: 0;
+          white-space: nowrap;
+        }
       `}</style>
 
       {activeTab === 'overview' && (
@@ -1105,9 +1127,10 @@ export default function MultisitePage() {
       <div className="multisite-hud-panel multisite-hud-row" style={{
         position: 'absolute', top: 0, left: 0, height: 40,
         borderRadius: '0 0 4px 0', width: '100%', zIndex: 1010,
-        padding: '0 12px', display: 'flex', alignItems: 'center'
+        padding: '0 12px', display: 'flex', alignItems: 'center',
+        overflow: 'hidden'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderRight: '1px solid var(--admin-border)', paddingRight: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderRight: '1px solid var(--admin-border)', paddingRight: 12, flexShrink: 0 }}>
           {/* Accent Bar */}
           <div style={{ width: 4, height: 24, background: 'var(--admin-accent)', borderRadius: '2px' }} />
 
@@ -1123,7 +1146,7 @@ export default function MultisitePage() {
 
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, overflow: 'hidden', marginLeft: 'auto' }}>
           <div className="hud-nav-group" style={{
             display: 'flex',
             gap: 4,
@@ -1131,7 +1154,12 @@ export default function MultisitePage() {
             background: 'rgba(15, 23, 42, 0.58)',
             border: '1px solid var(--admin-border)',
             borderRadius: 0,
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)'
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            flexShrink: 1,
+            minWidth: 0,
+            scrollbarWidth: 'none'
           }}>
             <button
               onClick={() => activateTab('overview')}
@@ -1154,133 +1182,227 @@ export default function MultisitePage() {
               <MapIcon size={11} />
               Bản đồ
             </button>
-            <button
-              onClick={() => activateTab('truc_tiep')}
-              className="btn-industrial"
-              style={{
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                height: 24,
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                background: activeTab === 'truc_tiep' ? 'var(--admin-accent)' : 'transparent',
-                color: activeTab === 'truc_tiep' ? '#fff' : 'var(--admin-text-muted)',
-                borderColor: activeTab === 'truc_tiep' ? 'var(--admin-accent)' : 'transparent'
-              }}
-            >
-              <Video size={11} />
-              TRỰC TIẾP
-            </button>
-            <button
-              onClick={() => activateTab('analytics')}
-              className="btn-industrial"
-              style={{
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                height: 24,
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                background: activeTab === 'analytics' ? 'var(--admin-accent)' : 'transparent',
-                color: activeTab === 'analytics' ? '#fff' : 'var(--admin-text-muted)',
-                borderColor: activeTab === 'analytics' ? 'var(--admin-accent)' : 'transparent'
-              }}
-            >
-              <LineChart size={11} />
-              Phân tích
-            </button>
-            <button
-              onClick={() => activateTab('devices')}
-              className="btn-industrial"
-              style={{
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                height: 24,
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                background: activeTab === 'devices' ? 'var(--admin-accent)' : 'transparent',
-                color: activeTab === 'devices' ? '#fff' : 'var(--admin-text-muted)',
-                borderColor: activeTab === 'devices' ? 'var(--admin-accent)' : 'transparent'
-              }}
-            >
-              <Radio size={11} />
-              Thiết bị
-            </button>
-            <button
-              onClick={() => activateTab('audit_log')}
-              className="btn-industrial"
-              style={{
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                height: 24,
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                background: activeTab === 'audit_log' ? 'var(--admin-accent)' : 'transparent',
-                color: activeTab === 'audit_log' ? '#fff' : 'var(--admin-text-muted)',
-                borderColor: activeTab === 'audit_log' ? 'var(--admin-accent)' : 'transparent'
-              }}
-            >
-              <FileArchive size={11} /> NHẬT KÝ
-            </button>
-            <button
-              onClick={() => activateTab('reports')}
-              className="btn-industrial"
-              style={{
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                height: 24,
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                background: activeTab === 'reports' ? 'var(--admin-accent)' : 'transparent',
-                color: activeTab === 'reports' ? '#fff' : 'var(--admin-text-muted)',
-                borderColor: activeTab === 'reports' ? 'var(--admin-accent)' : 'transparent'
-              }}
-            >
-              <FileText size={11} /> BÁO CÁO
-            </button>
-            <button
-              onClick={() => activateTab('users')}
-              className="btn-industrial"
-              style={{
-                padding: '0 10px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                height: 24,
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                background: activeTab === 'users' ? 'var(--admin-accent)' : 'transparent',
-                color: activeTab === 'users' ? '#fff' : 'var(--admin-text-muted)',
-                borderColor: activeTab === 'users' ? 'var(--admin-accent)' : 'transparent'
-              }}
-            >
-              <Users size={11} /> NGƯỜI DÙNG
-            </button>
+            {authService.hasPermission('device:view') && (
+              <button
+                onClick={() => activateTab('truc_tiep')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'truc_tiep' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'truc_tiep' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'truc_tiep' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <Video size={11} />
+                TRỰC TIẾP
+              </button>
+            )}
+            {authService.hasPermission('report:view') && (
+              <button
+                onClick={() => activateTab('analytics')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'analytics' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'analytics' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'analytics' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <LineChart size={11} />
+                Phân tích
+              </button>
+            )}
+            {authService.hasPermission('device:manage') && (
+              <button
+                onClick={() => activateTab('devices')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'devices' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'devices' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'devices' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <Radio size={11} />
+                Thiết bị
+              </button>
+            )}
+            {authService.hasPermission('report:view') && (
+              <button
+                onClick={() => activateTab('alerts_history')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'alerts_history' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'alerts_history' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'alerts_history' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <AlertTriangle size={11} />
+                CẢNH BÁO
+              </button>
+            )}
+            {authService.hasPermission('maintenance:view') && (
+              <button
+                onClick={() => activateTab('maintenance')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'maintenance' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'maintenance' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'maintenance' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <ShieldCheck size={11} />
+                BẢO TRÌ
+              </button>
+            )}
+            {authService.hasPermission('settings:manage') && (
+              <button
+                onClick={() => activateTab('audit_log')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'audit_log' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'audit_log' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'audit_log' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <FileArchive size={11} /> NHẬT KÝ
+              </button>
+            )}
+            {authService.hasPermission('report:view') && (
+              <button
+                onClick={() => activateTab('reports')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'reports' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'reports' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'reports' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <FileText size={11} /> BÁO CÁO
+              </button>
+            )}
+            {authService.hasPermission('user:view') && (
+              <button
+                onClick={() => activateTab('users')}
+                className="btn-industrial"
+                style={{
+                  padding: '0 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 24,
+                  fontSize: '0.68rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  background: activeTab === 'users' ? 'var(--admin-accent)' : 'transparent',
+                  color: activeTab === 'users' ? '#fff' : 'var(--admin-text-muted)',
+                  borderColor: activeTab === 'users' ? 'var(--admin-accent)' : 'transparent'
+                }}
+              >
+                <Users size={11} /> NGƯỜI DÙNG
+              </button>
+            )}
             <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--admin-border)' }} />
-            <button onClick={() => setShowLogoutConfirm(true)} className="btn-industrial" style={{ padding: '0 8px', display: 'flex', alignItems: 'center', gap: 4, height: 24, fontSize: '0.65rem', color: 'var(--admin-danger)', borderColor: 'transparent' }}>
-              <LogOut size={11} />
-            </button>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '0 10px',
+              height: 24,
+              border: '1px solid var(--admin-border)',
+              background: 'var(--admin-hover)',
+              fontSize: '0.68rem',
+              fontWeight: 800,
+              letterSpacing: '0.03em',
+            }}>
+              <span style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: 'var(--admin-success)',
+                display: 'inline-block'
+              }} />
+              <span style={{ color: 'var(--admin-accent)', marginRight: 4 }}>{authService.getUser()?.username}</span>
+              
+              <div style={{ width: 1, height: 12, background: 'var(--admin-border)' }} />
+              
+              <button 
+                onClick={() => setShowLogoutConfirm(true)} 
+                style={{ 
+                  background: 'none', 
+                  border: 'none', 
+                  padding: '0 2px',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  color: 'var(--admin-danger)', 
+                  cursor: 'pointer',
+                }}
+                title="Đăng xuất"
+              >
+                <LogOut size={11} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1395,6 +1517,42 @@ export default function MultisitePage() {
         </div>
       )}
 
+      {activeTab === 'alerts_history' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 74,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 2,
+            overflow: 'auto',
+            background: 'var(--admin-bg, #0b1220)',
+            padding: 0
+          }}
+        >
+          <CentralAlertsHistoryView stations={stations} provinces={provinces} />
+        </div>
+      )}
+
+      {activeTab === 'maintenance' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 74,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 2,
+            overflow: 'auto',
+            background: 'var(--admin-bg, #0b1220)',
+            padding: 0
+          }}
+        >
+          <CentralMaintenanceView stations={stations} provinces={provinces} />
+        </div>
+      )}
+
       {activeTab === 'audit_log' && (
         <div
           style={{
@@ -1409,7 +1567,7 @@ export default function MultisitePage() {
             padding: 0
           }}
         >
-          <CentralLogView stations={stations} />
+          <CentralLogView stations={stations} provinces={provinces} />
         </div>
       )}
 
@@ -2020,7 +2178,7 @@ export default function MultisitePage() {
                       )}
                     </div>
                   </div>
-                </div>
+            123456    </div>
               </div>
           )}
 
@@ -2608,6 +2766,8 @@ interface MergedLogItem {
   type: LogType;
   stationId?: string;
   stationName?: string;
+  accountStationId?: string;
+  accountStationName?: string;
   action: string;
   detail: string;
   user: string;
@@ -2640,7 +2800,129 @@ const LOG_TYPE_COLORS: Record<LogType, string> = {
   rule: '#ef4444',
 };
 
-function CentralLogView({ stations }: { stations: Station[] }) {
+const AUDIT_ENTITY_LABELS: Record<string, string> = {
+  user: 'người dùng',
+  device: 'thiết bị',
+  rule: 'quy tắc',
+  alert: 'cảnh báo',
+  station: 'trạm',
+  setting: 'cài đặt',
+  maintenance: 'bảo trì',
+  report: 'báo cáo',
+  sld: 'sơ đồ',
+  sys: 'hệ thống',
+};
+
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  provinceIds: 'Tỉnh được gán',
+  stationIds: 'Trạm được gán',
+  permissions: 'Quyền được gán',
+  fullName: 'Họ tên',
+  username: 'Tên đăng nhập',
+  email: 'Email',
+  role: 'Vai trò',
+  isActive: 'Trạng thái hoạt động',
+  teamId: 'Tổ/nhóm',
+  name: 'Tên',
+  code: 'Mã',
+  status: 'Trạng thái',
+  stationId: 'Trạm',
+  provinceId: 'Tỉnh',
+};
+
+function safeParseJson(value?: string | null): Record<string, unknown> | null {
+  if (!value || typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatEntityLabel(entity?: string) {
+  if (!entity) return 'hệ thống';
+  return AUDIT_ENTITY_LABELS[entity.toLowerCase()] || entity.toLowerCase();
+}
+
+function formatAuditAction(action: string, entity?: string) {
+  const label = formatEntityLabel(entity);
+  const normalized = action.toLowerCase();
+  if (normalized === 'create') return `Tạo ${label}`;
+  if (normalized === 'update') return `Cập nhật ${label}`;
+  if (normalized === 'delete') return `Xóa ${label}`;
+  if (normalized === 'ack_alert') return 'Xác nhận cảnh báo';
+  if (normalized === 'close_alert') return 'Đóng cảnh báo';
+  if (normalized === 'login') return 'Đăng nhập hệ thống';
+  return `${action.toUpperCase()} ${label}`;
+}
+
+function formatFieldLabel(field: string) {
+  return AUDIT_FIELD_LABELS[field] || field;
+}
+
+function formatValue(value: unknown, field?: string, stations?: Station[], provinces?: Province[]): string {
+  if (value == null) return 'Không có';
+  if (field === 'provinceIds' && Array.isArray(value)) {
+    if (!value.length) return 'Không có';
+    return value.map(id => provinces?.find(p => p.id === String(id))?.name || String(id)).join(', ');
+  }
+  if ((field === 'stationIds' || field === 'stationId') && Array.isArray(value)) {
+    if (!value.length) return 'Không có';
+    return value.map(id => stations?.find(s => s.id === String(id))?.name || String(id)).join(', ');
+  }
+  if (field === 'stationId' && !Array.isArray(value)) {
+    return stations?.find(s => s.id === String(value))?.name || String(value);
+  }
+  if (field === 'provinceId' && !Array.isArray(value)) {
+    return provinces?.find(p => p.id === String(value))?.name || String(value);
+  }
+  if (Array.isArray(value)) return value.length ? value.join(', ') : 'Không có';
+  if (typeof value === 'boolean') return value ? 'Bật' : 'Tắt';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function summarizeAuditDetail(item: MergedLogItem) {
+  if (item.type !== 'audit') return item.detail || 'Nhật ký hệ thống';
+
+  const entity = formatEntityLabel(item.entityType);
+  const changes = safeParseJson(item.newValue) || safeParseJson(item.oldValue);
+  const keys = changes ? Object.keys(changes).slice(0, 2).map(formatFieldLabel) : [];
+
+  if (item.action.toLowerCase() === 'update' && keys.length > 0) {
+    return `Đã cập nhật ${entity}: ${keys.join(', ')}`;
+  }
+  if (item.action.toLowerCase() === 'create') {
+    return `Đã tạo ${entity} mới`;
+  }
+  if (item.action.toLowerCase() === 'delete') {
+    return `Đã xóa ${entity}`;
+  }
+  return `Thao tác trên ${entity}`;
+}
+
+function buildChangeRows(item: MergedLogItem, stations: Station[], provinces: Province[]): Array<{ label: string; before?: string; after?: string }> {
+  const before = safeParseJson(item.oldValue);
+  const after = safeParseJson(item.newValue);
+  const keys = Array.from(new Set([...(before ? Object.keys(before) : []), ...(after ? Object.keys(after) : [])]));
+
+  if (keys.length === 0) {
+    return [{
+      label: 'Dữ liệu mới',
+      before: item.oldValue || undefined,
+      after: item.newValue || undefined,
+    }];
+  }
+
+  return keys.map(key => ({
+    label: formatFieldLabel(key),
+    before: before && key in before ? formatValue(before[key], key, stations, provinces) : undefined,
+    after: after && key in after ? formatValue(after[key], key, stations, provinces) : undefined,
+  }));
+}
+
+function CentralLogView({ stations, provinces }: { stations: Station[]; provinces: Province[] }) {
   const [logType, setLogType] = useState<LogType>('all');
   const [selectedDate, setSelectedDate] = useState(() => formatIsoDate(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -2672,6 +2954,7 @@ function CentralLogView({ stations }: { stations: Station[] }) {
         ...audit.map(l => ({
           id: l.id, ts: l.ts, type: 'audit' as LogType,
           stationId: l.stationId, stationName: l.stationName,
+          accountStationId: l.accountStationId, accountStationName: l.accountStationName,
           action: l.action, detail: l.entityType || 'SYS',
           user: l.fullName || l.username || 'system',
           entityType: l.entityType, ipAddress: l.ipAddress,
@@ -2680,6 +2963,7 @@ function CentralLogView({ stations }: { stations: Station[] }) {
         ...login.map(l => ({
           id: l.id, ts: l.ts, type: 'login' as LogType,
           stationId: l.stationId, stationName: l.stationName,
+          accountStationId: l.accountStationId, accountStationName: l.accountStationName,
           action: l.action, detail: 'LOGIN',
           user: l.username || 'system',
           ipAddress: l.ipAddress,
@@ -2745,6 +3029,7 @@ function CentralLogView({ stations }: { stations: Station[] }) {
     dateButton: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', width: 145, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' } as React.CSSProperties,
     th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
+    tdNoWrap: { whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' },
     pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
     pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 1, background: c, flexShrink: 0 } as React.CSSProperties),
     pillLbl: { fontSize: '.7rem', fontWeight: 600 } as React.CSSProperties,
@@ -2987,8 +3272,10 @@ function CentralLogView({ stations }: { stations: Station[] }) {
                       </td>
                       <td style={{ ...S.td, ...S.tdNoWrap }} title={[l.action, l.detail].filter(Boolean).join(' ')}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-                          <span style={{ fontWeight: 700, fontSize: '.68rem', whiteSpace: 'nowrap', flexShrink: 0 }}>{l.action}</span>
-                          {l.detail && <span style={{ ...S.muted, fontSize: '.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.detail}</span>}
+                          <span style={{ fontWeight: 700, fontSize: '.68rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                            {l.type === 'audit' ? formatAuditAction(l.action, l.entityType) : l.action}
+                          </span>
+                          {l.detail && <span style={{ ...S.muted, fontSize: '.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summarizeAuditDetail(l)}</span>}
                         </div>
                       </td>
                       <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'monospace', fontSize: '.6rem', ...S.muted }} title={l.user.toUpperCase()}>
@@ -3034,11 +3321,12 @@ function CentralLogView({ stations }: { stations: Station[] }) {
                   <DetailRow label="THỜI GIAN" value={fmtDateTime(selectedLog.ts)} />
                   <DetailRow label="TRẠM" value={selectedLog.stationName || '—'} />
                   <DetailRow label="LOẠI" value={LOG_TYPE_LABELS[selectedLog.type]} />
-                  <DetailRow label="HÀNH ĐỘNG" value={selectedLog.action} />
-                  <DetailRow label="CHI TIẾT" value={selectedLog.detail} />
+                  <DetailRow label="HÀNH ĐỘNG" value={selectedLog.type === 'audit' ? formatAuditAction(selectedLog.action, selectedLog.entityType) : selectedLog.action} />
+                  <DetailRow label="CHI TIẾT" value={summarizeAuditDetail(selectedLog)} />
                   <DetailRow label="NGƯỜI DÙNG" value={selectedLog.user} />
                   {selectedLog.ipAddress && <DetailRow label="IP" value={selectedLog.ipAddress} />}
-                  {selectedLog.entityType && <DetailRow label="ĐỐI TƯỢNG" value={selectedLog.entityType} />}
+                  {selectedLog.entityType && <DetailRow label="ĐỐI TƯỢNG" value={formatEntityLabel(selectedLog.entityType)} />}
+                  {selectedLog.accountStationName && <DetailRow label="TRẠM CỦA TÀI KHOẢN" value={selectedLog.accountStationName} />}
                   {selectedLog.channel && <DetailRow label="KÊNH" value={selectedLog.channel} />}
                   {selectedLog.recipient && <DetailRow label="NGƯỜI NHẬN" value={selectedLog.recipient} />}
                   {selectedLog.status && <DetailRow label="TRẠNG THÁI" value={selectedLog.status} />}
@@ -3056,22 +3344,23 @@ function CentralLogView({ stations }: { stations: Station[] }) {
                   {(selectedLog.oldValue || selectedLog.newValue) && (
                     <div>
                       <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>THAY ĐỔI</div>
-                      {selectedLog.oldValue && (
-                        <div style={{ marginBottom: 4 }}>
-                          <span style={{ fontSize: '.5rem', color: '#ef4444', fontWeight: 700 }}>CŨ</span>
-                          <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 80, margin: '2px 0 0' }}>
-                            {typeof selectedLog.oldValue === 'string' ? selectedLog.oldValue : JSON.stringify(selectedLog.oldValue, null, 2)}
-                          </pre>
+                      {buildChangeRows(selectedLog, stations, provinces).map((row, index) => (
+                        <div key={`${row.label}-${index}`} style={{ marginBottom: 8, padding: 8, background: 'var(--admin-layer-2)', borderRadius: 3 }}>
+                          <div style={{ fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text)', marginBottom: 6 }}>{row.label}</div>
+                          {row.before !== undefined && (
+                            <div style={{ marginBottom: row.after !== undefined ? 6 : 0 }}>
+                              <span style={{ fontSize: '.5rem', color: '#ef4444', fontWeight: 700 }}>TRƯỚC</span>
+                              <div style={{ fontSize: '.58rem', color: 'var(--admin-text)', marginTop: 2, wordBreak: 'break-word' }}>{row.before}</div>
+                            </div>
+                          )}
+                          {row.after !== undefined && (
+                            <div>
+                              <span style={{ fontSize: '.5rem', color: '#22c55e', fontWeight: 700 }}>SAU</span>
+                              <div style={{ fontSize: '.58rem', color: 'var(--admin-text)', marginTop: 2, wordBreak: 'break-word' }}>{row.after}</div>
+                            </div>
+                          )}
                         </div>
-                      )}
-                      {selectedLog.newValue && (
-                        <div>
-                          <span style={{ fontSize: '.5rem', color: '#22c55e', fontWeight: 700 }}>MỚI</span>
-                          <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 80, margin: '2px 0 0' }}>
-                            {typeof selectedLog.newValue === 'string' ? selectedLog.newValue : JSON.stringify(selectedLog.newValue, null, 2)}
-                          </pre>
-                        </div>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>
@@ -3089,6 +3378,221 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div>
       <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: '.65rem', fontWeight: 600, color: 'var(--admin-text)' }}>{value}</div>
+    </div>
+  );
+}
+
+function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]; provinces: Province[] }) {
+  const [provinceId, setProvinceId] = useState('');
+  const [stationId, setStationId] = useState('');
+  const [status, setStatus] = useState('');
+  const [searchText, setSearchText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+
+  const stationsByProvince = useMemo(
+    () => provinceId ? stations.filter(s => s.provinceId === provinceId) : stations,
+    [stations, provinceId]
+  );
+
+  useEffect(() => {
+    if (stationId && !stationsByProvince.some(s => s.id === stationId)) setStationId('');
+  }, [stationId, stationsByProvince]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await stationApi.getAlerts(status || undefined, undefined, undefined, 500, stationId || undefined);
+      const filteredByProvince = provinceId
+        ? data.filter(a => stations.find(s => s.id === a.stationId)?.provinceId === provinceId)
+        : data;
+      setAlerts(filteredByProvince);
+    } catch {
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [status, stationId, provinceId, stations]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = useMemo(() => {
+    if (!searchText) return alerts;
+    const q = searchText.toLowerCase();
+    return alerts.filter(a =>
+      (a.message || '').toLowerCase().includes(q) ||
+      (a.stationName || stations.find(s => s.id === a.stationId)?.name || '').toLowerCase().includes(q) ||
+      (a.deviceId || '').toLowerCase().includes(q)
+    );
+  }, [alerts, searchText, stations]);
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <select value={provinceId} onChange={e => setProvinceId(e.target.value)} style={{ height: 28, minWidth: 180, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
+          <option value="">TẤT CẢ TỈNH</option>
+          {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={stationId} onChange={e => setStationId(e.target.value)} style={{ height: 28, minWidth: 220, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
+          <option value="">TẤT CẢ TRẠM CON</option>
+          {stationsByProvince.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <select value={status} onChange={e => setStatus(e.target.value)} style={{ height: 28, minWidth: 160, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
+          <option value="">TẤT CẢ TRẠNG THÁI</option>
+          <option value="open">CHƯA XỬ LÝ</option>
+          <option value="acked">ĐANG XỬ LÝ</option>
+          <option value="closed">ĐÃ ĐÓNG</option>
+        </select>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', padding: '0 8px', height: 28 }}>
+          <Search size={12} color="var(--admin-text-muted)" />
+          <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="TÌM CẢNH BÁO..." style={{ border: 'none', background: 'transparent', color: 'var(--admin-text)', outline: 'none', minWidth: 180 }} />
+        </div>
+        <button onClick={load} className="btn-industrial" style={{ height: 28, padding: '0 10px' }}>
+          <RefreshCw size={12} className={loading ? 'spin' : ''} />
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>TỔNG CẢNH BÁO: <b>{filtered.length}</b></div>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>MỞ: <b style={{ color: 'var(--admin-danger)' }}>{filtered.filter(a => a.status === 'open').length}</b></div>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>ĐANG XỬ LÝ: <b style={{ color: 'var(--admin-warning)' }}>{filtered.filter(a => a.status === 'acked').length}</b></div>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>ĐÃ ĐÓNG: <b style={{ color: 'var(--admin-success)' }}>{filtered.filter(a => a.status === 'closed').length}</b></div>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>THỜI GIAN</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TỈNH</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠM CON</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>NỘI DUNG</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>MỨC ĐỘ</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠNG THÁI</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={6} style={{ padding: 28, textAlign: 'center', color: 'var(--admin-text-muted)' }}>{loading ? 'Đang tải...' : 'Không có dữ liệu'}</td></tr>
+            ) : filtered.map(alert => {
+              const station = stations.find(s => s.id === alert.stationId);
+              const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || 'Chưa phân tỉnh';
+              return (
+                <tr key={alert.id}>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{fmtDateTime(alert.triggeredAt)}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{provinceName}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{alert.stationName || station?.name || '—'}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)', fontWeight: 700 }}>{alert.message}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{alert.level}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{alert.status}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function CentralMaintenanceView({ stations, provinces }: { stations: Station[]; provinces: Province[] }) {
+  const [provinceId, setProvinceId] = useState('');
+  const [stationId, setStationId] = useState('');
+  const [status, setStatus] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
+
+  const stationsByProvince = useMemo(
+    () => provinceId ? stations.filter(s => s.provinceId === provinceId) : stations,
+    [stations, provinceId]
+  );
+
+  useEffect(() => {
+    if (stationId && !stationsByProvince.some(s => s.id === stationId)) setStationId('');
+  }, [stationId, stationsByProvince]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await stationApi.getMaintenance(stationId || undefined, status === 'all' ? undefined : status);
+      const filteredByProvince = provinceId
+        ? data.filter(t => stations.find(s => s.id === t.stationId)?.provinceId === provinceId)
+        : data;
+      setTasks(filteredByProvince);
+    } catch {
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [stationId, status, provinceId, stations]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <select value={provinceId} onChange={e => setProvinceId(e.target.value)} style={{ height: 28, minWidth: 180, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
+          <option value="">TẤT CẢ TỈNH</option>
+          {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={stationId} onChange={e => setStationId(e.target.value)} style={{ height: 28, minWidth: 220, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
+          <option value="">TẤT CẢ TRẠM CON</option>
+          {stationsByProvince.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <select value={status} onChange={e => setStatus(e.target.value)} style={{ height: 28, minWidth: 180, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
+          <option value="all">TẤT CẢ TRẠNG THÁI</option>
+          <option value="pending">ĐANG CHỜ</option>
+          <option value="in_progress">ĐANG LÀM</option>
+          <option value="overdue">QUÁ HẠN</option>
+          <option value="completed">HOÀN THÀNH</option>
+        </select>
+        <button onClick={load} className="btn-industrial" style={{ height: 28, padding: '0 10px' }}>
+          <RefreshCw size={12} className={loading ? 'spin' : ''} />
+        </button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>TỔNG CÔNG VIỆC: <b>{tasks.length}</b></div>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>QUÁ HẠN: <b style={{ color: 'var(--admin-danger)' }}>{tasks.filter(t => t.status === 'overdue').length}</b></div>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>ĐANG LÀM: <b style={{ color: 'var(--admin-warning)' }}>{tasks.filter(t => t.status === 'in_progress').length}</b></div>
+        <div className="admin-card" style={{ padding: '8px 12px' }}>HOÀN THÀNH: <b style={{ color: 'var(--admin-success)' }}>{tasks.filter(t => t.status === 'completed').length}</b></div>
+      </div>
+
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TỈNH</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠM CON</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TIÊU ĐỀ</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>THIẾT BỊ</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>NGÀY DỰ KIẾN</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠNG THÁI</th>
+              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>PHỤ TRÁCH</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.length === 0 ? (
+              <tr><td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--admin-text-muted)' }}>{loading ? 'Đang tải...' : 'Không có dữ liệu'}</td></tr>
+            ) : tasks.map(task => {
+              const station = stations.find(s => s.id === task.stationId);
+              const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || 'Chưa phân tỉnh';
+              return (
+                <tr key={task.id}>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{provinceName}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{station?.name || '—'}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)', fontWeight: 700 }}>{task.title}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.deviceName || '—'}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.scheduledDate?.slice(0, 10)}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.status}</td>
+                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.assignedTo || '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

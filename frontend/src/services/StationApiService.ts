@@ -21,7 +21,7 @@ import type {
   Station, Device, CameraDevice, RoiPoint, CameraType, SensorPoint, Rule, AlertItem,
   AlertHistoryEntry, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, UserItem,
   SldPoint, SldUnpinnedDevice, SldData, ReportItem, MaintenanceTask, MaintenanceSuggestion,
-  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary, PermissionInfo, Province
+  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary, PermissionInfo, Province, Team
 } from '@/types/api.types';
 
 // Re-export tất cả types để component không cần import từ 2 nơi
@@ -29,7 +29,7 @@ export type {
   Station, Device, CameraDevice, RoiPoint, CameraType, SensorPoint, Rule, AlertItem,
   AlertHistoryEntry, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, UserItem,
   SldPoint, SldUnpinnedDevice, SldData, ReportItem, MaintenanceTask, MaintenanceSuggestion,
-  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary, PermissionInfo, Province,
+  SmtpConfig, HealthScore, TrendItem, SyncStatus, Boundary, PermissionInfo, Province, Team,
   PredictionHistoryPoint, TrainingStatus
 };
 
@@ -132,6 +132,13 @@ class StationApiService {
   updateUser = systemService.updateUser.bind(systemService);
   deactivateUser = systemService.deleteUser.bind(systemService);
   changePassword = systemService.changePassword.bind(systemService);
+
+  // ── Teams ──────────────────────────────────────────────────
+  getTeams = systemService.getTeams.bind(systemService);
+  getTeam = systemService.getTeam.bind(systemService);
+  createTeam = systemService.createTeam.bind(systemService);
+  updateTeam = systemService.updateTeam.bind(systemService);
+  deleteTeam = systemService.deleteTeam.bind(systemService);
 
   // ── SLD ───────────────────────────────────────────────────
   getSld = sldService.getSld.bind(sldService);

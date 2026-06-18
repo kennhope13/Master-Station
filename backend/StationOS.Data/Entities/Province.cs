@@ -22,5 +22,6 @@ public class Province
     /// <summary>Trạng thái: active | inactive.</summary>
     public string Status { get; set; } = "active";
 
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public List<Station> Stations { get; set; } = new();
+
 }

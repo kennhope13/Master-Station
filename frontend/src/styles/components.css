@@ -279,9 +279,45 @@
     font-size: .85rem;
 }
 
-.form-select option {
-    background: var(--admin-border);
-    color: var(--admin-text);
+/* Select option colors per theme (browsers ignore CSS vars on <option>) */
+.form-select option,
+select.form-input option {
+    background: #0f172a;
+    color: #e2e8f0;
+}
+.theme-industrial .form-select option,
+.theme-industrial select.form-input option {
+    background: #24272a;
+    color: #e2e8f0;
+}
+.theme-blue .form-select option,
+.theme-blue select.form-input option {
+    background: #101f42;
+    color: #e2e8f0;
+}
+.theme-hightech .form-select option,
+.theme-hightech select.form-input option,
+.theme-high-tech .form-select option,
+.theme-high-tech select.form-input option {
+    background: #0a1628;
+    color: #e2e8f0;
+}
+.theme-cyberpunk .form-select option,
+.theme-cyberpunk select.form-input option {
+    background: #150833;
+    color: #e2e8f0;
+}
+.theme-light .form-select option,
+.theme-light select.form-input option,
+.theme-soft-light .form-select option,
+.theme-soft-light select.form-input option {
+    background: #ffffff;
+    color: #1e293b;
+}
+.theme-silver .form-select option,
+.theme-silver select.form-input option {
+    background: #f8fafc;
+    color: #1e293b;
 }
 
 .form-input:focus,
@@ -335,28 +371,45 @@
 .modal-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
+    position: relative;
     padding: 20px 24px;
     border-bottom: 1px solid var(--admin-border, var(--admin-border));
 }
 
 .modal-header h3 {
     margin: 0;
-    font-size: 1rem;
-    color: var(--admin-text, var(--admin-text));
+    font-size: .85rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--admin-accent, var(--admin-accent));
 }
 
 .modal-close-btn {
+    position: absolute;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
     background: none;
     border: none;
-    color: var(--admin-text, var(--admin-text));
-    font-size: 1.2rem;
+    color: var(--admin-text-muted, var(--admin-text));
+    font-size: 1rem;
     cursor: pointer;
-    opacity: .5;
+    opacity: .6;
+    transition: opacity 0.2s, color 0.2s;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
 }
 
 .modal-close-btn:hover {
     opacity: 1;
+    color: var(--admin-danger);
+    background: rgba(239, 68, 68, 0.1);
 }
 
 .modal-body {

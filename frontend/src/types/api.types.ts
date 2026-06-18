@@ -5,7 +5,7 @@
 // ============================================================
 
 // ── Auth & User ───────────────────────────────────────────────
-export type UserRole = 'admin' | 'admin_province' | 'admin_station' | 'manager' | 'operator';
+export type UserRole = 'admin' | 'admin_province' | 'operator_province' | 'team_leader' | 'team_member' | 'admin_station' | 'manager' | 'operator';
 
 export interface User {
   user_id: string;
@@ -37,6 +37,7 @@ export interface Station {
   webUrl?: string;
   connectionStatus?: 'online' | 'offline' | 'unknown' | string;
   lastSeenAt?: string;
+  provinceId?: string;
 }
 
 /** Helper parse location JSON. */
@@ -206,6 +207,8 @@ export interface AuditLogEntry {
   newValue?: string | null; // giá trị sau thay đổi (JSON)
   stationId?: string;
   stationName?: string;
+  accountStationId?: string;
+  accountStationName?: string;
 }
 
 export interface LoginLogEntry {
@@ -216,6 +219,8 @@ export interface LoginLogEntry {
   ts: string;
   stationId?: string;
   stationName?: string;
+  accountStationId?: string;
+  accountStationName?: string;
 }
 
 export interface NotifyLogEntry {
@@ -254,6 +259,16 @@ export interface UserItem {
   stationIds?: string[];
   provinceIds?: string[];
   permissions?: string[];
+  createdAt: string;
+  teamId?: string;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description?: string;
+  provinceId: string;
+  stationIds?: string[];
   createdAt: string;
 }
 

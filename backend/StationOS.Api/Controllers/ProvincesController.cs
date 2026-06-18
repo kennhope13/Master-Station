@@ -58,7 +58,7 @@ public class ProvincesController : ControllerBase
 
         var result = provinces.Select(p => new
         {
-            p.Id, p.Name, p.Code, p.Description, p.Status, p.CreatedAt,
+            p.Id, p.Name, p.Code, p.Description, p.Status,
             stationCount = stationCounts.FirstOrDefault(x => x.ProvinceId == p.Id)?.Count ?? 0
         });
 
@@ -86,7 +86,7 @@ public class ProvincesController : ControllerBase
         return Ok(new
         {
             province.Id, province.Name, province.Code,
-            province.Description, province.Status, province.CreatedAt,
+            province.Description, province.Status,
             stations
         });
     }

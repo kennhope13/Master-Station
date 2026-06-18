@@ -7,7 +7,9 @@
 import { useEffect, useState, Suspense, useRef, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '@/services/AuthService';
+import { API_BASE_URL } from '@/utils/env';
 import { useAlertStore, useSensorStore, useStationStore } from '@/store';
+import { useAuthStore } from '@/store/authStore';
 import { ALERT_STATUS } from '@/types/enums';
 import type { AlertItem, SensorPoint } from '@/types/api.types';
 import { setTheme as setGlobalTheme } from '@/utils/theme-manager';
@@ -19,7 +21,7 @@ import RichAlertModal from '@/components/ui/RichAlertModal';
 import {
   LayoutDashboard, Video, AlertTriangle, LineChart, FileText,
   Wrench, FileArchive, Map, Radio, Users, Settings, LogOut,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Key
 } from 'lucide-react';
 
 interface NavSubItem { id: string; path: string; label: string }
@@ -35,6 +37,7 @@ const CENTRAL_NAV: NavItem[] = [
 
 const CENTRAL_ADMIN_NAV: NavItem[] = [
   { id: 'user-management', path: '/user-management', icon: <Users size={19} strokeWidth={1.5} />, label: 'Người dùng', permission: 'user:view' },
+  { id: 'license', path: '/license', icon: <Key size={19} strokeWidth={1.5} />, label: 'Bản quyền', permission: 'license:manage' },
 ];
 
 const CHILD_NAV: NavItem[] = [
@@ -52,6 +55,7 @@ const CHILD_ADMIN_NAV: NavItem[] = [
   { id: 'rule-engine', path: '/rule-engine', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Cài đặt cảnh báo', permission: 'rule:manage' },
   { id: 'user-management', path: '/user-management', icon: <Users size={19} strokeWidth={1.5} />, label: 'Người dùng', permission: 'user:view' },
   { id: 'settings', path: '/settings', icon: <Settings size={19} strokeWidth={1.5} />, label: 'Cài đặt', permission: 'settings:manage' },
+  { id: 'license', path: '/license', icon: <Key size={19} strokeWidth={1.5} />, label: 'Bản quyền', permission: 'license:manage' },
 ];
 
 const THEME_NAMES: Record<string, string> = {
@@ -76,7 +80,8 @@ const isFireAlert = (alert: AlertItem) => {
 export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
-  const user = authService.getUser();
+  const user = useAuthStore(s => s.user);
+  const token = useAuthStore(s => s.token);
 
   // ── Security Check ──
   useEffect(() => {
@@ -101,6 +106,13 @@ export default function AppShell() {
     }
   }, [location.pathname, setViewingStation]);
 
+  // Nếu là tài khoản trạm tổng/cấp tỉnh nhưng đang ở route con mà không chọn trạm drill-down, tự động chuyển về /multisite
+  useEffect(() => {
+    if (isCentralUser && !viewingStationId && location.pathname !== '/multisite' && location.pathname !== '/') {
+      navigate('/multisite', { replace: true });
+    }
+  }, [isCentralUser, viewingStationId, location.pathname, navigate]);
+
   // Trạm hiện tại đang xem (khi drill-down)
   const stations = useStationStore(s => s.stations);
   const drillStation = isDrillDown ? stations.find(s => s.id === viewingStationId) : null;
@@ -116,8 +128,13 @@ export default function AppShell() {
     if (item.permission && !authService.hasPermission(item.permission)) {
       return false;
     }
-    if (user && (user.is_restricted || (user.station_ids && user.station_ids.length > 0))) {
+    // Nếu bị giới hạn trạm con (station_ids có phần tử), ẩn cả settings và license
+    if (user && user.station_ids && user.station_ids.length > 0) {
       return !['settings', 'license'].includes(item.id);
+    }
+    // Nếu bị giới hạn tỉnh (is_restricted là true nhưng không có station_ids), chỉ ẩn settings, vẫn giữ license
+    if (user && user.is_restricted) {
+      return item.id !== 'settings';
     }
     return true;
   });
@@ -261,6 +278,32 @@ export default function AppShell() {
       });
     });
 
+    // 5. Lắng nghe cập nhật thông tin tài khoản để đồng bộ realtime không cần reload
+    hub.on('UserStatusChange', (data: { username: string, status: string }) => {
+      const currentUser = useAuthStore.getState().user;
+      if (data && data.username && currentUser?.username && data.username.toLowerCase() === currentUser.username.toLowerCase()) {
+        if (data.status === 'updated') {
+          console.log('[AppShell] User profile updated, performing silent refresh...');
+          authService.refreshSession().then((success) => {
+            if (success) {
+              // Invalidate and refresh store data reactively
+              useStationStore.getState().invalidate();
+              useStationStore.getState().fetch(true);
+              useAlertStore.getState().invalidate();
+              useAlertStore.getState().fetch(ALERT_STATUS.OPEN, true);
+              showToast('Thông tin phân quyền tài khoản đã được cập nhật thành công!', 'info');
+            }
+          });
+        } else if (data.status === 'deactivated') {
+          showToast('Tài khoản của bạn đã bị vô hiệu hóa bởi Quản trị viên.', 'error');
+          setTimeout(() => {
+            authService.logout();
+            navigate('/login');
+          }, 2000);
+        }
+      }
+    });
+
     let isMounted = true;
     const startHub = async () => {
       try {
@@ -282,7 +325,7 @@ export default function AppShell() {
       isMounted = false;
       hub.stop();
     };
-  }, [fetchAlerts, invalidateAlerts]);
+  }, [token, fetchAlerts, invalidateAlerts]);
 
   const [time, setTime] = useState(new Date().toLocaleTimeString('vi-VN'));
   const [syncState, setSyncState] = useState<'ok' | 'syncing' | 'offline'>(navigator.onLine ? 'syncing' : 'offline');
@@ -369,6 +412,25 @@ export default function AppShell() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
+  }, []);
+
+  // Heartbeat to update online status
+  useEffect(() => {
+    const token = authService.getToken();
+    if (!token) return;
+
+    const ping = () => {
+      fetch(`${API_BASE_URL}/api/v1/auth/me`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      }).catch(err => console.error('Heartbeat failed', err));
+    };
+
+    // Ping immediately and then every 2 minutes
+    ping();
+    const interval = setInterval(ping, 120000);
+    return () => clearInterval(interval);
   }, []);
 
   /** Chuyển đổi trạng thái sidebar (mở rộng/thu gọn) và lưu vào localStorage. */
@@ -530,7 +592,7 @@ export default function AppShell() {
                 {renderNav(navItems)}
               </div>
 
-              {user.role === 'admin' && (
+              {adminNavItems.length > 0 && (
                 <>
                   <div className="sb-sep" />
                   <div className="sb-group">

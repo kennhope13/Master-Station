@@ -37,7 +37,7 @@ public class StationsController : ControllerBase
         var stations = await q
             .OrderBy(s => s.Name)
             .Select(s => new {
-                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.WebUrl, s.LastContactAt
+                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.WebUrl, s.LastContactAt, s.ProvinceId
             }).ToListAsync();
 
         var stationIds = stations.Select(s => s.Id).ToList();
@@ -88,7 +88,8 @@ public class StationsController : ControllerBase
                 s.ApiUrl,
                 webUrl = s.WebUrl ?? DeriveWebUrl(s.ApiUrl),
                 connectionStatus,
-                lastSeenAt
+                lastSeenAt,
+                s.ProvinceId
             };
         }));
     }

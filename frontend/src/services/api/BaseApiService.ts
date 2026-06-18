@@ -43,6 +43,7 @@ async function performRefresh(): Promise<string | null> {
       created_at: new Date().toISOString(),
       is_restricted: payload['isRestricted'] === 'true' || !!payload['stationIds'],
       station_ids: payload['stationIds'] ? payload['stationIds'].split(',') : undefined,
+      province_ids: payload['provinceIds'] ? payload['provinceIds'].split(',') : undefined,
     };
 
     store.setSession(user, token, newRefreshToken);
@@ -106,7 +107,15 @@ export async function apiFetch<T>(path: string): Promise<T> {
     }
   }
 
-  if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    let message = '';
+    try {
+      const parsed = JSON.parse(errText);
+      message = parsed.message || parsed.error || '';
+    } catch {}
+    throw new Error(message || `API ${path} → ${res.status}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -142,8 +151,13 @@ export async function apiMutate<T = any>(method: string, path: string, body?: ob
   }
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(err || `${method} ${path} → ${res.status}`);
+    const errText = await res.text().catch(() => '');
+    let message = '';
+    try {
+      const parsed = JSON.parse(errText);
+      message = parsed.message || parsed.error || '';
+    } catch {}
+    throw new Error(message || errText || `${method} ${path} → ${res.status}`);
   }
   if (res.status === 204) return null as T;
   return res.json();

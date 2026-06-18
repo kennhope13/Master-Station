@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // AuthController — REST API xác thực người dùng
 // Routes:
 //   POST /api/v1/auth/login   — Đăng nhập → JWT (8h)
@@ -152,12 +152,26 @@ public class AuthController : ControllerBase
     /// </summary>
     [Authorize]
     [HttpGet("me")]
-    public IActionResult Me()
+    public async Task<IActionResult> Me()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var username = User.FindFirstValue(ClaimTypes.Name);
         var role = User.FindFirstValue(ClaimTypes.Role);
         var fullName = User.FindFirstValue("fullName");
+
+        if (Guid.TryParse(userId, out var uid))
+        {
+            var latestLog = await _db.LoginLogs
+                .Where(l => l.UserId == uid && l.Action == "login")
+                .OrderByDescending(l => l.Ts)
+                .FirstOrDefaultAsync();
+
+            if (latestLog != null)
+            {
+                latestLog.Ts = DateTime.UtcNow;
+                await _db.SaveChangesAsync();
+            }
+        }
 
         return Ok(new { userId, username, role, fullName });
     }

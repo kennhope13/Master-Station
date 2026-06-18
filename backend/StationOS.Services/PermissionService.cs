@@ -4,6 +4,9 @@
 // Cấp bậc:
 //   admin           → Admin Toàn Cục: thấy TẤT CẢ tỉnh & trạm
 //   admin_province  → Admin Tỉnh: thấy trạm thuộc tỉnh được gán (ProvinceIds)
+//   operator_province → Operator PC Tỉnh: giám sát trạm thuộc tỉnh (read-only)
+//   team_leader     → Tổ trưởng: thấy trạm của Tổ (Team.StationIds)
+//   team_member     → Nhân viên Tổ: thấy trạm của Tổ (Team.StationIds)
 //   admin_station   → Admin Trạm: thấy trạm được gán (StationIds)
 //   manager         → Manager Trạm: thấy trạm được gán (StationIds)
 //   operator        → Operator: thấy trạm được gán (StationIds)
@@ -42,7 +45,7 @@ public class PermissionService
 
         var dbUser = await _db.Users
             .AsNoTracking()
-            .Select(u => new { u.Id, u.Role, u.StationIds, u.ProvinceIds })
+            .Select(u => new { u.Id, u.Role, u.StationIds, u.ProvinceIds, u.TeamId })
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (dbUser == null) return Array.Empty<Guid>();
@@ -52,12 +55,18 @@ public class PermissionService
         if (dbUser.Role == "admin")
             return null;
 
-        // ── Tầng 2: Admin Tỉnh ──────────────────────────────────────
-        // Thấy tất cả trạm thuộc các tỉnh được gán
-        if (dbUser.Role == "admin_province")
+        // ── Tầng 2: Admin Tỉnh / Operator PC Tỉnh ───────────────────
+        // Thấy tất cả trạm thuộc các tỉnh được gán (nếu null/trống -> mặc định thấy tất cả trạm thuộc tỉnh để tránh bị trống giao diện)
+        if (dbUser.Role == "admin_province" || dbUser.Role == "operator_province")
         {
             if (dbUser.ProvinceIds == null || dbUser.ProvinceIds.Length == 0)
-                return Array.Empty<Guid>(); // chưa gán tỉnh → không thấy gì
+            {
+                return await _db.Stations
+                    .AsNoTracking()
+                    .Where(s => s.ProvinceId != null)
+                    .Select(s => s.Id)
+                    .ToArrayAsync();
+            }
 
             // Lấy tất cả stationId thuộc các tỉnh đó
             var stationIds = await _db.Stations
@@ -74,7 +83,18 @@ public class PermissionService
         if (dbUser.StationIds != null && dbUser.StationIds.Length > 0)
             return dbUser.StationIds;
 
-        // Không có StationIds → không thấy trạm nào
+        // ── Tầng 4: Team-based (Tổ thao tác lưu động) ─────────────
+        // Nếu user có TeamId thì trả về StationIds của team
+        if (dbUser.TeamId != null)
+        {
+            var team = await _db.Teams
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == dbUser.TeamId);
+            if (team?.StationIds != null && team.StationIds.Length > 0)
+                return team.StationIds;
+        }
+
+        // Không có StationIds và không có team → không thấy trạm nào
         return Array.Empty<Guid>();
     }
 
@@ -109,8 +129,13 @@ public class PermissionService
 
         if (dbUser.Role == "admin") return null; // tất cả
 
-        if (dbUser.Role == "admin_province")
-            return dbUser.ProvinceIds ?? Array.Empty<Guid>();
+        if (dbUser.Role == "admin_province" || dbUser.Role == "operator_province")
+        {
+            if (dbUser.ProvinceIds == null || dbUser.ProvinceIds.Length == 0)
+                return null; // Không giới hạn -> Thấy tất cả các Tỉnh
+
+            return dbUser.ProvinceIds;
+        }
 
         return Array.Empty<Guid>(); // các role thấp hơn không quản lý tỉnh
     }
@@ -138,9 +163,67 @@ public class PermissionService
         // Admin Toàn Cục luôn có full quyền (cái to nhất có full)
         if (dbUser.Role == "admin") return true;
 
+        // Cấu hình quyền mặc định theo vai trò
+        var defaultPermissions = GetDefaultPermissionsForRole(dbUser.Role);
+        if (defaultPermissions.Contains(permissionKey)) return true;
+
         // Kiểm tra trong danh sách quyền được cấp động
         if (dbUser.Permissions == null || dbUser.Permissions.Length == 0) return false;
 
         return dbUser.Permissions.Contains(permissionKey);
+    }
+
+    private static readonly string[] ProvinceAdminPermissions = new[]
+    {
+        "station:view", "station:manage", "device:view", "device:manage",
+        "rule:view", "rule:manage", "user:view", "user:manage",
+        "report:view", "report:manage", "license:manage"
+    };
+
+    private static readonly string[] StationAdminPermissions = new[]
+    {
+        "station:view", "station:manage", "device:view", "device:manage",
+        "rule:view", "rule:manage", "user:view", "user:manage",
+        "report:view", "report:manage"
+    };
+
+    private static readonly string[] OperatorProvincePermissions = new[]
+    {
+        "station:view", "device:view", "rule:view", "report:view"
+    };
+
+    private static readonly string[] OperatorPermissions = new[]
+    {
+        "station:view", "device:view", "rule:view", "report:view"
+    };
+
+    // Tổ trưởng: có thêm device:manage (quản lý thiết bị cụm trạm)
+    private static readonly string[] TeamLeaderPermissions = new[]
+    {
+        "station:view", "device:view", "device:manage",
+        "rule:view", "report:view"
+    };
+
+    // Manager: quản lý trạm, có device:manage
+    private static readonly string[] ManagerPermissions = new[]
+    {
+        "station:view", "device:view", "device:manage",
+        "rule:view", "report:view"
+    };
+
+    public static System.Collections.Generic.HashSet<string> GetDefaultPermissionsForRole(string role)
+    {
+        var list = role switch
+        {
+            "admin_province" => ProvinceAdminPermissions,
+            "admin_station" => StationAdminPermissions,
+            "operator_province" => OperatorProvincePermissions,
+            "manager" => ManagerPermissions,
+            "operator" => OperatorPermissions,
+            "team_leader" => TeamLeaderPermissions,
+            "team_member" => OperatorPermissions,
+            _ => System.Array.Empty<string>()
+        };
+        return new System.Collections.Generic.HashSet<string>(list);
     }
 }

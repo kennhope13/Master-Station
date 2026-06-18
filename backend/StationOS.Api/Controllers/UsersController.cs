@@ -20,6 +20,8 @@ using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
 using StationOS.Api.Filters;
+using Microsoft.AspNetCore.SignalR;
+using StationOS.Api.Hubs;
 
 namespace StationOS.Api.Controllers;
 
@@ -29,46 +31,85 @@ namespace StationOS.Api.Controllers;
 public class UsersController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IHubContext<RealtimeHub> _hubContext;
 
-    public UsersController(AppDbContext db) => _db = db;
+    public UsersController(AppDbContext db, IHubContext<RealtimeHub> hubContext)
+    {
+        _db = db;
+        _hubContext = hubContext;
+    }
 
-    // Lấy danh sách StationId mà caller được phép quản lý. null = không giới hạn.
-    private (bool isRestricted, Guid[]? stationIds) GetCallerScope()
+    // Lấy danh sách StationId và ProvinceId mà caller được phép quản lý. null = không giới hạn.
+    private (bool isRestricted, Guid[]? stationIds, Guid[]? provinceIds) GetCallerScope()
     {
         var isRestricted = User.FindFirstValue("isRestricted") == "true";
-        if (!isRestricted) return (false, null);
-        var raw = User.FindFirstValue("stationIds") ?? "";
-        var ids = raw.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                     .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
-                     .Where(g => g.HasValue).Select(g => g!.Value).ToArray();
-        return (true, ids.Length > 0 ? ids : null);
+        if (!isRestricted) return (false, null, null);
+        
+        var rawStations = User.FindFirstValue("stationIds") ?? "";
+        var stationIds = rawStations.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                     .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
+                                     .Where(g => g.HasValue).Select(g => g!.Value).ToArray();
+
+        var rawProvinces = User.FindFirstValue("provinceIds") ?? "";
+        var provinceIds = rawProvinces.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                      .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
+                                      .Where(g => g.HasValue).Select(g => g!.Value).ToArray();
+
+        return (true, stationIds.Length > 0 ? stationIds : null, provinceIds.Length > 0 ? provinceIds : null);
     }
 
-    // Kiểm tra user B có nằm trong scope của restricted admin không.
-    // Một user thuộc scope nếu StationIds của B giao khác rỗng với stationIds của caller.
-    private static bool UserInScope(Guid[]? targetStationIds, Guid[] callerStationIds)
+    private async Task<bool> UserInScopeAsync(Guid[]? targetStationIds, Guid[]? targetProvinceIds, Guid[]? callerStationIds, Guid[]? callerProvinceIds)
     {
-        if (targetStationIds == null || targetStationIds.Length == 0) return false;
-        return targetStationIds.Any(id => callerStationIds.Contains(id));
+        if (callerProvinceIds != null && callerProvinceIds.Length > 0)
+        {
+            if (targetProvinceIds != null && targetProvinceIds.Any(pid => callerProvinceIds.Contains(pid)))
+                return true;
+
+            if (targetStationIds != null && targetStationIds.Length > 0)
+            {
+                var stationsInProvinces = await _db.Stations
+                    .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
+                    .Select(s => s.Id)
+                    .ToListAsync();
+                if (targetStationIds.Any(sid => stationsInProvinces.Contains(sid)))
+                    return true;
+            }
+        }
+
+        if (callerStationIds != null && callerStationIds.Length > 0)
+        {
+            if (targetStationIds != null && targetStationIds.Any(sid => callerStationIds.Contains(sid)))
+                return true;
+        }
+
+        return false;
     }
 
-    /// <summary>Danh sách users. Restricted admin chỉ thấy user thuộc trạm của mình.</summary>
+    /// <summary>Danh sách users. Restricted admin chỉ thấy user thuộc trạm hoặc tỉnh của mình.</summary>
     [HttpGet]
     [HasPermission("user:view")]
     public async Task<IActionResult> GetAll()
     {
-        var (isRestricted, callerStationIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
 
         var query = _db.Users.OrderByDescending(u => u.CreatedAt);
-        var all = await query.Select(u => new
+        System.Collections.IEnumerable all = await query.Select(u => new
         {
             u.Id, u.Username, u.FullName, u.Email,
-            u.Role, u.IsActive, u.StationIds, u.ProvinceIds, u.Permissions, u.CreatedAt
+            u.Role, u.IsActive, u.StationIds, u.ProvinceIds, u.TeamId, u.Permissions, u.CreatedAt
         }).ToListAsync();
 
-        if (isRestricted && callerStationIds != null)
+        if (isRestricted)
         {
-            all = all.Where(u => UserInScope(u.StationIds, callerStationIds)).ToList();
+            var filtered = new List<dynamic>();
+            foreach (dynamic u in all)
+            {
+                if (await UserInScopeAsync(u.StationIds, u.ProvinceIds, callerStationIds, callerProvinceIds))
+                {
+                    filtered.Add(u);
+                }
+            }
+            all = filtered;
         }
 
         return Ok(all);
@@ -96,13 +137,12 @@ public class UsersController : ControllerBase
         };
         return Ok(permissions);
     }
-
-    /// <summary>Tạo user mới. Restricted admin không tạo được global admin và chỉ gán trạm trong scope.</summary>
+    /// <summary>Tạo user mới. Restricted admin không tạo được global admin và chỉ gán trạm/tỉnh trong scope.</summary>
     [HttpPost]
     [HasPermission("user:manage")]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest req)
     {
-        var (isRestricted, callerStationIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
 
         if (await _db.Users.AnyAsync(u => u.Username == req.Username))
             return BadRequest(new { message = $"Tên đăng nhập '{req.Username}' đã tồn tại" });
@@ -110,24 +150,55 @@ public class UsersController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 6)
             return BadRequest(new { message = "Mật khẩu phải ít nhất 6 ký tự" });
 
-        var validRoles = new[] { "operator", "manager", "admin_station", "admin_province", "admin" };
+        var validRoles = new[] { "operator", "manager", "admin_station", "admin_province", "operator_province", "team_leader", "team_member", "admin" };
         var role = req.Role?.ToLower() ?? "operator";
         if (!validRoles.Contains(role))
             return BadRequest(new { message = "Vai trò không hợp lệ" });
 
         var stationIds = req.StationIds;
+        var provinceIds = req.ProvinceIds;
 
-        if (isRestricted && callerStationIds != null)
+        if (isRestricted)
         {
-            // Restricted admin không được tạo global admin (admin không có station)
-            if (role == "admin" && (stationIds == null || stationIds.Length == 0))
+            // Restricted admin không được tạo global admin
+            if (role == "admin")
                 return Forbid();
 
-            // Buộc StationIds phải là subset của caller's stations
-            if (stationIds != null && stationIds.Length > 0)
-                stationIds = stationIds.Intersect(callerStationIds).ToArray();
-            else
-                stationIds = callerStationIds; // Mặc định gán trạm của caller
+            // Nếu caller giới hạn theo tỉnh
+            if (callerProvinceIds != null && callerProvinceIds.Length > 0)
+            {
+                // Không được tạo admin_province
+                if (role == "admin_province")
+                    return Forbid();
+
+                // Buộc ProvinceIds phải thuộc tỉnh của caller
+                if (provinceIds != null && provinceIds.Length > 0)
+                    provinceIds = provinceIds.Intersect(callerProvinceIds).ToArray();
+
+                // Buộc StationIds phải thuộc tỉnh của caller
+                if (stationIds != null && stationIds.Length > 0)
+                {
+                    var stationsInProvinces = await _db.Stations
+                        .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
+                        .Select(s => s.Id)
+                        .ToListAsync();
+                    stationIds = stationIds.Intersect(stationsInProvinces).ToArray();
+                }
+            }
+            // Nếu caller giới hạn theo trạm
+            else if (callerStationIds != null && callerStationIds.Length > 0)
+            {
+                // Không được tạo các vai trò cao hơn admin_station
+                if (new[] { "admin_province", "operator_province", "manager" }.Contains(role))
+                    return Forbid();
+
+                if (stationIds != null && stationIds.Length > 0)
+                    stationIds = stationIds.Intersect(callerStationIds).ToArray();
+                else
+                    stationIds = callerStationIds;
+                
+                provinceIds = null;
+            }
         }
 
         var user = new User
@@ -139,64 +210,102 @@ public class UsersController : ControllerBase
             Role         = role,
             IsActive     = true,
             StationIds   = stationIds,
-            ProvinceIds  = req.ProvinceIds,
+            ProvinceIds  = provinceIds,
+            TeamId       = req.TeamId,
             Permissions  = req.Permissions
         };
 
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
 
+        await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "updated", ts = DateTime.UtcNow });
+
         return Ok(new
         {
             user.Id, user.Username, user.FullName,
-            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.Permissions, user.CreatedAt
+            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.TeamId, user.Permissions, user.CreatedAt
         });
     }
 
-    /// <summary>Sửa thông tin user. Restricted admin chỉ sửa user trong scope trạm.</summary>
+    /// <summary>Sửa thông tin user. Restricted admin chỉ sửa user trong scope trạm/tỉnh.</summary>
     [HttpPut("{id:guid}")]
     [HasPermission("user:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest req)
     {
-        var (isRestricted, callerStationIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
 
         var user = await _db.Users.FindAsync(id);
         if (user == null) return NotFound(new { message = "Không tìm thấy người dùng" });
 
-        if (isRestricted && callerStationIds != null && !UserInScope(user.StationIds, callerStationIds))
+        if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, callerStationIds, callerProvinceIds))
             return Forbid();
 
         if (req.FullName != null) user.FullName = req.FullName.Trim();
         if (req.Email    != null) user.Email    = req.Email.Trim();
         if (req.Role     != null)
         {
-            var validRoles = new[] { "operator", "manager", "admin_station", "admin_province", "admin" };
+            var validRoles = new[] { "operator", "manager", "admin_station", "admin_province", "operator_province", "team_leader", "team_member", "admin" };
             if (!validRoles.Contains(req.Role.ToLower()))
                 return BadRequest(new { message = "Vai trò không hợp lệ" });
 
-            // Restricted admin không được nâng user thành global admin
-            if (isRestricted && req.Role.ToLower() == "admin" &&
-                (user.StationIds == null || user.StationIds.Length == 0))
-                return Forbid();
+            if (isRestricted)
+            {
+                // Không được nâng thành admin
+                if (req.Role.ToLower() == "admin")
+                    return Forbid();
+
+                // Nếu caller là admin tỉnh, không được nâng thành admin tỉnh khác hoặc admin toàn cục
+                if (callerProvinceIds != null && callerProvinceIds.Length > 0 && req.Role.ToLower() == "admin_province")
+                {
+                    // Cho phép giữ nguyên hoặc check tỉnh
+                    if (user.Role != "admin_province")
+                        return Forbid();
+                }
+            }
 
             user.Role = req.Role.ToLower();
         }
         if (req.IsActive.HasValue) user.IsActive = req.IsActive.Value;
-        if (req.StationIds  != null) {
+        
+        if (req.StationIds != null) {
             var newIds = req.StationIds;
-            if (isRestricted && callerStationIds != null)
-                newIds = newIds.Intersect(callerStationIds).ToArray();
+            if (isRestricted)
+            {
+                if (callerProvinceIds != null && callerProvinceIds.Length > 0)
+                {
+                    var stationsInProvinces = await _db.Stations
+                        .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
+                        .Select(s => s.Id)
+                        .ToListAsync();
+                    newIds = newIds.Intersect(stationsInProvinces).ToArray();
+                }
+                else if (callerStationIds != null)
+                {
+                    newIds = newIds.Intersect(callerStationIds).ToArray();
+                }
+            }
             user.StationIds = newIds;
         }
-        if (req.ProvinceIds != null) user.ProvinceIds = req.ProvinceIds;
+
+        if (req.ProvinceIds != null) {
+            var newProvIds = req.ProvinceIds;
+            if (isRestricted && callerProvinceIds != null)
+            {
+                newProvIds = newProvIds.Intersect(callerProvinceIds).ToArray();
+            }
+            user.ProvinceIds = newProvIds;
+        }
+
+        if (req.TeamId      != null) user.TeamId      = req.TeamId == Guid.Empty ? null : req.TeamId;
         if (req.Permissions != null) user.Permissions = req.Permissions;
 
         await _db.SaveChangesAsync();
+        await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "updated", ts = DateTime.UtcNow });
 
         return Ok(new
         {
             user.Id, user.Username, user.FullName,
-            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.Permissions, user.CreatedAt
+            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.TeamId, user.Permissions, user.CreatedAt
         });
     }
 
@@ -210,7 +319,7 @@ public class UsersController : ControllerBase
     {
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         var currentRole   = User.FindFirstValue(ClaimTypes.Role);
-        var isAdmin       = currentRole == "admin";
+        var isAdmin       = currentRole == "admin" || currentRole == "admin_province" || currentRole == "admin_station";
 
         if (!isAdmin && currentUserId != id.ToString())
             return Forbid();
@@ -221,13 +330,20 @@ public class UsersController : ControllerBase
         // Restricted admin chỉ đổi mật khẩu user trong scope
         if (isAdmin && currentUserId != id.ToString())
         {
-            var (isRestricted, callerStationIds) = GetCallerScope();
-            if (isRestricted && callerStationIds != null && !UserInScope(user.StationIds, callerStationIds))
+            var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
+            if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, callerStationIds, callerProvinceIds))
                 return Forbid();
         }
 
-        if (!isAdmin)
+        if (currentUserId == id.ToString())
         {
+            if (string.IsNullOrEmpty(req.OldPassword))
+                return BadRequest(new { message = "Cần cung cấp mật khẩu cũ" });
+            if (!BCrypt.Net.BCrypt.Verify(req.OldPassword, user.PasswordHash))
+                return BadRequest(new { message = "Mật khẩu cũ không đúng" });
+        }
+
+        if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 6)      {
             if (string.IsNullOrEmpty(req.OldPassword))
                 return BadRequest(new { message = "Cần cung cấp mật khẩu cũ" });
             if (!BCrypt.Net.BCrypt.Verify(req.OldPassword, user.PasswordHash))
@@ -239,6 +355,8 @@ public class UsersController : ControllerBase
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
         await _db.SaveChangesAsync();
+
+        await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "updated", ts = DateTime.UtcNow });
 
         return Ok(new { message = "Đổi mật khẩu thành công" });
     }
@@ -252,12 +370,12 @@ public class UsersController : ControllerBase
         if (currentUserId == id.ToString())
             return BadRequest(new { message = "Không thể vô hiệu hóa tài khoản của chính mình" });
 
-        var (isRestricted, callerStationIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
 
         var user = await _db.Users.FindAsync(id);
         if (user == null) return NotFound(new { message = "Không tìm thấy người dùng" });
 
-        if (isRestricted && callerStationIds != null && !UserInScope(user.StationIds, callerStationIds))
+        if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, callerStationIds, callerProvinceIds))
             return Forbid();
 
         if (!user.IsActive)
@@ -265,6 +383,7 @@ public class UsersController : ControllerBase
 
         user.IsActive = false;
         await _db.SaveChangesAsync();
+        await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "deactivated", ts = DateTime.UtcNow });
 
         return Ok(new { message = $"Đã vô hiệu hóa tài khoản '{user.Username}'" });
     }
@@ -279,6 +398,7 @@ public record CreateUserRequest(
     string? Role,
     Guid[]? StationIds,
     Guid[]? ProvinceIds,
+    Guid?   TeamId,
     string[]? Permissions
 );
 
@@ -289,6 +409,7 @@ public record UpdateUserRequest(
     bool?   IsActive,
     Guid[]? StationIds,
     Guid[]? ProvinceIds,
+    Guid?   TeamId,
     string[]? Permissions
 );
 

@@ -6,6 +6,7 @@ interface RealtimeHandlers {
   onSensorUpdate?: (data: any[]) => void;
   onAlertNew?: (data: any) => void;
   onAlertUpdated?: (data: any) => void;
+  onUserStatusChange?: (data: { username: string; status: string; ts: string }) => void;
 }
 
 /** Hook quản lý vòng đời kết nối SignalR WebSocket: tự động connect khi mount, cleanup khi unmount. */
@@ -24,6 +25,9 @@ export function useRealtime(handlers: RealtimeHandlers, dependencies: any[] = []
     }
     if (handlers.onAlertUpdated) {
       hub.on('AlertUpdated', handlers.onAlertUpdated);
+    }
+    if (handlers.onUserStatusChange) {
+      hub.on('UserStatusChange', handlers.onUserStatusChange);
     }
 
     let isMounted = true;

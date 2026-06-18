@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, RefreshCw, ChevronRight, Clock, Shield, ChevronLeft, LayoutGrid, Database } from 'lucide-react';
+import { Search, RefreshCw, ChevronRight, ChevronLeft, LayoutGrid, Database } from 'lucide-react';
 import { stationApi, Station } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { isCentralUser } from '@/utils/centralAccess';
@@ -17,12 +17,30 @@ interface LogItem {
   who: string;
   stationId?: string;
   stationName?: string;
+  accountStationId?: string;
+  accountStationName?: string;
   raw: any;
 }
 
 interface AuditLogPageProps {
   embeddedMode?: 'default' | 'central';
   stationIdOverride?: string | null;
+}
+
+function formatActionLabel(type: string, action: string, entity?: string) {
+  const entityLabel = entity ? entity.toUpperCase() : 'HỆ THỐNG';
+  const actionMap: Record<string, string> = {
+    create: `Tạo ${entityLabel}`,
+    update: `Cập nhật ${entityLabel}`,
+    delete: `Xóa ${entityLabel}`,
+    ack_alert: 'Xác nhận cảnh báo',
+    close_alert: 'Đóng cảnh báo',
+    login: 'Đăng nhập',
+    auth: 'Xác thực'
+  };
+
+  if (type === 'login') return 'Đăng nhập hệ thống';
+  return actionMap[action.toLowerCase()] || `${action.toUpperCase()} ${entityLabel}`;
 }
 
 export default function AuditLogPage({ embeddedMode = 'default', stationIdOverride = null }: AuditLogPageProps) {
@@ -63,8 +81,30 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
     try {
       const [audit, logins] = await Promise.all([stationApi.getAuditLogs(params), stationApi.getLoginLogs(params)]);
       const merged = [
-        ...audit.map(l => ({ ts: l.ts, type: 'audit', action: l.action, info: l.entityType?.toUpperCase() || 'SYS', who: l.fullName || l.username || 'system', raw: l })),
-        ...logins.map(l => ({ ts: l.ts, type: 'login', action: 'Auth', info: 'LOGIN', who: l.username || 'system', raw: l }))
+        ...audit.map(l => ({
+          ts: l.ts,
+          type: 'audit',
+          action: l.action,
+          info: l.entityType?.toUpperCase() || 'SYS',
+          who: l.fullName || l.username || 'system',
+          stationId: l.stationId,
+          stationName: l.stationName,
+          accountStationId: l.accountStationId,
+          accountStationName: l.accountStationName,
+          raw: l
+        })),
+        ...logins.map(l => ({
+          ts: l.ts,
+          type: 'login',
+          action: 'Auth',
+          info: 'LOGIN',
+          who: l.username || 'system',
+          stationId: l.stationId,
+          stationName: l.stationName,
+          accountStationId: l.accountStationId,
+          accountStationName: l.accountStationName,
+          raw: l
+        }))
       ].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
       setLogs(merged);
     } catch (e) { console.error(e); } finally { setLoading(false); }
@@ -93,6 +133,14 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
     });
     return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, 'vi'));
   }, [filtered]);
+
+  const selectedStationInfo = useMemo(() => {
+    if (!filterStation) return null;
+    return stationsList.find(s => s.id === filterStation) || null;
+  }, [filterStation, stationsList]);
+
+  const stationAuditCount = useMemo(() => filtered.filter(l => l.type === 'audit').length, [filtered]);
+  const stationLoginCount = useMemo(() => filtered.filter(l => l.type === 'login').length, [filtered]);
 
   return (
     <div className="rtm-page industrial-theme">
@@ -189,26 +237,42 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
             </div>
           ) : (
             <div className="nvr-log-area">
-              <table className="nvr-table-sharp">
-                <thead>
-                  <tr>
-                    <th style={{ width: 140 }}>THỜI GIAN</th>
-                    <th style={{ width: 80 }}>LOẠI</th>
-                    <th>HÀNH ĐỘNG</th>
-                    <th style={{ width: 150 }}>NGƯỜI DÙNG</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((l, idx) => (
-                    <tr key={idx} className={selectedLog === l ? 'active' : ''} onClick={() => setSelectedLog(l)}>
-                      <td className="mono">{fmtDateTime(l.ts)}</td>
-                      <td><span className={'badge-' + l.type}>{l.type.toUpperCase()}</span></td>
-                      <td><b className="act-bold">{l.info}</b> <small style={{ opacity: 0.5 }}>{l.action}</small></td>
-                      <td className="mono">{l.who.toUpperCase()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="station-detail-head">
+                <div>
+                  <div className="station-detail-kicker">NHẬT KÝ TRẠM</div>
+                  <div className="station-detail-name">{selectedStationInfo?.name || filtered[0]?.stationName || 'TRUNG TÂM'}</div>
+                </div>
+                <div className="station-detail-stats">
+                  <div className="station-detail-stat">
+                    <span>TỔNG</span>
+                    <b>{filtered.length}</b>
+                  </div>
+                  <div className="station-detail-stat">
+                    <span>HÀNH ĐỘNG</span>
+                    <b>{stationAuditCount}</b>
+                  </div>
+                  <div className="station-detail-stat">
+                    <span>ĐĂNG NHẬP</span>
+                    <b>{stationLoginCount}</b>
+                  </div>
+                </div>
+              </div>
+
+              <div className="station-log-list">
+                {filtered.map((l, idx) => (
+                  <button key={idx} type="button" className={`station-log-card ${selectedLog === l ? 'active' : ''}`} onClick={() => setSelectedLog(l)}>
+                    <div className="station-log-top">
+                      <span className={'station-log-type badge-' + l.type}>{l.type.toUpperCase()}</span>
+                      <span className="station-log-time">{fmtDateTime(l.ts)}</span>
+                    </div>
+                    <div className="station-log-title">{formatActionLabel(l.type, l.action, l.info)}</div>
+                    <div className="station-log-meta">
+                      <span>{l.info}</span>
+                      <span>{l.who.toUpperCase()}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -223,10 +287,20 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
               <div className="nvr-ep-list">
                  {selectedLog ? (
                    <div className="nvr-evt-detail">
-                      <div className="detail-row"><span>THỜI GIAN</span><b>{fmtDateTime(selectedLog.ts)}</b></div>
-                      <div className="detail-row"><span>ĐỐI TƯỢNG</span><b>{selectedLog.info}</b></div>
-                      <div className="detail-row"><span>HÀNH ĐỘNG</span><b>{selectedLog.action}</b></div>
-                      <div className="detail-row"><span>THỰC HIỆN</span><b>{selectedLog.who}</b></div>
+                      <div className="detail-hero">
+                        <span className={'detail-hero-badge badge-' + selectedLog.type}>{selectedLog.type.toUpperCase()}</span>
+                        <b>{formatActionLabel(selectedLog.type, selectedLog.action, selectedLog.info)}</b>
+                        <small>{fmtDateTime(selectedLog.ts)}</small>
+                      </div>
+
+                      <div className="detail-grid">
+                        <div className="detail-card"><span>ĐỐI TƯỢNG</span><b>{selectedLog.info}</b></div>
+                        <div className="detail-card"><span>THAO TÁC GỐC</span><b>{selectedLog.action}</b></div>
+                        <div className="detail-card"><span>THỰC HIỆN</span><b>{selectedLog.who}</b></div>
+                        <div className="detail-card"><span>TRẠM BỊ TÁC ĐỘNG</span><b>{selectedLog.stationName || 'TRUNG TÂM'}</b></div>
+                        <div className="detail-card"><span>TRẠM CỦA TÀI KHOẢN</span><b>{selectedLog.accountStationName || selectedLog.stationName || 'N/A'}</b></div>
+                        <div className="detail-card"><span>THỜI GIAN</span><b>{fmtDateTime(selectedLog.ts)}</b></div>
+                      </div>
                       {selectedLog.type === 'audit' && (
                         <div className="diff-area">
                            <div className="diff-box">

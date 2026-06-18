@@ -1,0 +1,117 @@
+# Nguyên lý hoạt động — StationOS
+
+## 1. Tổng quan
+**Hệ thống giám sát trạm biến áp không người trực** — mọi thao tác thực hiện hoàn toàn từ xa.
+
+---
+
+## 2. Mô hình triển khai
+
+| Thành phần | Vai trò |
+|---|---|
+| **Master Station** | Trung tâm điều phối toàn quốc |
+| **PC Tỉnh** | Trung tâm giám sát 24/7 cấp tỉnh |
+| **Tổ thao tác lưu động** | Nhóm phụ trách cụm trạm cố định |
+| **Sub‑station** | Mỗi trạm biến áp, chạy phần mềm riêng |
+
+> Trạm hoàn toàn không người trực — mọi thao tác đều thực hiện từ xa qua phần mềm.
+
+---
+
+## 3. Nguyên lý phân quyền
+
+### 3.1 Phân cấp người dùng (Role Hierarchy)
+```
+Admin Toàn Cục
+    ↑ kế thừa
+Admin Tỉnh / PC Tỉnh
+    ↑ kế thừa         ↑ kế thừa
+Tổ trưởng Lưu động   Operator PC Tỉnh
+    ↑ kế thừa
+Nhân viên Tổ
+```
+
+### 3.2 Cơ chế kiểm soát phạm vi
+
+| Role | Trường kiểm soát | Ý nghĩa |
+|---|---|---|
+| `admin` (Toàn Cục) | `StationIds = null` | Thấy **tất cả** tỉnh & trạm |
+| `admin_province` (PC Tỉnh) | `ProvinceIds[]` | Tự động thấy **toàn bộ trạm trong tỉnh** |
+| `admin_station` (Tổ trưởng) | `StationIds[]` | Chỉ thấy **cụm trạm được phân công** |
+| `operator` (Nhân viên Tổ / PC Tỉnh) | `StationIds[]` hoặc inherit | Xem trạm được giao |
+
+### 3.3 Permission Checklist (ví dụ)
+```
+station:view       — Xem thông tin trạm
+station:manage     — Thêm/sửa/xóa trạm
+device:view        — Xem thiết bị
+device:manage      — Quản lý thiết bị
+alert:view         — Xem cảnh báo
+alert:manage       — Xử lý/ack cảnh báo
+camera:view        — Xem camera livestream
+report:view        — Xem báo cáo
+report:create      — Tạo báo cáo
+user:manage        — Quản lý người dùng
+license:manage     — Quản lý license (tỉnh & toàn cục)
+system:config      — Cài đặt hệ thống
+```
+
+---
+
+## 4. Luồng dữ liệu
+```
+[Sub‑station]  ──WebSocket/API──►  [Master Station Backend]
+                                         │
+                            ┌────────────┼────────────┐
+                            ▼            ▼            ▼
+                      [PC Tỉnh]    [Tổ lưu động]  [Admin Toàn Cục]
+                      xem toàn     xem cụm trạm   xem tất cả
+                      tỉnh         được giao
+```
+1. Sub‑station thu thập dữ liệu (telemetry, cảnh báo, camera) → gửi lên Master Station qua API & WebSocket.
+2. Master Station lưu vào DB, phân phối real‑time qua SignalR.
+3. PC Tỉnh giám sát liên tục, nhận cảnh báo theo tỉnh, điều phối tổ thao tác.
+4. Tổ thao tác lưu động nhận lệnh từ PC Tỉnh, thao tác từ xa trên trạm được phân công.
+
+---
+
+## 5. License & Kiểm soát truy cập
+- **Admin Toàn Cục**: quản lý license toàn hệ thống.
+- **Admin Tỉnh / PC Tỉnh**: quản lý license riêng cho tỉnh (cấp bởi Admin Toàn Cục).
+- **Giới hạn session**: hệ thống kiểm tra concurrent users theo license, từ chối nếu vượt ngưỡng.
+
+---
+
+## 6. Mô hình tổ chức thực tế
+```
+Điện lực Tỉnh A (Đơn vị vận hành)
+├── Trung tâm Điều độ / PC Tỉnh
+│     ├── Trực ban (Operator PC Tỉnh) — giám sát 24/7 toàn tỉnh
+│     └── Admin Tỉnh — quản lý hệ thống, cấp quyền cho Tổ
+│
+├── Tổ thao tác lưu động 1
+│     ├── Tổ trưởng — quản lý cụm, nhận lệnh từ PC Tỉnh
+│     └── Nhân viên — thực hiện thao tác từ xa hoặc tại hiện trường
+│         Phụ trách: Trạm BA‑01, BA‑02, BA‑03
+│
+└── Tổ thao tác lưu động 2
+      ├── Tổ trưởng
+      └── Nhân viên
+          Phụ trách: Trạm BA‑04, BA‑05
+```
+
+---
+
+## 7. Quy trình xử lý sự cố
+```
+1. Trạm phát hiện sự cố  →  gửi Alert lên Master Station
+2. Master Station phân phối real‑time  →  PC Tỉnh nhận cảnh báo
+3. PC Tỉnh xác nhận & điều phối  →  giao lệnh cho Tổ thao tác
+4. Tổ trưởng nhận lệnh  →  thao tác từ xa qua phần mềm
+5. Sau xử lý: Tổ trưởng đóng Alert, tạo báo cáo sự cố
+6. PC Tỉnh xem báo cáo toàn tỉnh  →  tổng hợp gửi Admin Toàn Cục
+```
+
+---
+
+*File này được lưu dưới dạng Word (*.docx) tại `NguyenLyHoatDong.docx` trong thư mục dự án.*

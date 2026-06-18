@@ -175,8 +175,10 @@ public class AuditLogController : ControllerBase
                 resolvedStationId = bodyStationId;
             else if (TryExtractDeviceIdFromJson(l.NewValue, out var bodyDeviceId) && deviceStations.TryGetValue(bodyDeviceId, out var bodyDeviceStationId))
                 resolvedStationId = bodyDeviceStationId;
-            else if (l.UserId.HasValue && userMap.TryGetValue(l.UserId.Value, out var uInfo) && uInfo.stationIds != null && uInfo.stationIds.Length > 0)
-                resolvedStationId = uInfo.stationIds[0];
+
+            Guid? accountStationId = null;
+            if (l.UserId.HasValue && userMap.TryGetValue(l.UserId.Value, out var uInfo) && uInfo.stationIds != null && uInfo.stationIds.Length > 0)
+                accountStationId = uInfo.stationIds[0];
 
             return new {
                 l.Id, l.Action, l.EntityType, l.EntityId,
@@ -184,7 +186,8 @@ public class AuditLogController : ControllerBase
                 Username = l.UserId.HasValue && userMap.TryGetValue(l.UserId.Value, out var u) ? u.username : null,
                 FullName = l.UserId.HasValue && userMap.TryGetValue(l.UserId.Value, out var u2) ? u2.fullName : null,
                 l.OldValue, l.NewValue,
-                StationId = resolvedStationId
+                StationId = resolvedStationId,
+                AccountStationId = accountStationId
             };
         }).ToList();
 
@@ -200,7 +203,12 @@ public class AuditLogController : ControllerBase
         }
 
         // Fetch station names
-        var uniqueStationIds = mappedLogs.Where(l => l.StationId.HasValue).Select(l => l.StationId!.Value).Distinct().ToList();
+        var uniqueStationIds = mappedLogs
+            .SelectMany(l => new[] { l.StationId, l.AccountStationId })
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
         var stationNames = uniqueStationIds.Any()
             ? await _db.Stations.Where(s => uniqueStationIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Name)
             : new Dictionary<Guid, string>();
@@ -211,7 +219,9 @@ public class AuditLogController : ControllerBase
             l.Username, l.FullName,
             l.OldValue, l.NewValue,
             l.StationId,
-            StationName = l.StationId.HasValue && stationNames.TryGetValue(l.StationId.Value, out var sn) ? sn : null
+            StationName = l.StationId.HasValue && stationNames.TryGetValue(l.StationId.Value, out var sn) ? sn : null,
+            l.AccountStationId,
+            AccountStationName = l.AccountStationId.HasValue && stationNames.TryGetValue(l.AccountStationId.Value, out var asn) ? asn : null
         });
 
         return Ok(result);
@@ -304,12 +314,13 @@ public class AuditLogController : ControllerBase
 
         var mappedLogs = logs.Select(l => {
             var dbUser = userStations.FirstOrDefault(u => u.Id == l.UserId || (l.Username != null && u.Username == l.Username));
-            Guid? resolvedStationId = (dbUser?.StationIds != null && dbUser.StationIds.Length > 0) ? dbUser.StationIds[0] : null;
+            Guid? accountStationId = (dbUser?.StationIds != null && dbUser.StationIds.Length > 0) ? dbUser.StationIds[0] : null;
 
             return new {
                 l.Id, l.Username, l.Action,
                 l.IpAddress, l.Ts,
-                StationId = resolvedStationId
+                StationId = accountStationId,
+                AccountStationId = accountStationId
             };
         }).ToList();
 
@@ -332,7 +343,9 @@ public class AuditLogController : ControllerBase
             l.Id, l.Username, l.Action,
             l.IpAddress, l.Ts,
             l.StationId,
-            StationName = l.StationId.HasValue && stationNames.TryGetValue(l.StationId.Value, out var sn) ? sn : null
+            StationName = l.StationId.HasValue && stationNames.TryGetValue(l.StationId.Value, out var sn) ? sn : null,
+            l.AccountStationId,
+            AccountStationName = l.AccountStationId.HasValue && stationNames.TryGetValue(l.AccountStationId.Value, out var asn) ? asn : null
         });
 
         return Ok(result);

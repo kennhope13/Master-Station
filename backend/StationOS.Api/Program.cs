@@ -103,6 +103,7 @@ app.UseAuthentication();
 if (app.Environment.IsDevelopment())
     app.UseMiddleware<StationOS.Api.Middleware.DevAutoAuthMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<UserActivityMiddleware>(); // Cập nhật trạng thái hoạt động người dùng
 app.UseMiddleware<AuditMiddleware>(); // Ghi audit log tự động
 
 // Endpoint kiểm tra sức khỏe hệ thống (Docker Healthcheck)

@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<License> Licenses => Set<License>();
     public DbSet<Boundary> Boundaries => Set<Boundary>();
     public DbSet<RoiPoint> RoiPoints => Set<RoiPoint>();
+    public DbSet<Team> Teams => Set<Team>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +64,20 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<User>().Property(x => x.ProvinceIds).HasColumnType("uuid[]");
         // User.Permissions — lưu dưới dạng string array (PostgreSQL text[])
         modelBuilder.Entity<User>().Property(x => x.Permissions).HasColumnType("text[]");
+        // User → Team FK
+        modelBuilder.Entity<User>()
+            .HasOne<Team>()
+            .WithMany()
+            .HasForeignKey(u => u.TeamId)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Team configuration
+        modelBuilder.Entity<Team>().Property(x => x.StationIds).HasColumnType("uuid[]");
+        modelBuilder.Entity<Team>()
+            .HasOne<Province>()
+            .WithMany()
+            .HasForeignKey(t => t.ProvinceId)
+            .OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<Device>().Property(x => x.Config).HasColumnType("jsonb");
         modelBuilder.Entity<Rule>().Property(x => x.Condition).HasColumnType("jsonb");
         modelBuilder.Entity<Rule>().Property(x => x.Actions).HasColumnType("jsonb");

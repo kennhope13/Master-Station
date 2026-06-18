@@ -48,6 +48,7 @@ class AuthService {
                 created_at: new Date().toISOString(),
                 is_restricted: payload['isRestricted'] === 'true' || !!payload['stationIds'],
                 station_ids: payload['stationIds'] ? payload['stationIds'].split(',') : undefined,
+                province_ids: payload['provinceIds'] ? payload['provinceIds'].split(',') : undefined,
                 permissions: payload['permissions'] ? payload['permissions'].split(',') : []
             };
 
@@ -101,6 +102,64 @@ class AuthService {
         if (!user) return false;
         if (user.role === 'admin') return true;
         return user.permissions?.includes(permissionKey) ?? false;
+    }
+
+    /** Refresh session silently using the stored refreshToken. */
+    public async refreshSession(): Promise<boolean> {
+        const refreshToken = useAuthStore.getState().refreshToken;
+        if (!refreshToken) return false;
+
+        try {
+            const res = await fetch(`${API_BASE}/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken }),
+            });
+
+            if (!res.ok) {
+                this.logout();
+                return false;
+            }
+
+            const data = await res.json();
+            const token: string = data.token ?? '';
+
+            // Decode JWT payload
+            const base64url = token.split('.')[1] ?? '';
+            const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            const payload = JSON.parse(new TextDecoder('utf-8').decode(jsonBytes));
+            
+            const uName = payload['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name'] ?? data.user?.username ?? '';
+            const fName = payload['fullName'] ?? data.user?.fullName ?? uName;
+
+            const user: User = {
+                user_id: payload['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier'] ?? '',
+                username: uName,
+                fullname: fName,
+                email: '',
+                role: (payload['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] ?? 'operator') as UserRole,
+                active: true,
+                created_at: new Date().toISOString(),
+                is_restricted: payload['isRestricted'] === 'true' || !!payload['stationIds'],
+                station_ids: payload['stationIds'] ? payload['stationIds'].split(',') : undefined,
+                province_ids: payload['provinceIds'] ? payload['provinceIds'].split(',') : undefined,
+                permissions: payload['permissions'] ? payload['permissions'].split(',') : []
+            };
+
+            const newRefreshToken = data.refreshToken ?? '';
+
+            // Cập nhật Zustand Store
+            useAuthStore.getState().setSession(user, token, newRefreshToken);
+            
+            // Mirror token to localStorage for backward compatibility
+            localStorage.setItem('station_token', token);
+            
+            return true;
+        } catch (err) {
+            console.error('[AuthService] silent refresh error:', err);
+            return false;
+        }
     }
 }
 
