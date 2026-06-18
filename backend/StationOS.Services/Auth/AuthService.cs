@@ -194,18 +194,32 @@ public class AuthService
             await _db.SaveChangesAsync();
         }
 
-        // 1. Upsert admin (Trạm con)
-        var admin = await _db.Users.FirstOrDefaultAsync(u => u.Username == "admin");
-        if (admin == null)
+        // 1. Upsert admin (Trạm con) - Only if not Central
+        var connStr = _config.GetConnectionString("Default") ?? "";
+        bool isCentral = connStr.Contains("Central", StringComparison.OrdinalIgnoreCase);
+        if (isCentral)
         {
-            admin = new User { Username = "admin", Role = "admin" };
-            _db.Users.Add(admin);
+            var existingAdmin = await _db.Users.FirstOrDefaultAsync(u => u.Username == "admin");
+            if (existingAdmin != null)
+            {
+                _db.Users.Remove(existingAdmin);
+                await _db.SaveChangesAsync();
+            }
         }
-        admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123", workFactor: 12);
-        admin.FullName = "Quản trị viên Trạm con";
-        admin.Email = "admin@StationOS.vn";
-        admin.IsActive = true;
-        admin.MustChangePassword = false;
+        else
+        {
+            var admin = await _db.Users.FirstOrDefaultAsync(u => u.Username == "admin");
+            if (admin == null)
+            {
+                admin = new User { Username = "admin", Role = "admin" };
+                _db.Users.Add(admin);
+            }
+            admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123", workFactor: 12);
+            admin.FullName = "Quản trị viên Trạm con";
+            admin.Email = "admin@StationOS.vn";
+            admin.IsActive = true;
+            admin.MustChangePassword = false;
+        }
 
         // 2. Upsert multi (Đa trạm)
         var multi = await _db.Users.FirstOrDefaultAsync(u => u.Username == "multi");
