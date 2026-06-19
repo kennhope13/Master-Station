@@ -124,7 +124,7 @@ $\bullet$ Theo dõi camera trực tiếp, tiếp nhận cảnh báo khẩn cấp
 $\bullet$ Điều khiển thiết bị ngoại vi (còi, đèn, camera PTZ) khi xử lý sự cố. \newline
 $\bullet$ Xem lịch sử sự cố và xuất báo cáo vận hành thuộc tổ. \\
 \midrule
-Admin Trạm & \texttt{admin} & \texttt{Admin@123} & Chỉ trong Trạm con được gán. & 
+Admin Trạm & \texttt{stationadmin} & \texttt{Station@123} & Chỉ trong Trạm con được gán. & 
 $\bullet$ Cấu hình camera, cảm biến nhiệt độ, cảm biến PD cục bộ tại trạm con. \newline
 $\bullet$ Thiết lập ngưỡng luật cảnh báo tự động (nhiệt độ, xâm nhập) tại trạm. \newline
 $\bullet$ Quản lý nhân sự và gán lịch trực cho nhân viên vận hành tại trạm con. \newline
@@ -136,7 +136,7 @@ Nhằm đảm bảo an ninh tuyệt đối cho hệ thống, các quy tắc bả
 
 \begin{itemize}
     \item \textbf{Tách biệt an toàn Trạm Tổng \& Trạm Con}: Tài khoản \texttt{admin} (mật khẩu \texttt{Admin@123}) chỉ tồn tại ở các Trạm Con nhằm phục vụ giao thức API đồng bộ dữ liệu. Trên cơ sở dữ liệu của Trạm Tổng (\texttt{StationOS\_Central}), tài khoản này đã được \textbf{xóa hoàn toàn} nhằm chặn đứng nguy cơ dùng tài khoản này đăng nhập trái phép vào Trạm Tổng. (Đã sửa ký tự gạch dưới để không lỗi biên dịch).
-    \item \textbf{Bảo vệ tài khoản mặc định}: Các tài khoản admin hệ thống mặc định (\texttt{multi}, \texttt{provinceadmin}, \texttt{admin}, \texttt{teamleader}) sẽ tự động bị ẩn các chức năng Sửa, Đổi mật khẩu, Vô hiệu hóa trên giao diện để tránh trường hợp quản trị viên vô tình tự khóa tài khoản của mình.
+    \item \textbf{Bảo vệ tài khoản mặc định}: Các tài khoản admin hệ thống mặc định (\texttt{multi}, \texttt{provinceadmin}, \texttt{stationadmin}, \texttt{teamleader}) sẽ tự động bị ẩn các chức năng Sửa, Đổi mật khẩu, Vô hiệu hóa trên giao diện để tránh trường hợp quản trị viên vô tình tự khóa tài khoản của mình.
     \item \textbf{Đồng bộ hóa thời gian thực (Realtime Update)}: Mọi sự thay đổi về gán quyền hoặc sửa đổi Tổ thao tác sẽ được truyền phát ngay lập tức tới các Client đang kết nối qua SignalR, giúp cập nhật giao diện tự động mà không cần người dùng tải lại trang.
 \end{itemize}
 
