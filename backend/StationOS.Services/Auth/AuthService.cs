@@ -279,35 +279,11 @@ public class AuthService
         var sampleStation = await _db.Stations.FirstOrDefaultAsync();
         stationAdmin.StationIds = sampleStation != null ? new[] { sampleStation.Id } : null;
 
-        // 5. Upsert manager (Quản lý)
-        var manager = await _db.Users.FirstOrDefaultAsync(u => u.Username == "manager");
-        if (manager == null)
-        {
-            manager = new User { Username = "manager", Role = "manager" };
-            _db.Users.Add(manager);
-        }
-        manager.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Manager@123", workFactor: 12);
-        manager.FullName = "Quản lý hệ thống";
-        manager.Email = "manager@StationOS.vn";
-        manager.IsActive = true;
-        manager.MustChangePassword = false;
-        // Manager should only manage assigned stations
-        manager.StationIds = sampleStation != null ? new[] { sampleStation.Id } : null;
-
-        // 6. Upsert operator (Nhân viên)
-        var operatorUser = await _db.Users.FirstOrDefaultAsync(u => u.Username == "operator");
-        if (operatorUser == null)
-        {
-            operatorUser = new User { Username = "operator", Role = "operator" };
-            _db.Users.Add(operatorUser);
-        }
-        operatorUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Operator@123", workFactor: 12);
-        operatorUser.FullName = "Nhân viên vận hành";
-        operatorUser.Email = "operator@StationOS.vn";
-        operatorUser.IsActive = true;
-        operatorUser.MustChangePassword = false;
-        // Operator should only monitor assigned stations
-        operatorUser.StationIds = sampleStation != null ? new[] { sampleStation.Id } : null;
+        // 5. Remove redundant local accounts (manager, operator) to keep seed clean
+        var existingManager = await _db.Users.FirstOrDefaultAsync(u => u.Username == "manager");
+        if (existingManager != null) _db.Users.Remove(existingManager);
+        var existingOperator = await _db.Users.FirstOrDefaultAsync(u => u.Username == "operator");
+        if (existingOperator != null) _db.Users.Remove(existingOperator);
 
         // 7. Seed default Teams and Team-based users
         var laProv = await _db.Provinces.FirstOrDefaultAsync(p => p.Code == "LA");
@@ -335,23 +311,11 @@ public class AuthService
         // Save changes first to get Team IDs
         await _db.SaveChangesAsync();
 
-        // 8. Upsert Operator Province
-        var operatorProv = await _db.Users.FirstOrDefaultAsync(u => u.Username == "operatorprovince");
-        if (operatorProv == null)
-        {
-            operatorProv = new User { Username = "operatorprovince", Role = "operator_province" };
-            _db.Users.Add(operatorProv);
-        }
-        operatorProv.PasswordHash = BCrypt.Net.BCrypt.HashPassword("OperatorProvince@123", workFactor: 12);
-        operatorProv.FullName = "Nhân viên PC Tỉnh";
-        operatorProv.Email = "operatorprovince@StationOS.vn";
-        operatorProv.IsActive = true;
-        operatorProv.MustChangePassword = false;
-        // Assign Tây Ninh and Long An provinces for demo
-        operatorProv.ProvinceIds = provIds.ToArray();
-        _db.Entry(operatorProv).Property(u => u.ProvinceIds).IsModified = true;
+        // 8. Remove redundant account (operatorprovince) if it exists
+        var existingOpProv = await _db.Users.FirstOrDefaultAsync(u => u.Username == "operatorprovince");
+        if (existingOpProv != null) _db.Users.Remove(existingOpProv);
 
-        // 9. Upsert Team Leader
+        // 9. Upsert Team Leader (Tầng 2 Admin Tổ)
         var teamLeader = await _db.Users.FirstOrDefaultAsync(u => u.Username == "teamleader");
         if (teamLeader == null)
         {
@@ -365,19 +329,9 @@ public class AuthService
         teamLeader.MustChangePassword = false;
         teamLeader.TeamId = team1.Id;
 
-        // 10. Upsert Team Member
-        var teamMember = await _db.Users.FirstOrDefaultAsync(u => u.Username == "teammember");
-        if (teamMember == null)
-        {
-            teamMember = new User { Username = "teammember", Role = "team_member" };
-            _db.Users.Add(teamMember);
-        }
-        teamMember.PasswordHash = BCrypt.Net.BCrypt.HashPassword("TeamMember@123", workFactor: 12);
-        teamMember.FullName = "Nhân viên Tổ 1";
-        teamMember.Email = "teammember@StationOS.vn";
-        teamMember.IsActive = true;
-        teamMember.MustChangePassword = false;
-        teamMember.TeamId = team1.Id;
+        // 10. Remove redundant account (teammember) if it exists
+        var existingTeamMember = await _db.Users.FirstOrDefaultAsync(u => u.Username == "teammember");
+        if (existingTeamMember != null) _db.Users.Remove(existingTeamMember);
 
         await _db.SaveChangesAsync();
     }
