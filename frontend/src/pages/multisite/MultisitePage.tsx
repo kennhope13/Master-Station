@@ -250,6 +250,7 @@ export default function MultisitePage() {
   const [newStationApiUrl, setNewStationApiUrl] = useState('');
   const [newStationWebUrl, setNewStationWebUrl] = useState('');
   const [newStationApiPassword, setNewStationApiPassword] = useState('');
+  const [newStationProvinceId, setNewStationProvinceId] = useState('');
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [connMs, setConnMs] = useState<number | null>(null);
   const [geoStatus, setGeoStatus] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle');
@@ -491,6 +492,10 @@ export default function MultisitePage() {
   };
 
   const handleAddStationSubmit = async () => {
+    if (!newStationProvinceId) {
+      alert('Vui lòng chọn tỉnh cho trạm');
+      return;
+    }
     if (!newStationName.trim()) {
       alert('Vui lòng nhập tên trạm');
       return;
@@ -519,12 +524,14 @@ export default function MultisitePage() {
         JSON.stringify(locationObj),
         resolveApiUrl(newStationApiUrl),
         newStationWebUrl.trim() ? normalizeUrl(newStationWebUrl.trim().replace(/\/$/, '')) : undefined,
-        newStationApiPassword.trim() || undefined
+        newStationApiPassword.trim() || undefined,
+        'stationadmin',
+        newStationProvinceId
       );
 
       setNewStationName(''); setNewStationCode('');
       setNewStationLat(''); setNewStationLng('');
-      setNewStationAddress(''); setNewStationApiUrl(''); setNewStationWebUrl(''); setNewStationApiPassword('');
+      setNewStationAddress(''); setNewStationApiUrl(''); setNewStationWebUrl(''); setNewStationApiPassword(''); setNewStationProvinceId('');
       setConnStatus('idle'); setConnMs(null); setGeoStatus('idle');
       setIsAddModalOpen(false);
       setSelectedProvince(null);
@@ -2272,6 +2279,22 @@ export default function MultisitePage() {
 
             {/* Modal Body */}
             <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>TỈNH / VÙNG *</label>
+                <select
+                  value={newStationProvinceId}
+                  onChange={e => setNewStationProvinceId(e.target.value)}
+                  style={{
+                    background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
+                    padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none'
+                  }}
+                >
+                  <option value="">-- Chọn tỉnh --</option>
+                  {provinces.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>TÊN TRẠM BIẾN ÁP *</label>
                 <input 

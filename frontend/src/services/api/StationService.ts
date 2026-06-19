@@ -29,9 +29,10 @@ export class StationService {
     apiUrl?: string,
     webUrl?: string,
     apiPassword?: string,
-    apiUsername: string = 'stationadmin'
+    apiUsername: string = 'stationadmin',
+    provinceId?: string
   ): Promise<Station> {
-    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl, apiPassword, apiUsername });
+    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl, apiPassword, apiUsername, provinceId });
   }
 
   /** Kiểm tra kết nối tới trạm con. */

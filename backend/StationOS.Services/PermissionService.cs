@@ -58,16 +58,12 @@ public class PermissionService
             return null;
 
         // ── Tầng 2: Admin Tỉnh / Operator PC Tỉnh ───────────────────
-        // Thấy tất cả trạm thuộc các tỉnh được gán (nếu null/trống -> mặc định thấy tất cả trạm thuộc tỉnh để tránh bị trống giao diện)
+        // Chỉ thấy trạm thuộc các tỉnh được gán. Nếu chưa gán tỉnh → không thấy trạm nào.
         if (dbUser.Role == "admin_province" || dbUser.Role == "operator_province")
         {
             if (dbUser.ProvinceIds == null || dbUser.ProvinceIds.Length == 0)
             {
-                return await _db.Stations
-                    .AsNoTracking()
-                    .Where(s => s.ProvinceId != null)
-                    .Select(s => s.Id)
-                    .ToArrayAsync();
+                return Array.Empty<Guid>(); // Chưa gán tỉnh → không thấy trạm nào
             }
 
             // Lấy tất cả stationId thuộc các tỉnh đó
@@ -135,7 +131,7 @@ public class PermissionService
         if (dbUser.Role == "admin_province" || dbUser.Role == "operator_province")
         {
             if (dbUser.ProvinceIds == null || dbUser.ProvinceIds.Length == 0)
-                return null; // Không giới hạn -> Thấy tất cả các Tỉnh
+                return Array.Empty<Guid>(); // Chưa gán tỉnh → không có quyền trên tỉnh nào
 
             return dbUser.ProvinceIds;
         }

@@ -98,6 +98,12 @@ public class ProvincesController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> Create([FromBody] CreateProvinceRequest req)
     {
+        // Only global admin can create a province
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            return StatusCode(403, new { message = "Bạn không có quyền tạo tỉnh mới." });
+        }
         if (string.IsNullOrWhiteSpace(req.Name))
             return BadRequest(new { message = "Tên tỉnh không được để trống" });
 
@@ -120,6 +126,12 @@ public class ProvincesController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateProvinceRequest req)
     {
+        // Only global admin can modify province details
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            return StatusCode(403, new { message = "Bạn không có quyền sửa tỉnh này." });
+        }
         var province = await _db.Provinces.FindAsync(id);
         if (province == null) return NotFound();
 
@@ -137,6 +149,12 @@ public class ProvincesController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> Delete(Guid id)
     {
+        // Only global admin can delete a province
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            return StatusCode(403, new { message = "Bạn không có quyền xóa tỉnh này." });
+        }
         var province = await _db.Provinces.FindAsync(id);
         if (province == null) return NotFound();
 
