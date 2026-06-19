@@ -1,0 +1,128 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnam]{babel}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{array}
+
+\geometry{a4paper, margin=1in}
+\usetikzlibrary{shapes.geometric, arrows, positioning, shadow}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Bao Cao Phan Quyen He Thong - StationOS},
+    pdfpagemode=FullScreen,
+}
+
+% Định nghĩa phong cách vẽ TikZ
+\tikzset{
+    t4/.style={rectangle, rounded corners, minimum width=5cm, minimum height=1.2cm, text width=5.5cm, text centered, draw=green!60!black, fill=green!10, thick, drop shadow},
+    t3/.style={rectangle, rounded corners, minimum width=5cm, minimum height=1.2cm, text width=5.5cm, text centered, draw=orange!80!black, fill=orange!10, thick, drop shadow},
+    t2/.style={rectangle, rounded corners, minimum width=5cm, minimum height=1.2cm, text width=5.5cm, text centered, draw=blue!80!black, fill=blue!10, thick, drop shadow},
+    t1/.style={rectangle, rounded corners, minimum width=4.5cm, minimum height=1.2cm, text width=4.5cm, text centered, draw=red!80!black, fill=red!10, thick, drop shadow},
+    arrow/.style={thick, ->, >=stealth, draw=gray!80}
+}
+
+\begin{document}
+
+\begin{titlepage}
+    \centering
+    \vspace*{2cm}
+    {\huge\bfseries BÁO CÁO THỐNG KÊ PHÂN QUYỀN HỆ THỐNG (RBAC) - STATIONOS\par}
+    \vspace{1.5cm}
+    {\large\bfseries Tài liệu Đặc tả kỹ thuật \& Cấu hình phân cấp an toàn\par}
+    \vspace{2cm}
+    \textbf{Dự án:} Hệ thống điều hành giám sát trạm biến áp trung tâm (Master Station)\\
+    \textbf{Tác giả:} Đội ngũ Kỹ thuật StationOS\\
+    \vfill
+    {\large \today \par}
+\end{titlepage}
+
+\newpage
+\tableofcontents
+\newpage
+
+\section{Giới thiệu chung}
+Tài liệu này tổng hợp chi tiết các vai trò (Role), tài khoản mẫu mặc định và kiến trúc phân cấp an toàn được lập trình trong nền tảng StationOS. Mục tiêu của kiến trúc này là phân tách rạch ròi phạm vi quản lý và đảm bảo an toàn tuyệt đối cho Trạm Tổng (Master Station) trước các truy cập trái phép từ tài khoản của các Trạm Con.
+
+\section{Sơ đồ kiến trúc phân cấp (4 Tầng Quản Trị)}
+Hệ thống sử dụng mô hình phân cấp dạng cây từ cấp cao nhất xuống cấp cơ sở, cho phép lọc dữ liệu tự động theo địa bàn quản lý.
+
+\begin{figure}[htbp]
+    \centering
+    \begin{tikzpicture}[node distance=1.8cm, scale=0.85, every node/.style={transform shape}]
+        % Các Node đại diện cho các Tầng
+        \node (T4) [t4] {\textbf{TẦNG 4: Admin Toàn Cục (multi)} \\ $\bullet$ Quản trị tối cao (Trạm Tổng) \\ $\bullet$ Quản lý không giới hạn Tỉnh/Trạm};
+        
+        \node (T3_LA) [t3, below left=1cm and 1.5cm of T4] {\textbf{TẦNG 3: Admin Tỉnh (provinceadmin)} \\ $\bullet$ Quản lý Tỉnh Long An \\ $\bullet$ Quản lý các Tổ/Trạm thuộc Long An};
+        
+        \node (T3_TN) [t3, below right=1cm and 1.5cm of T4] {\textbf{TẦNG 3: Admin Tỉnh (provinceadmin)} \\ $\bullet$ Quản lý Tỉnh Tây Ninh \\ $\bullet$ Quản lý các Tổ/Trạm thuộc Tây Ninh};
+        
+        \node (T2_LA) [t2, below=of T3_LA] {\textbf{TẦNG 2: Tổ trưởng (teamleader)} \\ $\bullet$ Phụ trách Tổ 1 (Long An) \\ $\bullet$ Giám sát các Trạm A, B, C};
+        
+        \node (T2_TN) [t2, below=of T3_TN] {\textbf{TẦNG 2: Tổ trưởng (teamleader)} \\ $\bullet$ Phụ trách Tổ 2 (Tây Ninh) \\ $\bullet$ Giám sát các Trạm D, E};
+        
+        \node (T1_LA) [t1, below=of T2_LA] {\textbf{TẦNG 1: Admin Trạm (stationadmin)} \\ $\bullet$ Quản lý cục bộ Trạm Long An};
+        
+        \node (T1_TN) [t1, below=of T2_TN] {\textbf{TẦNG 1: Admin Trạm (stationadmin)} \\ $\bullet$ Quản lý cục bộ Trạm Tây Ninh};
+
+        % Đường nối kết nối mối quan hệ
+        \draw [arrow] (T4) -- (T3_LA);
+        \draw [arrow] (T4) -- (T3_TN);
+        \draw [arrow] (T3_LA) -- (T2_LA);
+        \draw [arrow] (T3_TN) -- (T2_TN);
+        \draw [arrow] (T2_LA) -- (T1_LA);
+        \draw [arrow] (T2_TN) -- (T1_TN);
+    \end{tikzpicture}
+    \caption{Sơ đồ cây phân cấp quản trị 4 tầng trong hệ thống StationOS.}
+    \label{fig:rbac_tree}
+\end{figure}
+
+\newpage
+
+\section{Bảng Phân Quyền Chi Tiết các Tài Khoản Mặc Định}
+Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương ứng với các tầng phân cấp:
+
+\begin{longtable}{llp{2.5cm}p{2.5cm}p{3cm}p{4cm}}
+\caption{Danh sách tài khoản quản trị mặc định và quyền hạn.} \label{tab:rbac} \\
+\toprule
+\textbf{STT} & \textbf{Cấp Quản Lý} & \textbf{Tài Khoản (Username)} & \textbf{Mật Khẩu Mặc Định} & \textbf{Phạm Vi (Scope)} & \textbf{Quyền Hạn Chính} \\
+\midrule
+\endfirsthead
+\multicolumn{6}{c}%
+{{\bfseries Bảng \thetable\ tiếp theo từ trang trước}} \\
+\toprule
+\textbf{STT} & \textbf{Cấp Quản Lý} & \textbf{Tài Khoản} & \textbf{Mật Khẩu} & \textbf{Phạm Vi (Scope)} & \textbf{Quyền Hạn Chính} \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+\bottomrule
+\endlastfoot
+
+1 & Admin Toàn Cục & \texttt{multi} & \texttt{Demo@2024} & Toàn bộ hệ thống (Không giới hạn Tỉnh/Trạm). & \textbf{Full Quyền}: Quản lý trạm, thiết bị, cảnh báo, cấu hình, bản quyền, người dùng, báo cáo. \\
+\midrule
+2 & Admin Tỉnh & \texttt{provinceadmin} & \texttt{Province@123} & Chỉ trong Tỉnh được gán (Tây Ninh, Long An...). & \textbf{Quản lý Tỉnh}: Quản lý Trạm, Thiết bị, Luật cảnh báo, Người dùng và Tổ thao tác thuộc tỉnh. \\
+\midrule
+3 & Tổ trưởng Tổ thao tác & \texttt{teamleader} & \texttt{TeamLeader@123} & Các trạm do Tổ phụ trách. & Giám sát trạm, điều khiển thiết bị tại hiện trường khi đi xử lý sự cố. \\
+\midrule
+4 & Admin Trạm & \texttt{stationadmin} & \texttt{Station@123} & Chỉ trong Trạm con được gán. & \textbf{Quản lý Trạm con}: Cấu hình thiết bị, camera và phân ca trực cục bộ tại trạm con. \\
+\end{longtable}
+
+\section{Các Quy Tắc Bảo Mật Đặc Biệt Trong Mã Nguồn}
+Nhằm đảm bảo an ninh tuyệt đối cho hệ thống, các quy tắc bảo mật sau đã được áp dụng cứng trong backend:
+
+\begin{itemize}
+    \item \textbf{Tách biệt an toàn Trạm Tổng \& Trạm Con}: Tài khoản \texttt{admin} (mật khẩu \texttt{Admin@123}) chỉ tồn tại ở các Trạm Con nhằm phục vụ giao thức API đồng bộ dữ liệu. Trên cơ sở dữ liệu của Trạm Tổng (\texttt{StationOS\_Central}), tài khoản này đã được \textbf{xóa hoàn toàn} nhằm chặn đứng nguy cơ dùng tài khoản này đăng nhập trái phép vào Trạm Tổng.
+    \item \textbf{Bảo vệ tài khoản mặc định}: Các tài khoản admin hệ thống mặc định (\texttt{multi}, \texttt{provinceadmin}, \texttt{stationadmin}, \texttt{teamleader}) sẽ tự động bị ẩn các chức năng Sửa, Đổi mật khẩu, Vô hiệu hóa trên giao diện để tránh trường hợp quản trị viên vô tình tự khóa tài khoản của mình.
+    \item \textbf{Đồng bộ hóa thời gian thực (Realtime Update)}: Mọi sự thay đổi về gán quyền hoặc sửa đổi Tổ thao tác sẽ được truyền phát ngay lập tức tới các Client đang kết nối qua SignalR, giúp cập nhật giao diện tự động mà không cần người dùng tải lại trang.
+\end{itemize}
+
+\end{document}
