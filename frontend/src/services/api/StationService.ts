@@ -22,8 +22,16 @@ export class StationService {
   }
 
   /** Tạo trạm mới. */
-  async createStation(name: string, code: string, location: string, apiUrl?: string, webUrl?: string): Promise<Station> {
-    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl });
+  async createStation(
+    name: string,
+    code: string,
+    location: string,
+    apiUrl?: string,
+    webUrl?: string,
+    apiPassword?: string,
+    apiUsername: string = 'stationadmin'
+  ): Promise<Station> {
+    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl, apiPassword, apiUsername });
   }
 
   /** Kiểm tra kết nối tới trạm con. */
@@ -61,13 +69,13 @@ export class StationService {
   }
 
   /** Cập nhật thông tin trạm. */
-  async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; webUrl?: string; status?: string }): Promise<void> {
+  async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; apiUsername?: string; apiPassword?: string; webUrl?: string; status?: string }): Promise<void> {
     return apiMutate<void>('PUT', `/stations/${id}`, data);
   }
 
   /** Xóa trạm. */
   async deleteStation(id: string): Promise<void> {
-    return apiMutate<void>('DELETE', `/stations/${id}`);
+    return apiMutate<void>('DELETE', `/stations/${id}?force=true`);
   }
 }
 

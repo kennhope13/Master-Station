@@ -22,6 +22,7 @@ using StationOS.Data.Entities;
 using StationOS.Api.Filters;
 using Microsoft.AspNetCore.SignalR;
 using StationOS.Api.Hubs;
+using StationOS.Services;
 
 namespace StationOS.Api.Controllers;
 
@@ -32,33 +33,25 @@ public class UsersController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IHubContext<RealtimeHub> _hubContext;
+    private readonly PermissionService _permissions;
 
-    public UsersController(AppDbContext db, IHubContext<RealtimeHub> hubContext)
+    public UsersController(AppDbContext db, IHubContext<RealtimeHub> hubContext, PermissionService permissions)
     {
         _db = db;
         _hubContext = hubContext;
+        _permissions = permissions;
     }
 
     // Lấy danh sách StationId và ProvinceId mà caller được phép quản lý. null = không giới hạn.
-    private (bool isRestricted, Guid[]? stationIds, Guid[]? provinceIds) GetCallerScope()
+    private async Task<(bool isRestricted, Guid[]? stationIds, Guid[]? provinceIds)> GetCallerScopeAsync()
     {
-        var isRestricted = User.FindFirstValue("isRestricted") == "true";
-        if (!isRestricted) return (false, null, null);
-        
-        var rawStations = User.FindFirstValue("stationIds") ?? "";
-        var stationIds = rawStations.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                     .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
-                                     .Where(g => g.HasValue).Select(g => g!.Value).ToArray();
-
-        var rawProvinces = User.FindFirstValue("provinceIds") ?? "";
-        var provinceIds = rawProvinces.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                                      .Select(s => Guid.TryParse(s, out var g) ? g : (Guid?)null)
-                                      .Where(g => g.HasValue).Select(g => g!.Value).ToArray();
-
-        return (true, stationIds.Length > 0 ? stationIds : null, provinceIds.Length > 0 ? provinceIds : null);
+        var provinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        var stationIds = await _permissions.GetAllowedStationIdsAsync();
+        var isRestricted = provinceIds != null || stationIds != null;
+        return (isRestricted, stationIds, provinceIds);
     }
 
-    private async Task<bool> UserInScopeAsync(Guid[]? targetStationIds, Guid[]? targetProvinceIds, Guid[]? callerStationIds, Guid[]? callerProvinceIds)
+    private async Task<bool> UserInScopeAsync(Guid[]? targetStationIds, Guid[]? targetProvinceIds, Guid? targetTeamId, Guid[]? callerStationIds, Guid[]? callerProvinceIds)
     {
         if (callerProvinceIds != null && callerProvinceIds.Length > 0)
         {
@@ -74,12 +67,26 @@ public class UsersController : ControllerBase
                 if (targetStationIds.Any(sid => stationsInProvinces.Contains(sid)))
                     return true;
             }
+
+            if (targetTeamId != null)
+            {
+                var team = await _db.Teams.FindAsync(targetTeamId.Value);
+                if (team != null && team.ProvinceId != null && callerProvinceIds.Contains(team.ProvinceId.Value))
+                    return true;
+            }
         }
 
         if (callerStationIds != null && callerStationIds.Length > 0)
         {
             if (targetStationIds != null && targetStationIds.Any(sid => callerStationIds.Contains(sid)))
                 return true;
+
+            if (targetTeamId != null)
+            {
+                var team = await _db.Teams.FindAsync(targetTeamId.Value);
+                if (team?.StationIds != null && team.StationIds.Any(sid => callerStationIds.Contains(sid)))
+                    return true;
+            }
         }
 
         return false;
@@ -90,7 +97,7 @@ public class UsersController : ControllerBase
     [HasPermission("user:view")]
     public async Task<IActionResult> GetAll()
     {
-        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
 
         var query = _db.Users.OrderByDescending(u => u.CreatedAt);
         System.Collections.IEnumerable all = await query.Select(u => new
@@ -104,7 +111,7 @@ public class UsersController : ControllerBase
             var filtered = new List<dynamic>();
             foreach (dynamic u in all)
             {
-                if (await UserInScopeAsync(u.StationIds, u.ProvinceIds, callerStationIds, callerProvinceIds))
+                if (await UserInScopeAsync(u.StationIds, u.ProvinceIds, u.TeamId, callerStationIds, callerProvinceIds))
                 {
                     filtered.Add(u);
                 }
@@ -142,7 +149,7 @@ public class UsersController : ControllerBase
     [HasPermission("user:manage")]
     public async Task<IActionResult> Create([FromBody] CreateUserRequest req)
     {
-        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
 
         if (await _db.Users.AnyAsync(u => u.Username == req.Username))
             return BadRequest(new { message = $"Tên đăng nhập '{req.Username}' đã tồn tại" });
@@ -173,7 +180,13 @@ public class UsersController : ControllerBase
 
                 // Buộc ProvinceIds phải thuộc tỉnh của caller
                 if (provinceIds != null && provinceIds.Length > 0)
-                    provinceIds = provinceIds.Intersect(callerProvinceIds).ToArray();
+                {
+                    var unauthorizedProvinces = provinceIds.Where(pid => !callerProvinceIds.Contains(pid)).ToList();
+                    if (unauthorizedProvinces.Count > 0)
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán một số Tỉnh đã chọn." });
+                    }
+                }
 
                 // Buộc StationIds phải thuộc tỉnh của caller
                 if (stationIds != null && stationIds.Length > 0)
@@ -182,7 +195,11 @@ public class UsersController : ControllerBase
                         .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
                         .Select(s => s.Id)
                         .ToListAsync();
-                    stationIds = stationIds.Intersect(stationsInProvinces).ToArray();
+                    var unauthorizedStations = stationIds.Where(sid => !stationsInProvinces.Contains(sid)).ToList();
+                    if (unauthorizedStations.Count > 0)
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát ngoài tỉnh được quản lý." });
+                    }
                 }
             }
             // Nếu caller giới hạn theo trạm
@@ -193,11 +210,46 @@ public class UsersController : ControllerBase
                     return Forbid();
 
                 if (stationIds != null && stationIds.Length > 0)
-                    stationIds = stationIds.Intersect(callerStationIds).ToArray();
-                else
-                    stationIds = callerStationIds;
+                {
+                    var unauthorizedStations = stationIds.Where(sid => !callerStationIds.Contains(sid)).ToList();
+                    if (unauthorizedStations.Count > 0)
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát đã chọn." });
+                    }
+                }
                 
-                provinceIds = null;
+                // Trạm admin không được gán tỉnh
+                if (provinceIds != null && provinceIds.Length > 0)
+                {
+                    return BadRequest(new { message = "Tài khoản quản lý trạm không được gán Tỉnh quản lý." });
+                }
+            }
+        }
+
+        // Kiểm tra tổ thao tác
+        if (req.TeamId != null)
+        {
+            var team = await _db.Teams.FindAsync(req.TeamId.Value);
+            if (team == null)
+            {
+                return BadRequest(new { message = "Không tìm thấy tổ thao tác đã chọn." });
+            }
+            if (isRestricted)
+            {
+                if (callerProvinceIds != null && callerProvinceIds.Length > 0)
+                {
+                    if (team.ProvinceId == null || !callerProvinceIds.Contains(team.ProvinceId.Value))
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc tỉnh khác." });
+                    }
+                }
+                else if (callerStationIds != null && callerStationIds.Length > 0)
+                {
+                    if (team.StationIds == null || !team.StationIds.Any(sid => callerStationIds.Contains(sid)))
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc trạm khác." });
+                    }
+                }
             }
         }
 
@@ -232,12 +284,12 @@ public class UsersController : ControllerBase
     [HasPermission("user:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateUserRequest req)
     {
-        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
 
         var user = await _db.Users.FindAsync(id);
         if (user == null) return NotFound(new { message = "Không tìm thấy người dùng" });
 
-        if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, callerStationIds, callerProvinceIds))
+        if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, user.TeamId, callerStationIds, callerProvinceIds))
             return Forbid();
 
         if (req.FullName != null) user.FullName = req.FullName.Trim();
@@ -277,11 +329,19 @@ public class UsersController : ControllerBase
                         .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
                         .Select(s => s.Id)
                         .ToListAsync();
-                    newIds = newIds.Intersect(stationsInProvinces).ToArray();
+                    var unauthorizedStations = newIds.Where(sid => !stationsInProvinces.Contains(sid)).ToList();
+                    if (unauthorizedStations.Count > 0)
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát ngoài tỉnh được quản lý." });
+                    }
                 }
                 else if (callerStationIds != null)
                 {
-                    newIds = newIds.Intersect(callerStationIds).ToArray();
+                    var unauthorizedStations = newIds.Where(sid => !callerStationIds.Contains(sid)).ToList();
+                    if (unauthorizedStations.Count > 0)
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát đã chọn." });
+                    }
                 }
             }
             user.StationIds = newIds;
@@ -289,14 +349,58 @@ public class UsersController : ControllerBase
 
         if (req.ProvinceIds != null) {
             var newProvIds = req.ProvinceIds;
-            if (isRestricted && callerProvinceIds != null)
+            if (isRestricted)
             {
-                newProvIds = newProvIds.Intersect(callerProvinceIds).ToArray();
+                if (callerProvinceIds != null)
+                {
+                    var unauthorizedProvinces = newProvIds.Where(pid => !callerProvinceIds.Contains(pid)).ToList();
+                    if (unauthorizedProvinces.Count > 0)
+                    {
+                        return StatusCode(403, new { message = "Bạn không có quyền gán một số Tỉnh đã chọn." });
+                    }
+                }
+                else if (callerStationIds != null)
+                {
+                    if (newProvIds.Length > 0)
+                    {
+                        return BadRequest(new { message = "Tài khoản quản lý trạm không được gán Tỉnh quản lý." });
+                    }
+                }
             }
             user.ProvinceIds = newProvIds;
         }
 
-        if (req.TeamId      != null) user.TeamId      = req.TeamId == Guid.Empty ? null : req.TeamId;
+        if (req.TeamId != null)
+        {
+            var targetTeamId = req.TeamId == Guid.Empty ? null : req.TeamId;
+            if (targetTeamId != null)
+            {
+                var team = await _db.Teams.FindAsync(targetTeamId.Value);
+                if (team == null)
+                {
+                    return BadRequest(new { message = "Không tìm thấy tổ thao tác đã chọn." });
+                }
+                if (isRestricted)
+                {
+                    if (callerProvinceIds != null && callerProvinceIds.Length > 0)
+                    {
+                        if (team.ProvinceId == null || !callerProvinceIds.Contains(team.ProvinceId.Value))
+                        {
+                            return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc tỉnh khác." });
+                        }
+                    }
+                    else if (callerStationIds != null && callerStationIds.Length > 0)
+                    {
+                        if (team.StationIds == null || !team.StationIds.Any(sid => callerStationIds.Contains(sid)))
+                        {
+                            return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc trạm khác." });
+                        }
+                    }
+                }
+            }
+            user.TeamId = targetTeamId;
+        }
+
         if (req.Permissions != null) user.Permissions = req.Permissions;
 
         await _db.SaveChangesAsync();
@@ -330,8 +434,8 @@ public class UsersController : ControllerBase
         // Restricted admin chỉ đổi mật khẩu user trong scope
         if (isAdmin && currentUserId != id.ToString())
         {
-            var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
-            if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, callerStationIds, callerProvinceIds))
+            var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
+            if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, user.TeamId, callerStationIds, callerProvinceIds))
                 return Forbid();
         }
 
@@ -370,12 +474,12 @@ public class UsersController : ControllerBase
         if (currentUserId == id.ToString())
             return BadRequest(new { message = "Không thể vô hiệu hóa tài khoản của chính mình" });
 
-        var (isRestricted, callerStationIds, callerProvinceIds) = GetCallerScope();
+        var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
 
         var user = await _db.Users.FindAsync(id);
         if (user == null) return NotFound(new { message = "Không tìm thấy người dùng" });
 
-        if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, callerStationIds, callerProvinceIds))
+        if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, user.TeamId, callerStationIds, callerProvinceIds))
             return Forbid();
 
         if (!user.IsActive)

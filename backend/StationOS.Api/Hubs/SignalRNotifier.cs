@@ -84,4 +84,16 @@ public class SignalRNotifier : IRealtimeNotifier
             eventCount,
             receivedAt
         });
+
+    public Task SendStationListChangedAsync(string action, Guid stationId)
+        => _hub.Clients.All.SendAsync("StationListChanged", new { action, stationId });
+
+    public Task SendDeviceListChangedAsync(string action, Guid stationId, Guid deviceId)
+        => _hub.Clients.All.SendAsync("DeviceListChanged", new { action, stationId, deviceId });
+
+    public Task SendMaintenanceChangedAsync(string action, Guid stationId)
+        => _hub.Clients.All.SendAsync("MaintenanceChanged", new { action, stationId });
+
+    public Task SendRuleListChangedAsync(string action, Guid stationId)
+        => _hub.Clients.All.SendAsync("RuleListChanged", new { action, stationId });
 }

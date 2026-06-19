@@ -59,7 +59,9 @@ Hệ thống được thiết lập tinh gọn gồm **4 cấp tài khoản qu�
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **1** | **Admin Toàn Cục** *(Tầng 4 - Quản trị tối cao)* | `multi` | `Demo@2024` | **Toàn bộ hệ thống** (Không giới hạn Tỉnh/Trạm) | **Full Quyền**: Có toàn bộ tất cả các quyền của hệ thống (Quản lý trạm, thiết bị, luật cảnh báo, cấu hình, bản quyền, người dùng, báo cáo,...). |
 | **2** | **Admin Tỉnh** *(Tầng 3 - Quản trị cấp Tỉnh)* | `provinceadmin` | `Province@123` | Chỉ được phép thao tác trong **Tỉnh được gán** | **Quyền quản trị Tỉnh**: Thêm/sửa/xóa Trạm, Thiết bị, Luật cảnh báo, Người dùng (nhân sự cấp dưới), Tổ thao tác lưu động và Bản quyền thuộc tỉnh đó. |
-| **3** | **Tổ trưởng Tổ thao tác** *(Tầng 2 - Quản trị cấp Tổ)* | `teamleader` | `TeamLeader@123` | Các trạm do **Tổ thao tác phụ trách** | Giám sát trạm, điều khiển thiết bị tại hiện trường khi đi xử lý sự cố, xem luật và xem báo cáo sự cố. |
+| **3** | **Tổ trưởng Tổ thao tác** *(Tầng 2 - Quản trị cấp Tổ)* | `teamleader` | `
+
+` | Các trạm do **Tổ thao tác phụ trách** | Giám sát trạm, điều khiển thiết bị tại hiện trường khi đi xử lý sự cố, xem luật và xem báo cáo sự cố. |
 | **4** | **Admin Trạm** *(Tầng 1 - Quản trị cấp Trạm con)* | `stationadmin` | `Station@123` | Chỉ được phép thao tác trong **Trạm được gán** | **Quyền quản trị Trạm**: Quản lý thiết bị, cấu hình luật cảnh báo, báo cáo và gán nhân sự trực thuộc trạm đó. |
 
 ---

@@ -84,6 +84,12 @@ export default function MaintenancePage() {
     getFirstStationId().then(id => { if (id) { setStationId(id); loadData(id); } });
   }, [getFirstStationId]);
 
+  useEffect(() => {
+    const handler = () => { if (stationId) loadData(stationId); };
+    window.addEventListener('maintenance:changed', handler);
+    return () => window.removeEventListener('maintenance:changed', handler);
+  }, [stationId]);
+
   /**
    * Mở modal tạo mới hoặc chỉnh sửa công việc bảo trì.
    * Nếu truyền task vào thì điền sẵn form với dữ liệu task đó.

@@ -26,8 +26,13 @@ export default function LoginPage() {
       navigate(resolveNextPath() || (isCentralUser(u) ? '/multisite' : '/dashboard'), { replace: true });
       return;
     }
-    // Nếu có params tự động đăng nhập từ trạm tổng
     const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token && authService.acceptExternalToken(token)) {
+      navigate(resolveNextPath() || '/dashboard', { replace: true });
+      return;
+    }
+    // Nếu có params tự động đăng nhập từ trạm tổng
     const embedUser = params.get('u');
     const embedPass = params.get('p');
     const nextPath = resolveNextPath();

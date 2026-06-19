@@ -35,7 +35,13 @@ const ProtectedRoute = ({ children, roles, allowOnlyMulti, denyRestricted }: { c
   const user = authService.getUser();
   
   if (!user) {
-    return <Navigate to="/login" replace />;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    const next = `${window.location.pathname}${window.location.search}`; 
+    const loginUrl = token
+      ? `/login?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`
+      : `/login?next=${encodeURIComponent(next)}`;
+    return <Navigate to={loginUrl} replace />;
   }
   
   const isCentral = isCentralUser(user);

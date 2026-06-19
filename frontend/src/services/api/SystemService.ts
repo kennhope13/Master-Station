@@ -11,9 +11,31 @@ import type { UserItem, SmtpConfig, SyncStatus, PermissionInfo, Province, Team }
 export class SystemService {
   // ── Users ─────────────────────────────────────────────────
 
+  private mapToUserItem(u: any): UserItem {
+    return {
+      ...u,
+      province_ids: u.provinceIds || u.province_ids,
+      station_ids: u.stationIds || u.station_ids,
+    };
+  }
+
+  private mapToBackendBody(data: any): any {
+    const payload = { ...data };
+    if ('province_ids' in payload) {
+      payload.provinceIds = payload.province_ids;
+      delete payload.province_ids;
+    }
+    if ('station_ids' in payload) {
+      payload.stationIds = payload.station_ids;
+      delete payload.station_ids;
+    }
+    return payload;
+  }
+
   /** Lấy danh sách tài khoản người dùng. */
   async getUsers(): Promise<UserItem[]> {
-    return apiFetch<UserItem[]>('/users');
+    const list = await apiFetch<any[]>('/users');
+    return list.map(u => this.mapToUserItem(u));
   }
 
   // ── Teams ─────────────────────────────────────────────────
@@ -55,12 +77,16 @@ export class SystemService {
 
   /** Tạo tài khoản mới. data cần có username, password, role, fullname. */
   async createUser(data: any): Promise<UserItem> {
-    return apiMutate('POST', '/users', data);
+    const payload = this.mapToBackendBody(data);
+    const res = await apiMutate('POST', '/users', payload);
+    return this.mapToUserItem(res);
   }
 
   /** Cập nhật thông tin hoặc role của người dùng. */
   async updateUser(id: string, data: any): Promise<UserItem> {
-    return apiMutate('PUT', `/users/${id}`, data);
+    const payload = this.mapToBackendBody(data);
+    const res = await apiMutate('PUT', `/users/${id}`, payload);
+    return this.mapToUserItem(res);
   }
 
   /** Vô hiệu hóa tài khoản (soft delete). */

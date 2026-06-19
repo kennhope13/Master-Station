@@ -49,6 +49,11 @@ export default function RuleEnginePage() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    window.addEventListener('rule:changed', loadData);
+    return () => window.removeEventListener('rule:changed', loadData);
+  }, []);
+
   // Parse JSON điều kiện từ API
   const parseCondition = (json: string): any => {
     try { return JSON.parse(json); } catch { return { point: '?', op: '>=', value: 0 }; }

@@ -97,7 +97,7 @@ public class AuthService
     /// Tạo JWT token chứa: userId, username, role, fullName
     /// Hết hạn sau ExpiryMinutes phút (config trong appsettings.json)
     /// </summary>
-    public string GenerateJwt(User user)
+    public string GenerateJwt(User user, TimeSpan? lifetime = null)
     {
         var key = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
@@ -146,8 +146,8 @@ public class AuthService
             issuer: _config["Jwt:Issuer"],
             audience: _config["Jwt:Audience"],
             claims: claims,
-            expires: DateTime.UtcNow.AddMinutes(
-                int.Parse(_config["Jwt:ExpiryMinutes"]!)),
+            expires: DateTime.UtcNow.Add(lifetime ?? TimeSpan.FromMinutes(
+                int.Parse(_config["Jwt:ExpiryMinutes"]!))),
             signingCredentials: creds);
 
         return new JwtSecurityTokenHandler().WriteToken(token);
@@ -181,17 +181,17 @@ public class AuthService
             _db.Provinces.AddRange(pTayNinh, pCanTho, pLongAn, pVinhLong);
             await _db.SaveChangesAsync();
 
-            // Link existing stations to provinces
-            var stations = await _db.Stations.ToListAsync();
-            foreach (var s in stations)
-            {
-                if (s.Name.Contains("An Thạnh")) s.ProvinceId = pTayNinh.Id;
-                else if (s.Name.Contains("Cái Răng")) s.ProvinceId = pCanTho.Id;
-                else if (s.Name.Contains("Tân Trụ") || s.Name.Contains("Tân An")) s.ProvinceId = pLongAn.Id;
-                else if (s.Name.Contains("Trà Ôn")) s.ProvinceId = pVinhLong.Id;
-                else s.ProvinceId = pTayNinh.Id; // default fallback
-            }
-            await _db.SaveChangesAsync();
+             // Link existing stations to provinces
+             var stations = await _db.Stations.ToListAsync();
+             foreach (var s in stations)
+             {
+                 if (s.Name.Contains("An Thạnh") || s.Name.Contains("Tây Ninh")) s.ProvinceId = pTayNinh.Id;
+                 else if (s.Name.Contains("Cái Răng")) s.ProvinceId = pCanTho.Id;
+                 else if (s.Name.Contains("Tân Trụ") || s.Name.Contains("Tân An") || s.Name.Contains("Long An")) s.ProvinceId = pLongAn.Id;
+                 else if (s.Name.Contains("Trà Ôn")) s.ProvinceId = pVinhLong.Id;
+                 else s.ProvinceId = pTayNinh.Id; // default fallback
+             }
+             await _db.SaveChangesAsync();
         }
 
         // 1. Upsert admin (Trạm con) - Only if not Central
@@ -246,11 +246,9 @@ public class AuthService
         provinceAdmin.Email = "provinceadmin@StationOS.vn";
         provinceAdmin.IsActive = true;
         provinceAdmin.MustChangePassword = false;
-        // Assign Tây Ninh and Long An provinces for demo
-        var tnProvince = await _db.Provinces.FirstOrDefaultAsync(p => p.Code == "TN");
+        // Assign Long An province for demo
         var laProvince = await _db.Provinces.FirstOrDefaultAsync(p => p.Code == "LA");
         var provIds = new List<Guid>();
-        if (tnProvince != null) provIds.Add(tnProvince.Id);
         if (laProvince != null) provIds.Add(laProvince.Id);
 
         if (provIds.Count > 0)

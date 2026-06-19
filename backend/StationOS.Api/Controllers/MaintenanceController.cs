@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Services;
 using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
@@ -26,8 +27,13 @@ namespace StationOS.Api.Controllers;
 public class MaintenanceController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IRealtimeNotifier _notifier;
 
-    public MaintenanceController(AppDbContext db) => _db = db;
+    public MaintenanceController(AppDbContext db, IRealtimeNotifier notifier)
+    {
+        _db = db;
+        _notifier = notifier;
+    }
 
     // ── GET /api/v1/maintenance ──────────────────────────────
     /// <summary>Lấy danh sách tất cả task bảo trì, hỗ trợ lọc theo trạm, trạng thái và thiết bị.</summary>
@@ -92,6 +98,7 @@ public class MaintenanceController : ControllerBase
 
         _db.MaintenanceTasks.Add(task);
         await _db.SaveChangesAsync();
+        _ = _notifier.SendMaintenanceChangedAsync("created", task.StationId);
 
         var deviceNames = new Dictionary<Guid, string>();
         if (task.DeviceId.HasValue)
@@ -124,6 +131,7 @@ public class MaintenanceController : ControllerBase
         if (req.Status != null)        task.Status        = req.Status;
 
         await _db.SaveChangesAsync();
+        _ = _notifier.SendMaintenanceChangedAsync("updated", task.StationId);
 
         var deviceNames = new Dictionary<Guid, string>();
         if (task.DeviceId.HasValue)
@@ -148,6 +156,7 @@ public class MaintenanceController : ControllerBase
 
         _db.MaintenanceTasks.Remove(task);
         await _db.SaveChangesAsync();
+        _ = _notifier.SendMaintenanceChangedAsync("deleted", task.StationId);
         return Ok(new { message = "Đã xóa lịch bảo trì" });
     }
 
@@ -164,6 +173,7 @@ public class MaintenanceController : ControllerBase
 
         task.Status = "in_progress";
         await _db.SaveChangesAsync();
+        _ = _notifier.SendMaintenanceChangedAsync("started", task.StationId);
 
         var deviceNames = new Dictionary<Guid, string>();
         if (task.DeviceId.HasValue)
@@ -207,6 +217,7 @@ public class MaintenanceController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        _ = _notifier.SendMaintenanceChangedAsync("completed", task.StationId);
 
         var deviceNames = new Dictionary<Guid, string>();
         if (task.DeviceId.HasValue)
@@ -244,6 +255,7 @@ public class MaintenanceController : ControllerBase
 
         _db.MaintenanceTasks.Add(task);
         await _db.SaveChangesAsync();
+        _ = _notifier.SendMaintenanceChangedAsync("created", task.StationId);
 
         var deviceNames = new Dictionary<Guid, string>();
         if (task.DeviceId.HasValue)

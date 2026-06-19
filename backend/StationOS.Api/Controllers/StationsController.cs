@@ -3,9 +3,11 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using StationOS.Data;
 using StationOS.Data.Entities;
 using StationOS.Services;
+using StationOS.Services.Security;
 using StationOS.Api.Filters;
 
 namespace StationOS.Api.Controllers;
@@ -18,11 +20,22 @@ public class StationsController : ControllerBase
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
     private readonly IHttpClientFactory _httpClientFactory;
-    public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory)
+    private readonly CredentialEncryptionService _crypto;
+    private readonly InternalAuthService _internalAuth;
+    private readonly IRealtimeNotifier _notifier;
+    private readonly ILogger<StationsController> _logger;
+    private const string DefaultApiUsername = "stationadmin";
+    private const string DefaultApiPassword = "Station@123";
+
+    public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory, CredentialEncryptionService crypto, InternalAuthService internalAuth, IRealtimeNotifier notifier, ILogger<StationsController> logger)
     {
         _db = db;
         _permissions = permissions;
         _httpClientFactory = httpClientFactory;
+        _crypto = crypto;
+        _internalAuth = internalAuth;
+        _notifier = notifier;
+        _logger = logger;
     }
 
     /// <summary>Lấy danh sách trạm biến áp. Operator chỉ thấy trạm được phân quyền.</summary>
@@ -37,7 +50,7 @@ public class StationsController : ControllerBase
         var stations = await q
             .OrderBy(s => s.Name)
             .Select(s => new {
-                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.WebUrl, s.LastContactAt, s.ProvinceId
+                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.ApiUsername, s.ApiPassword, s.WebUrl, s.LastContactAt, s.ProvinceId
             }).ToListAsync();
 
         var stationIds = stations.Select(s => s.Id).ToList();
@@ -86,6 +99,8 @@ public class StationsController : ControllerBase
                 s.Status,
                 s.CreatedAt,
                 s.ApiUrl,
+                apiUsername = string.IsNullOrWhiteSpace(s.ApiUsername) ? DefaultApiUsername : s.ApiUsername,
+                hasApiPassword = !string.IsNullOrWhiteSpace(s.ApiPassword),
                 webUrl = s.WebUrl ?? DeriveWebUrl(s.ApiUrl),
                 connectionStatus,
                 lastSeenAt,
@@ -102,7 +117,7 @@ public class StationsController : ControllerBase
     {
         var s = await _db.Stations.FindAsync(id);
         if (s == null) return NotFound();
-        return Ok(s);
+        return Ok(ToStationResponse(s));
     }
 
     /// <summary>Tạo trạm mới. Chỉ admin.</summary>
@@ -112,18 +127,63 @@ public class StationsController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> Create([FromBody] StationRequest req)
     {
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        Guid? provinceId = req.ProvinceId;
+
+        if (allowedProvinceIds != null)
+        {
+            if (provinceId == null)
+            {
+                // Auto-assign the first permitted province when multiple are available
+                provinceId = allowedProvinceIds.FirstOrDefault();
+            }
+            else if (!allowedProvinceIds.Contains(provinceId.Value))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền tạo trạm tại tỉnh này." });
+            }
+        }
+
+        // Validate province assignment
+        if (provinceId == null)
+        {
+            return BadRequest(new { message = "Bạn phải chỉ định tỉnh cho trạm." });
+        }
+
+        // Validate location JSON contains lat and lng
+        if (string.IsNullOrWhiteSpace(req.Location))
+        {
+            return BadRequest(new { message = "Vị trí (Location) không được để trống." });
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(req.Location);
+            if (!doc.RootElement.TryGetProperty("lat", out var latProp) || !doc.RootElement.TryGetProperty("lng", out var lngProp))
+            {
+                return BadRequest(new { message = "Location phải chứa trường 'lat' và 'lng'." });
+            }
+            // Optional: you could add further range checks here
+        }
+        catch (Exception)
+        {
+            return BadRequest(new { message = "Location không phải là JSON hợp lệ." });
+        }
+
         var station = new Station
         {
-            Name     = req.Name,
-            Code     = req.Code,
-            Location = req.Location,
-            ApiUrl   = req.ApiUrl,
-            WebUrl   = req.WebUrl,
-            Status   = "active"
+            Name        = req.Name,
+            Code        = req.Code,
+            Location    = req.Location,
+            ApiUrl      = req.ApiUrl,
+            ApiUsername = NormalizeApiUsername(req.ApiUsername),
+            ApiPassword = EncryptApiPassword(req.ApiPassword, useDefaultWhenEmpty: true),
+            WebUrl      = req.WebUrl,
+            ProvinceId  = provinceId,
+            Status      = "active"
         };
         _db.Stations.Add(station);
         await _db.SaveChangesAsync();
-        return CreatedAtAction(nameof(GetById), new { id = station.Id }, station);
+        _ = _notifier.SendStationListChangedAsync("created", station.Id);
+        return CreatedAtAction(nameof(GetById), new { id = station.Id }, ToStationResponse(station));
     }
 
     /// <summary>Cập nhật thông tin trạm. Chỉ admin.</summary>
@@ -137,16 +197,34 @@ public class StationsController : ControllerBase
         var station = await _db.Stations.FindAsync(id);
         if (station == null) return NotFound();
 
-        station.Name     = req.Name;
-        station.Code     = req.Code;
-        station.Location = req.Location;
-        station.ApiUrl   = req.ApiUrl;
-        station.WebUrl   = req.WebUrl;
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            if (station.ProvinceId == null || !allowedProvinceIds.Contains(station.ProvinceId.Value))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền chỉnh sửa trạm ngoài tỉnh được gán." });
+            }
+            if (req.ProvinceId == null || !allowedProvinceIds.Contains(req.ProvinceId.Value))
+            {
+                return StatusCode(403, new { message = "Tỉnh mới không nằm trong danh sách quản lý của bạn." });
+            }
+        }
+
+        station.Name       = req.Name;
+        station.Code       = req.Code;
+        station.Location   = req.Location;
+        station.ApiUrl     = req.ApiUrl;
+        station.ApiUsername = NormalizeApiUsername(req.ApiUsername ?? station.ApiUsername);
+        if (!string.IsNullOrWhiteSpace(req.ApiPassword))
+            station.ApiPassword = EncryptApiPassword(req.ApiPassword, useDefaultWhenEmpty: false);
+        station.WebUrl     = req.WebUrl;
+        station.ProvinceId = req.ProvinceId;
         if (!string.IsNullOrWhiteSpace(req.Status))
             station.Status = req.Status;
 
         await _db.SaveChangesAsync();
-        return Ok(station);
+        _ = _notifier.SendStationListChangedAsync("updated", station.Id);
+        return Ok(ToStationResponse(station));
     }
 
     /// <summary>Xóa trạm. Chỉ admin, và chỉ khi trạm không còn thiết bị nào.</summary>
@@ -154,53 +232,316 @@ public class StationsController : ControllerBase
     /// <returns>204 NoContent hoặc 400 nếu còn thiết bị.</returns>
     [HttpDelete("{id}")]
     [HasPermission("station:manage")]
-    public async Task<IActionResult> Delete(Guid id)
+    public async Task<IActionResult> Delete(Guid id, [FromQuery] bool force = false)
     {
         var station = await _db.Stations.FindAsync(id);
         if (station == null) return NotFound();
 
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            if (station.ProvinceId == null || !allowedProvinceIds.Contains(station.ProvinceId.Value))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền xóa trạm ngoài tỉnh được gán." });
+            }
+        }
+
         // Kiểm tra xem có thiết bị nào thuộc trạm này không
         var hasDevices = await _db.Devices.AnyAsync(d => d.StationId == id);
-        if (hasDevices)
+        if (hasDevices && !force)
             return BadRequest(new { message = "Không thể xóa trạm đang có thiết bị. Xóa thiết bị trước." });
 
-        _db.Stations.Remove(station);
-        await _db.SaveChangesAsync();
-        return NoContent();
+        if (!force)
+        {
+            var blocking = new List<string>();
+            if (await _db.Alerts.AnyAsync(x => x.StationId == id)) blocking.Add("cảnh báo");
+            if (await _db.SensorReadings.AnyAsync(x => x.StationId == id)) blocking.Add("dữ liệu cảm biến");
+            if (await _db.DetectionEvents.AnyAsync(x => x.StationId == id)) blocking.Add("sự kiện AI");
+            if (await _db.Rules.AnyAsync(x => x.StationId == id)) blocking.Add("rule");
+            if (await _db.SystemSettings.AnyAsync(x => x.StationId == id)) blocking.Add("cấu hình hệ thống");
+            if (await _db.Reports.AnyAsync(x => x.StationId == id)) blocking.Add("báo cáo");
+            if (await _db.MaintenanceTasks.AnyAsync(x => x.StationId == id)) blocking.Add("công việc bảo trì");
+            if (await _db.RuleTriggerLogs.AnyAsync(x => x.StationId == id)) blocking.Add("nhật ký kích hoạt rule");
+            if (await _db.SldFiles.AnyAsync(x => x.StationId == id)) blocking.Add("file sơ đồ SLD");
+
+            if (blocking.Count > 0)
+            {
+                return BadRequest(new
+                {
+                    message = $"Không thể xóa trạm vì còn dữ liệu liên quan: {string.Join(", ", blocking)}."
+                });
+            }
+        }
+
+        using var transaction = await _db.Database.BeginTransactionAsync();
+        try
+        {
+            if (force)
+            {
+                _logger.LogInformation("Bắt đầu thực hiện xóa bắt buộc (force delete) cho trạm {StationId} ({StationName})", id, station.Name);
+
+                var deviceIds = await _db.Devices
+                    .Where(x => x.StationId == id)
+                    .Select(x => x.Id)
+                    .ToListAsync();
+                _logger.LogInformation("Tìm thấy {Count} thiết bị liên quan đến trạm {StationId}", deviceIds.Count, id);
+
+                var sldFileIds = await _db.SldFiles
+                    .Where(x => x.StationId == id)
+                    .Select(x => x.Id)
+                    .ToListAsync();
+                _logger.LogInformation("Tìm thấy {Count} files sơ đồ SLD liên quan đến trạm {StationId}", sldFileIds.Count, id);
+
+                var alertIds = await _db.Alerts
+                    .Where(x => x.StationId == id)
+                    .Select(x => x.Id)
+                    .ToListAsync();
+                _logger.LogInformation("Tìm thấy {Count} cảnh báo liên quan đến trạm {StationId}", alertIds.Count, id);
+
+                var ruleIds = await _db.Rules
+                    .Where(x => x.StationId == id)
+                    .Select(x => x.Id)
+                    .ToListAsync();
+
+                var boundaryIds = deviceIds.Count == 0
+                    ? new List<Guid>()
+                    : await _db.Boundaries.Where(x => deviceIds.Contains(x.DeviceId)).Select(x => x.Id).ToListAsync();
+
+                var mediaFileIds = deviceIds.Count == 0
+                    ? new List<Guid>()
+                    : await _db.MediaFiles.Where(x => deviceIds.Contains(x.CameraId)).Select(x => x.Id).ToListAsync();
+
+                var usersToUpdate = await _db.Users
+                    .Where(u => u.StationIds != null && u.StationIds.Contains(id))
+                    .ToListAsync();
+                _logger.LogInformation("Cập nhật quyền truy cập cho {Count} tài khoản người dùng liên quan", usersToUpdate.Count);
+                foreach (var user in usersToUpdate)
+                {
+                    user.StationIds = user.StationIds?.Where(x => x != id).ToArray();
+                }
+
+                var teamsToUpdate = await _db.Teams
+                    .Where(t => t.StationIds != null && t.StationIds.Contains(id))
+                    .ToListAsync();
+                _logger.LogInformation("Cập nhật quyền truy cập cho {Count} tổ/đội liên quan", teamsToUpdate.Count);
+                foreach (var team in teamsToUpdate)
+                {
+                    team.StationIds = team.StationIds?.Where(x => x != id).ToArray();
+                }
+
+                var sldPoints = await _db.SldPoints
+                    .Where(x => sldFileIds.Contains(x.SldFileId) || (x.DeviceId != null && deviceIds.Contains(x.DeviceId.Value)))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} điểm SldPoints", sldPoints.Count);
+                _db.SldPoints.RemoveRange(sldPoints);
+
+                var alertHistories = await _db.AlertHistories
+                    .Where(x => alertIds.Contains(x.AlertId))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} lịch sử cảnh báo AlertHistories", alertHistories.Count);
+                _db.AlertHistories.RemoveRange(alertHistories);
+
+                var notifyLogs = await _db.NotifyLogs
+                    .Where(x => x.AlertId != null && alertIds.Contains(x.AlertId.Value))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} nhật ký thông báo NotifyLogs", notifyLogs.Count);
+                _db.NotifyLogs.RemoveRange(notifyLogs);
+
+                var detectionEvents = await _db.DetectionEvents
+                    .Where(x => x.StationId == id
+                        || deviceIds.Contains(x.CameraId)
+                        || (x.AlertId != null && alertIds.Contains(x.AlertId.Value))
+                        || (x.BoundaryId != null && boundaryIds.Contains(x.BoundaryId.Value))
+                        || (x.MediaFileId != null && mediaFileIds.Contains(x.MediaFileId.Value)))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} sự kiện AI DetectionEvents", detectionEvents.Count);
+                _db.DetectionEvents.RemoveRange(detectionEvents);
+
+                var ruleTriggerLogs = await _db.RuleTriggerLogs
+                    .Where(x => x.StationId == id
+                        || (x.RuleId != Guid.Empty && ruleIds.Contains(x.RuleId))
+                        || (x.DeviceId != null && deviceIds.Contains(x.DeviceId.Value))
+                        || (x.AlertId != null && alertIds.Contains(x.AlertId.Value)))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} nhật ký kích hoạt rule RuleTriggerLogs", ruleTriggerLogs.Count);
+                _db.RuleTriggerLogs.RemoveRange(ruleTriggerLogs);
+
+                var roiPoints = await _db.RoiPoints
+                    .Where(x => deviceIds.Contains(x.DeviceId))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} điểm RoiPoints", roiPoints.Count);
+                _db.RoiPoints.RemoveRange(roiPoints);
+
+                var boundaries = await _db.Boundaries
+                    .Where(x => deviceIds.Contains(x.DeviceId))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} vùng ranh giới Boundaries", boundaries.Count);
+                _db.Boundaries.RemoveRange(boundaries);
+
+                var thermalFrames = await _db.ThermalFrames
+                    .Where(x => deviceIds.Contains(x.CameraId))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} khung ảnh nhiệt ThermalFrames", thermalFrames.Count);
+                _db.ThermalFrames.RemoveRange(thermalFrames);
+
+                var maintenanceTasks = await _db.MaintenanceTasks
+                    .Where(x => x.StationId == id || (x.DeviceId != null && deviceIds.Contains(x.DeviceId.Value)) || (x.SourceAlertId != null && alertIds.Contains(x.SourceAlertId.Value)))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} công việc bảo trì MaintenanceTasks", maintenanceTasks.Count);
+                _db.MaintenanceTasks.RemoveRange(maintenanceTasks);
+
+                var sensorReadings = await _db.SensorReadings
+                    .Where(x => x.StationId == id)
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} dữ liệu cảm biến SensorReadings", sensorReadings.Count);
+                _db.SensorReadings.RemoveRange(sensorReadings);
+
+                var reports = await _db.Reports
+                    .Where(x => x.StationId == id)
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} báo cáo Reports", reports.Count);
+                _db.Reports.RemoveRange(reports);
+
+                var settings = await _db.SystemSettings
+                    .Where(x => x.StationId == id)
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} cấu hình hệ thống SystemSettings", settings.Count);
+                _db.SystemSettings.RemoveRange(settings);
+
+                var rules = await _db.Rules
+                    .Where(x => x.StationId == id)
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} quy tắc Rules", rules.Count);
+                _db.Rules.RemoveRange(rules);
+
+                var alerts = await _db.Alerts
+                    .Where(x => x.StationId == id)
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} cảnh báo Alerts", alerts.Count);
+                _db.Alerts.RemoveRange(alerts);
+
+                var sldFiles = await _db.SldFiles
+                    .Where(x => x.StationId == id)
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} sơ đồ SLD SldFiles", sldFiles.Count);
+                _db.SldFiles.RemoveRange(sldFiles);
+
+                var mediaFiles = await _db.MediaFiles
+                    .Where(x => deviceIds.Contains(x.CameraId))
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} tệp đa phương tiện MediaFiles", mediaFiles.Count);
+                _db.MediaFiles.RemoveRange(mediaFiles);
+
+                var devices = await _db.Devices
+                    .Where(x => x.StationId == id)
+                    .ToListAsync();
+                _logger.LogInformation("Xóa {Count} thiết bị Devices", devices.Count);
+                _db.Devices.RemoveRange(devices);
+            }
+
+            _logger.LogInformation("Xóa trạm chính {StationId}", id);
+            _db.Stations.Remove(station);
+            await _db.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+            _logger.LogInformation("Hoàn tất xóa trạm {StationId} thành công", id);
+            _ = _notifier.SendStationListChangedAsync("deleted", id);
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "Lỗi xảy ra trong quá trình xóa trạm {StationId}", id);
+            return StatusCode(500, new { message = "Lỗi hệ thống khi xóa trạm: " + ex.Message });
+        }
     }
 
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (string Token, DateTime ExpiresAt)> _tokenCache = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (string Token, DateTime ExpiresAt, string AuthKey)> _tokenCache = new();
 
 
-    private async Task<string?> GetOrFetchTokenAsync(Guid stationId, string apiBase, bool forceRefresh = false)
+    private async Task<string?> GetOrFetchTokenAsync(Station station, string apiBase, bool forceRefresh = false)
     {
-        if (!forceRefresh && _tokenCache.TryGetValue(stationId, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
+        var authKey = $"{ResolveApiUsername(station)}|{station.ApiPassword ?? ""}";
+        if (!forceRefresh &&
+            _tokenCache.TryGetValue(station.Id, out var cached) &&
+            cached.ExpiresAt > DateTime.UtcNow &&
+            cached.AuthKey == authKey)
         {
             return cached.Token;
         }
 
+        // Try 1: Internal token endpoint
         try
         {
             var loginClient = _httpClientFactory.CreateClient("station-ping");
-            var loginBody = JsonContent.Create(new { username = "admin", password = "Admin@123" });
-            var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/login", loginBody);
-            if (!loginRes.IsSuccessStatusCode)
-                return null;
-
-            var loginJson = await loginRes.Content.ReadFromJsonAsync<JsonElement>();
-            if (loginJson.TryGetProperty("token", out var tokenProp))
+            _internalAuth.ApplyHeaders(loginClient);
+            var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/internal-token", JsonContent.Create(new { }));
+            if (loginRes.IsSuccessStatusCode)
             {
-                var token = tokenProp.GetString();
-                if (!string.IsNullOrEmpty(token))
+                var loginJson = await loginRes.Content.ReadFromJsonAsync<JsonElement>();
+                if (loginJson.TryGetProperty("token", out var tokenProp))
                 {
-                    _tokenCache[stationId] = (token, DateTime.UtcNow.AddMinutes(30));
-                    return token;
+                    var token = tokenProp.GetString();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        _tokenCache[station.Id] = (token, DateTime.UtcNow.AddMinutes(30), authKey);
+                        return token;
+                    }
                 }
             }
         }
         catch (Exception ex)
         {
-            System.Console.WriteLine($"[StationsController] Error authenticating with child station {stationId}: {ex.Message}");
+            System.Console.WriteLine($"[StationsController] Error authenticating via internal-token with child station {station.Id}: {ex.Message}");
+        }
+
+        // Try 2: Fallback to standard login endpoint with decrypted password
+        try
+        {
+            var username = ResolveApiUsername(station);
+            var decryptedPassword = "";
+            try
+            {
+                decryptedPassword = _crypto.Decrypt(station.ApiPassword);
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[StationsController] Decrypt failed for station {station.Id}: {ex.Message}");
+                decryptedPassword = station.ApiPassword ?? "";
+            }
+
+            if (!string.IsNullOrEmpty(username))
+            {
+                var loginClient = _httpClientFactory.CreateClient("station-ping");
+                var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/login", JsonContent.Create(new
+                {
+                    username = username,
+                    password = decryptedPassword
+                }));
+
+                if (loginRes.IsSuccessStatusCode)
+                {
+                    var loginJson = await loginRes.Content.ReadFromJsonAsync<JsonElement>();
+                    if (loginJson.TryGetProperty("token", out var tokenProp))
+                    {
+                        var token = tokenProp.GetString();
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            _tokenCache[station.Id] = (token, DateTime.UtcNow.AddMinutes(30), authKey);
+                            return token;
+                        }
+                    }
+                }
+                else
+                {
+                    var errorStr = await loginRes.Content.ReadAsStringAsync();
+                    System.Console.WriteLine($"[StationsController] Fallback login failed for station {station.Id} (Status {loginRes.StatusCode}): {errorStr}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"[StationsController] Error authenticating via fallback login with child station {station.Id}: {ex.Message}");
         }
 
         return null;
@@ -223,7 +564,7 @@ public class StationsController : ControllerBase
         try
         {
             // 1. Lấy token từ cache hoặc login
-            var token = await GetOrFetchTokenAsync(id, apiBase);
+            var token = await GetOrFetchTokenAsync(station, apiBase);
             if (string.IsNullOrEmpty(token))
             {
                 System.Console.WriteLine($"[StationsController] Không lấy được token cho trạm {station.Name} ({station.ApiUrl})");
@@ -250,7 +591,7 @@ public class StationsController : ControllerBase
                 pointsTask.Result.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
                 healthTask.Result.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                token = await GetOrFetchTokenAsync(id, apiBase, forceRefresh: true);
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
                 if (string.IsNullOrEmpty(token))
                     return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = "auth_failed" });
 
@@ -337,7 +678,7 @@ public class StationsController : ControllerBase
 
         try
         {
-            var token = await GetOrFetchTokenAsync(id, apiBase);
+            var token = await GetOrFetchTokenAsync(station, apiBase);
             if (string.IsNullOrEmpty(token))
                 return Ok(new { go2rtcBase, rtspBase, cameras = Array.Empty<object>() });
 
@@ -352,7 +693,7 @@ public class StationsController : ControllerBase
             var res = await client.GetAsync($"{apiBase}/api/v1/devices");
             if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                token = await GetOrFetchTokenAsync(id, apiBase, forceRefresh: true);
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
                 if (string.IsNullOrEmpty(token))
                     return Ok(new { go2rtcBase, rtspBase, cameras = Array.Empty<object>() });
 
@@ -439,7 +780,7 @@ public class StationsController : ControllerBase
         var apiBase = station.ApiUrl.TrimEnd('/');
         try
         {
-            var token = await GetOrFetchTokenAsync(station.Id, apiBase);
+            var token = await GetOrFetchTokenAsync(station, apiBase);
             if (string.IsNullOrEmpty(token))
                 return BadRequest(new { error = "auth_failed" });
             return Ok(new { token });
@@ -494,7 +835,36 @@ public class StationsController : ControllerBase
         }
         catch { return null; }
     }
+
+    private object ToStationResponse(Station station) => new
+    {
+        station.Id,
+        station.Name,
+        station.Code,
+        station.Location,
+        station.Status,
+        station.CreatedAt,
+        station.ApiUrl,
+        apiUsername = ResolveApiUsername(station),
+        hasApiPassword = !string.IsNullOrWhiteSpace(station.ApiPassword),
+        webUrl = station.WebUrl ?? DeriveWebUrl(station.ApiUrl),
+        lastSeenAt = station.LastContactAt,
+        station.ProvinceId
+    };
+
+    private static string NormalizeApiUsername(string? value)
+        => string.IsNullOrWhiteSpace(value) ? DefaultApiUsername : value.Trim();
+
+    private string EncryptApiPassword(string? value, bool useDefaultWhenEmpty)
+    {
+        var raw = string.IsNullOrWhiteSpace(value)
+            ? (useDefaultWhenEmpty ? DefaultApiPassword : null)
+            : value.Trim();
+        return string.IsNullOrWhiteSpace(raw) ? "" : _crypto.Encrypt(raw);
+    }
+
+    private static string ResolveApiUsername(Station station) => NormalizeApiUsername(station.ApiUsername);
 }
 
-public record StationRequest(string Name, string? Code, string? Location, string? Status, string? ApiUrl, string? WebUrl);
+public record StationRequest(string Name, string? Code, string? Location, string? Status, string? ApiUrl, string? ApiUsername, string? ApiPassword, string? WebUrl, Guid? ProvinceId = null);
 public record StationPingRequest(string Url);

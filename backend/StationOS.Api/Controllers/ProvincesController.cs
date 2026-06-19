@@ -25,11 +25,13 @@ public class ProvincesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
+    private readonly IRealtimeNotifier _notifier;
 
-    public ProvincesController(AppDbContext db, PermissionService permissions)
+    public ProvincesController(AppDbContext db, PermissionService permissions, IRealtimeNotifier notifier)
     {
         _db = db;
         _permissions = permissions;
+        _notifier = notifier;
     }
 
     /// <summary>Danh sách tỉnh mà user hiện tại được phép xem.</summary>
@@ -152,14 +154,29 @@ public class ProvincesController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> AssignStation(Guid id, Guid stationId)
     {
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            if (!allowedProvinceIds.Contains(id))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền quản lý tỉnh này." });
+            }
+        }
+
         var province = await _db.Provinces.FindAsync(id);
         if (province == null) return NotFound(new { message = "Không tìm thấy tỉnh" });
 
         var station = await _db.Stations.FindAsync(stationId);
         if (station == null) return NotFound(new { message = "Không tìm thấy trạm" });
 
+        if (allowedProvinceIds != null && station.ProvinceId != null && !allowedProvinceIds.Contains(station.ProvinceId.Value))
+        {
+            return StatusCode(403, new { message = "Bạn không có quyền chuyển trạm này từ tỉnh khác." });
+        }
+
         station.ProvinceId = id;
         await _db.SaveChangesAsync();
+        _ = _notifier.SendStationListChangedAsync("province_assigned", station.Id);
 
         return Ok(new { message = $"Đã gán trạm '{station.Name}' vào tỉnh '{province.Name}'" });
     }
@@ -169,6 +186,15 @@ public class ProvincesController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> UnassignStation(Guid id, Guid stationId)
     {
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            if (!allowedProvinceIds.Contains(id))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền quản lý tỉnh này." });
+            }
+        }
+
         var station = await _db.Stations.FindAsync(stationId);
         if (station == null) return NotFound(new { message = "Không tìm thấy trạm" });
 
@@ -177,6 +203,7 @@ public class ProvincesController : ControllerBase
 
         station.ProvinceId = null;
         await _db.SaveChangesAsync();
+        _ = _notifier.SendStationListChangedAsync("province_unassigned", station.Id);
 
         return Ok(new { message = $"Đã gỡ trạm '{station.Name}' khỏi tỉnh" });
     }

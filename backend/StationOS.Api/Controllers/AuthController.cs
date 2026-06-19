@@ -17,6 +17,7 @@ using StationOS.Data;
 using StationOS.Data.Entities;
 using StationOS.Services;
 using StationOS.Services.Auth;
+using StationOS.Services.Security;
 
 namespace StationOS.Api.Controllers;
 
@@ -27,12 +28,14 @@ public class AuthController : ControllerBase
     private readonly AuthService _auth;
     private readonly AppDbContext _db;
     private readonly LicenseService _license;
+    private readonly InternalAuthService _internalAuth;
 
-    public AuthController(AuthService auth, AppDbContext db, LicenseService license)
+    public AuthController(AuthService auth, AppDbContext db, LicenseService license, InternalAuthService internalAuth)
     {
         _auth    = auth;
         _db      = db;
         _license = license;
+        _internalAuth = internalAuth;
     }
 
     /// <summary>
@@ -142,6 +145,32 @@ public class AuthController : ControllerBase
                 fullName = user.FullName,
                 role = user.Role,
                 email = user.Email
+            }
+        });
+    }
+
+    [HttpPost("internal-token")]
+    [AllowAnonymous]
+    public async Task<IActionResult> InternalToken()
+    {
+        if (!_internalAuth.IsAuthorized(HttpContext))
+            return Unauthorized(new { message = "Internal auth failed" });
+
+        var username = "stationadmin";
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == username && u.IsActive)
+                   ?? await _db.Users.FirstOrDefaultAsync(u => u.Username == "admin" && u.IsActive);
+        if (user == null)
+            return NotFound(new { message = "Không tìm thấy tài khoản nội bộ để cấp token" });
+
+        var token = _auth.GenerateJwt(user, TimeSpan.FromDays(3650));
+        return Ok(new
+        {
+            token,
+            user = new
+            {
+                id = user.Id,
+                username = user.Username,
+                role = user.Role
             }
         });
     }

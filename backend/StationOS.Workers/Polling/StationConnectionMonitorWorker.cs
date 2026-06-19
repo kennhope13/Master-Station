@@ -57,7 +57,6 @@ public class StationConnectionMonitorWorker : BackgroundService
 
         var stations = await db.Stations
             .Where(s => s.Status == "active" && s.ApiUrl != null && s.ApiUrl != "")
-            .Select(s => new { s.Id, s.Name, s.ApiUrl })
             .ToListAsync(ct);
 
         foreach (var station in stations)
@@ -69,6 +68,16 @@ public class StationConnectionMonitorWorker : BackgroundService
             {
                 status = "online";
                 reason = "recent_data";
+            }
+
+            if (status == "online")
+            {
+                var observedAt = DateTime.UtcNow;
+                if (!station.LastContactAt.HasValue || observedAt > station.LastContactAt.Value)
+                {
+                    station.LastContactAt = observedAt;
+                    await db.SaveChangesAsync(ct);
+                }
             }
 
             if (_lastStatusByStation.TryGetValue(station.Id, out var previous) && previous == status)

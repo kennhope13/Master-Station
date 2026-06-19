@@ -82,6 +82,16 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   const [loading, setLoading] = useState(true);
   const [filterStationId, setFilterStationId] = useState('');
   const [searchText, setSearchText] = useState('');
+  const [activeTab, setActiveTab] = useState<'stations' | 'teams' | 'users'>('stations');
+  const [teamsList, setTeamsList] = useState<Team[]>([]);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [teamFormData, setTeamFormData] = useState({
+    name: '',
+    description: '',
+    provinceId: '',
+    stationIds: [] as string[]
+  });
 
   const stations = useStationStore(s => s.stations);
 
@@ -133,6 +143,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   };
 
   const loadData = async () => {
+    console.log('DEBUG: loadData started! currentUser:', authService.getUser());
     setLoading(true);
     try {
       const [u, s, logs, perms, provs, teams] = await Promise.all([
@@ -145,14 +156,17 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
       ]);
 
       const currentUser = authService.getUser();
+      console.log('DEBUG: currentUser', currentUser);
       let filteredStations = s;
       let filteredProvinces = provs;
       let filteredTeams = teams;
 
       if (currentUser && currentUser.role !== 'admin') {
         if (currentUser.role === 'admin_province') {
-          const currProvinces = (currentUser.province_ids || []).map(id => id.toLowerCase());
+          const currProvinces = (currentUser.province_ids || []).map((id: string) => id.toLowerCase());
+          console.log('DEBUG: admin_province currProvinces', currProvinces);
           filteredProvinces = provs.filter(p => currProvinces.includes(p.id.toLowerCase()));
+          console.log('DEBUG: filteredProvinces', filteredProvinces);
           filteredStations = s.filter(st => st.provinceId && currProvinces.includes(st.provinceId.toLowerCase()));
           filteredTeams = teams.filter(t => t.provinceId && currProvinces.includes(t.provinceId.toLowerCase()));
         } else if (currentUser.role === 'admin_station') {
@@ -176,7 +190,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   };
 
   const getStationUsers = (stationId: string) => {
-    return users.filter(u => u.stationIds?.includes(stationId));
+    return users.filter(u => u.station_ids?.includes(stationId));
   };
 
   const filteredUsers = useMemo(() => {
@@ -192,15 +206,25 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           if (currProvinces.length === 0) return false;
 
           if (['admin_province', 'operator_province'].includes(target.role)) {
-            const targetProvinces = (target.provinceIds || []).map(id => id.toLowerCase());
+            const targetProvinces = (target.province_ids || []).map(id => id.toLowerCase());
             return targetProvinces.some((id: string) => currProvinces.includes(id));
           }
 
-          const targetStations = (target.stationIds || []).map(id => id.toLowerCase());
-          return targetStations.some((sid: string) => {
+          const targetProvinces = (target.province_ids || []).map(id => id.toLowerCase());
+          if (targetProvinces.some((id: string) => currProvinces.includes(id))) return true;
+
+          const targetStations = (target.station_ids || []).map(id => id.toLowerCase());
+          if (targetStations.some((sid: string) => {
             const st = stationsList.find(s => s.id.toLowerCase() === sid);
             return st?.provinceId && currProvinces.includes(st.provinceId.toLowerCase());
-          });
+          })) return true;
+
+          if (target.teamId) {
+            const team = teamsList.find(t => t.id.toLowerCase() === target.teamId!.toLowerCase());
+            if (team?.provinceId && currProvinces.includes(team.provinceId.toLowerCase())) return true;
+          }
+
+          return false;
         }
 
         if (currentUser.role === 'admin_station') {
@@ -209,15 +233,22 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           const currStations = (currentUser.station_ids || []).map(id => id.toLowerCase());
           if (currStations.length === 0) return false;
 
-          const targetStations = (target.stationIds || []).map(id => id.toLowerCase());
-          return targetStations.some((sid: string) => currStations.includes(sid));
+          const targetStations = (target.station_ids || []).map(id => id.toLowerCase());
+          if (targetStations.some((sid: string) => currStations.includes(sid))) return true;
+
+          if (target.teamId) {
+            const team = teamsList.find(t => t.id.toLowerCase() === target.teamId!.toLowerCase());
+            if (team?.stationIds?.some(sid => currStations.includes(sid.toLowerCase()))) return true;
+          }
+
+          return false;
         }
 
         return target.username === currentUser.username;
       });
     }
 
-    if (filterStationId) list = list.filter(u => (u.stationIds ?? []).includes(filterStationId) || u.role === 'admin');
+    if (filterStationId) list = list.filter(u => (u.station_ids ?? []).includes(filterStationId) || u.role === 'admin');
     if (searchText.trim()) {
       const q = searchText.trim().toLowerCase();
       list = list.filter(u =>
@@ -227,7 +258,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
       );
     }
     return list;
-  }, [users, filterStationId, searchText, stationsList]);
+  }, [users, filterStationId, searchText, stationsList, teamsList]);
 
   const getLastActive = (username: string) => {
     const userLogs = loginLogs.filter(l => l.username === username);
@@ -235,16 +266,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     return userLogs[0]?.ts ?? null;
   };
 
-  const [activeTab, setActiveTab] = useState<'stations' | 'teams' | 'users'>('stations');
-  const [teamsList, setTeamsList] = useState<Team[]>([]);
-  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
-  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
-  const [teamFormData, setTeamFormData] = useState({
-    name: '',
-    description: '',
-    provinceId: '',
-    stationIds: [] as string[]
-  });
+
 
   const openAddTeamModal = () => {
     setEditingTeamId(null);
@@ -303,13 +325,13 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
   const openAddModal = () => {
     setEditingUserId(null);
-    setFormData({ username: '', fullName: '', email: '', password: '', confirmPassword: '', role: 'operator', isActive: true, stationIds: [], provinceIds: [], permissions: DEFAULT_PERMISSIONS_BY_ROLE['operator'] || [], teamId: '' });
+    setFormData({ username: '', fullName: '', email: '', password: '', confirmPassword: '', role: 'operator', isActive: true, station_ids: [], province_ids: [], permissions: DEFAULT_PERMISSIONS_BY_ROLE['operator'] || [], teamId: '' });
     setIsUserModalOpen(true);
   };
 
   const openEditModal = (u: UserItem) => {
     setEditingUserId(u.id);
-    setFormData({ username: u.username, fullName: u.fullName || '', email: u.email || '', password: '', confirmPassword: '', role: u.role, isActive: u.isActive, stationIds: u.stationIds || [], provinceIds: u.provinceIds || [], permissions: u.permissions || [], teamId: u.teamId || '' });
+    setFormData({ username: u.username, fullName: u.fullName || '', email: u.email || '', password: '', confirmPassword: '', role: u.role, isActive: u.isActive, station_ids: u.station_ids || [], province_ids: u.province_ids || [], permissions: u.permissions || [], teamId: u.teamId || '' });
     setIsUserModalOpen(true);
   };
 
@@ -335,8 +357,8 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     username: '', fullName: '', email: '',
     password: '', confirmPassword: '',
     role: 'operator', isActive: true,
-    stationIds: [] as string[],
-    provinceIds: [] as string[],
+    station_ids: [] as string[],
+    province_ids: [] as string[],
     permissions: [] as string[],
     teamId: ''
   });
@@ -344,7 +366,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   const [pwData, setPwData] = useState({ newPassword: '', confirmPassword: '' });
 
   const saveUser = async () => {
-    const { username, fullName, email, password, confirmPassword, role, isActive, stationIds, provinceIds, permissions, teamId } = formData;
+    const { username, fullName, email, password, confirmPassword, role, isActive, station_ids, province_ids, permissions, teamId } = formData;
     const finalTeamId = teamId === '' ? null : teamId;
 
     if (editingUserId) {
@@ -355,7 +377,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
         cancelText: 'Hủy'
       })) return;
       try {
-        await stationApi.updateUser(editingUserId, { fullName, email, role, isActive, stationIds, provinceIds, permissions, teamId: finalTeamId });
+        await stationApi.updateUser(editingUserId, { fullName, email, role, isActive, station_ids: station_ids, province_ids: province_ids, permissions, teamId: finalTeamId });
         setIsUserModalOpen(false);
         loadData();
       } catch (e: any) { alert(`Lỗi: ${e.message}`); }
@@ -369,7 +391,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
         cancelText: 'Hủy'
       })) return;
       try {
-        await stationApi.createUser({ username, password, fullName, email, role, stationIds, provinceIds, permissions, teamId: finalTeamId });
+        await stationApi.createUser({ username, password, fullName, email, role, station_ids: station_ids, province_ids: province_ids, permissions, teamId: finalTeamId });
         setIsUserModalOpen(false);
         loadData();
       } catch (e: any) { alert(`Lỗi: ${e.message}`); }
@@ -665,8 +687,8 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                 {filteredUsers.map(u => {
                   const role = ROLE_CFG[u.role as keyof typeof ROLE_CFG] ?? ROLE_CFG.operator;
                   const lastActive = getLastActive(u.username);
-                  const assignedStations = ['admin_province', 'operator_province'].includes(u.role) ? [] : (u.stationIds?.map(id => stationsList.find(s => s.id === id)).filter(Boolean) ?? []);
-                  const assignedProvinces = ['admin_province', 'operator_province'].includes(u.role) ? (u.provinceIds?.map(id => provincesList.find(p => p.id === id)).filter(Boolean) ?? []) : [];
+                  const assignedStations = ['admin_province', 'operator_province'].includes(u.role) ? [] : (u.station_ids?.map(id => stationsList.find(s => s.id === id)).filter(Boolean) ?? []);
+                  const assignedProvinces = ['admin_province', 'operator_province'].includes(u.role) ? (u.province_ids?.map(id => provincesList.find(p => p.id === id)).filter(Boolean) ?? []) : [];
                   const isOnline = lastActive && (Date.now() - new Date(lastActive).getTime() < 15 * 60 * 1000);
 
                   return (
@@ -843,9 +865,9 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                       <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
                         {provincesList.map(p => (
                           <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={formData.provinceIds.includes(p.id)} onChange={() => {
-                              const next = formData.provinceIds.includes(p.id) ? formData.provinceIds.filter(id => id !== p.id) : [...formData.provinceIds, p.id];
-                              setFormData({...formData, provinceIds: next});
+                            <input type="checkbox" checked={formData.province_ids.includes(p.id)} onChange={() => {
+                              const next = formData.province_ids.includes(p.id) ? formData.province_ids.filter(id => id !== p.id) : [...formData.province_ids, p.id];
+                              setFormData({...formData, province_ids: next});
                             }} /> {p.name} {p.code ? `(${p.code})` : ''}
                           </label>
                         ))}
@@ -859,9 +881,9 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                       <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
                         {stationsList.map(s => (
                           <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={formData.stationIds.includes(s.id)} onChange={() => {
-                              const next = formData.stationIds.includes(s.id) ? formData.stationIds.filter(id => id !== s.id) : [...formData.stationIds, s.id];
-                              setFormData({...formData, stationIds: next});
+                            <input type="checkbox" checked={formData.station_ids.includes(s.id)} onChange={() => {
+                              const next = formData.station_ids.includes(s.id) ? formData.station_ids.filter(id => id !== s.id) : [...formData.station_ids, s.id];
+                              setFormData({...formData, station_ids: next});
                             }} /> {s.name} ({s.code})
                           </label>
                         ))}

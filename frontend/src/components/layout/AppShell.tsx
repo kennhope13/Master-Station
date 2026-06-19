@@ -8,7 +8,7 @@ import { useEffect, useState, Suspense, useRef, useCallback } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '@/services/AuthService';
 import { API_BASE_URL } from '@/utils/env';
-import { useAlertStore, useSensorStore, useStationStore } from '@/store';
+import { useAlertStore, useDeviceStore, useSensorStore, useStationStore } from '@/store';
 import { useAuthStore } from '@/store/authStore';
 import { ALERT_STATUS } from '@/types/enums';
 import type { AlertItem, SensorPoint } from '@/types/api.types';
@@ -278,13 +278,38 @@ export default function AppShell() {
       });
     });
 
-    // 5. Lắng nghe cập nhật thông tin tài khoản để đồng bộ realtime không cần reload
+    // 5. Lắng nghe thay đổi danh sách trạm (thêm/sửa/xóa/gán tỉnh)
+    hub.on('StationListChanged', () => {
+      useStationStore.getState().invalidate();
+      useStationStore.getState().fetch(true);
+    });
+
+    // 6. Lắng nghe thay đổi danh sách thiết bị (thêm/sửa/xóa)
+    hub.on('DeviceListChanged', (data: { action: string; stationId: string; deviceId: string }) => {
+      if (!data?.stationId) return;
+      useDeviceStore.getState().invalidate(data.stationId);
+      useDeviceStore.getState().fetch(data.stationId, true);
+    });
+
+    // 7. Lắng nghe thay đổi bảo trì — dispatch custom event để các trang đang mở tự reload
+    hub.on('MaintenanceChanged', (data: { action: string; stationId: string }) => {
+      window.dispatchEvent(new CustomEvent('maintenance:changed', { detail: data }));
+    });
+
+    // 8. Lắng nghe thay đổi rule — dispatch custom event để trang rule tự reload
+    hub.on('RuleListChanged', (data: { action: string; stationId: string }) => {
+      window.dispatchEvent(new CustomEvent('rule:changed', { detail: data }));
+    });
+
+    // 6. Lắng nghe cập nhật thông tin tài khoản để đồng bộ realtime không cần reload
     hub.on('UserStatusChange', (data: { username: string, status: string }) => {
+      console.log(`[AppShell] SignalR event UserStatusChange received for user: ${data?.username}, status: ${data?.status}`);
       const currentUser = useAuthStore.getState().user;
       if (data && data.username && currentUser?.username && data.username.toLowerCase() === currentUser.username.toLowerCase()) {
         if (data.status === 'updated') {
-          console.log('[AppShell] User profile updated, performing silent refresh...');
+          console.log(`[AppShell] Match found for current user ${currentUser.username}. Triggering silent refresh...`);
           authService.refreshSession().then((success) => {
+            console.log(`[AppShell] Silent refresh success: ${success}`);
             if (success) {
               // Invalidate and refresh store data reactively
               useStationStore.getState().invalidate();

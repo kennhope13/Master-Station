@@ -33,6 +33,8 @@ export interface Station {
   createdAt?: string;
   /** URL API của trạm con, ví dụ: http://192.168.1.100:5000 */
   apiUrl?: string;
+  apiUsername?: string;
+  hasApiPassword?: boolean;
   /** URL giao diện web của trạm con, ví dụ: http://192.168.1.100:4173. Nếu để trống sẽ tự suy từ apiUrl. */
   webUrl?: string;
   connectionStatus?: 'online' | 'offline' | 'unknown' | string;
@@ -256,8 +258,8 @@ export interface UserItem {
   email?: string;
   role: string;           // operator | manager | admin
   isActive: boolean;
-  stationIds?: string[];
-  provinceIds?: string[];
+  station_ids?: string[];
+  province_ids?: string[];
   permissions?: string[];
   createdAt: string;
   teamId?: string;

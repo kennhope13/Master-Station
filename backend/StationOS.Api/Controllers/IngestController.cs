@@ -43,6 +43,8 @@ public class IngestController : ControllerBase
     private async Task MarkStationOnlineAsync(Station station, string? reason = null)
     {
         var lastSeenAt = DateTime.UtcNow;
+        station.LastContactAt = lastSeenAt;
+        await _db.SaveChangesAsync();
         await _notifier.SendStationStatusAsync(station.Id, "online", lastSeenAt, reason);
     }
 

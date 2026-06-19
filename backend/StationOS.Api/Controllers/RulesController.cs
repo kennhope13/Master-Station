@@ -20,11 +20,13 @@ public class RulesController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
+    private readonly IRealtimeNotifier _notifier;
 
-    public RulesController(AppDbContext db, PermissionService permissions)
+    public RulesController(AppDbContext db, PermissionService permissions, IRealtimeNotifier notifier)
     {
         _db = db;
         _permissions = permissions;
+        _notifier = notifier;
     }
 
     /// <summary>Lấy danh sách tất cả rule. Nếu gọi từ localhost (AI Engine) thì trả toàn bộ không giới hạn trạm.</summary>
@@ -110,6 +112,7 @@ public class RulesController : ControllerBase
 
         _db.Rules.Add(rule);
         await _db.SaveChangesAsync();
+        _ = _notifier.SendRuleListChangedAsync("created", rule.StationId);
         return Ok(rule);
     }
 
@@ -150,6 +153,7 @@ public class RulesController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        _ = _notifier.SendRuleListChangedAsync("updated", rule.StationId);
         return Ok(rule);
     }
 
@@ -165,6 +169,7 @@ public class RulesController : ControllerBase
         if (rule == null) return NotFound();
         _db.Rules.Remove(rule);
         await _db.SaveChangesAsync();
+        _ = _notifier.SendRuleListChangedAsync("deleted", rule.StationId);
         return NoContent();
     }
 
@@ -194,6 +199,7 @@ public class RulesController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+        _ = _notifier.SendRuleListChangedAsync("toggled", rule.StationId);
         return Ok(new { rule.Id, rule.Enabled });
     }
 }

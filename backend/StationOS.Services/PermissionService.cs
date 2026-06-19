@@ -16,6 +16,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
+using StationOS.Services.Security;
 
 namespace StationOS.Services;
 
@@ -39,6 +40,7 @@ public class PermissionService
     {
         var user = _http.HttpContext?.User;
         if (user == null) return Array.Empty<Guid>();
+        if (user.HasClaim(InternalAuthService.InternalMachineClaim, "true")) return null;
 
         var userIdStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(userIdStr, out var userId)) return Array.Empty<Guid>();
@@ -116,6 +118,7 @@ public class PermissionService
     {
         var user = _http.HttpContext?.User;
         if (user == null) return Array.Empty<Guid>();
+        if (user.HasClaim(InternalAuthService.InternalMachineClaim, "true")) return null;
 
         var userIdStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(userIdStr, out var userId)) return Array.Empty<Guid>();
@@ -149,6 +152,7 @@ public class PermissionService
     {
         var user = _http.HttpContext?.User;
         if (user == null) return false;
+        if (user.HasClaim(InternalAuthService.InternalMachineClaim, "true")) return true;
 
         var userIdStr = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (!Guid.TryParse(userIdStr, out var userId)) return false;

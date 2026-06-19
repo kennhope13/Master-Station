@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { useStationStore, useAlertStore, useDeviceStore } from '@/store';
+import { useStationStore, useAlertStore, useDeviceStore, useAuthStore } from '@/store';
 import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask } from '@/types/api.types';
 import type { StationView, StationLocation, StationKpi } from './types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
@@ -249,6 +249,7 @@ export default function MultisitePage() {
   const [newStationAddress, setNewStationAddress] = useState('');
   const [newStationApiUrl, setNewStationApiUrl] = useState('');
   const [newStationWebUrl, setNewStationWebUrl] = useState('');
+  const [newStationApiPassword, setNewStationApiPassword] = useState('');
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [connMs, setConnMs] = useState<number | null>(null);
   const [geoStatus, setGeoStatus] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle');
@@ -259,14 +260,16 @@ export default function MultisitePage() {
   const [isOpeningStation, setIsOpeningStation] = useState(false);
   const [editingStation, setEditingStation] = useState<import('@/types/api.types').Station | null>(null);
   const [editWebUrl, setEditWebUrl] = useState('');
+  const [editApiPassword, setEditApiPassword] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [remoteKpis, setRemoteKpis] = useState<Record<string, { devicesOnline: number; devicesTotal: number; alertsCount: number }>>({});
   const [isAuthReady, setIsAuthReady] = useState(() => !!authService.getToken());
+  const token = useAuthStore(s => s.token);
   const [provinces, setProvinces] = useState<Province[]>([]);
 
   useEffect(() => {
     stationApi.getProvinces().then(setProvinces).catch(() => {});
-  }, []);
+  }, [token]);
   const stationStatusRef = useRef<Record<string, string>>({});
   const stationNameRef = useRef<Record<string, string>>({});
   const kpiRefreshAtRef = useRef<Record<string, number>>({});
@@ -380,9 +383,34 @@ export default function MultisitePage() {
       refreshRemoteKpi(stationId);
     });
 
+    hub.on('UserStatusChange', (data: { username: string, status: string }) => {
+      console.log(`[MultisitePage] SignalR event UserStatusChange received for user: ${data?.username}, status: ${data?.status}`);
+      const currentUser = authService.getUser();
+      if (data && data.username && currentUser?.username && data.username.toLowerCase() === currentUser.username.toLowerCase()) {
+        if (data.status === 'updated') {
+          console.log(`[MultisitePage] Match found for current user ${currentUser.username}. Triggering silent refresh...`);
+          authService.refreshSession().then((success) => {
+            console.log(`[MultisitePage] Silent refresh success: ${success}`);
+            if (success) {
+              useStationStore.getState().invalidate();
+              useStationStore.getState().fetch(true);
+              stationApi.getProvinces().then(setProvinces).catch(() => {});
+              showToast('Thông tin phân quyền tài khoản đã được cập nhật thành công!', 'info');
+            }
+          });
+        } else if (data.status === 'deactivated') {
+          showToast('Tài khoản của bạn đã bị vô hiệu hóa bởi Quản trị viên.', 'error');
+          setTimeout(() => {
+            authService.logout();
+            navigate('/login');
+          }, 2000);
+        }
+      }
+    });
+
     hub.start().catch(() => {});
     return () => { hub.stop(); };
-  }, [isAuthReady]);
+  }, [isAuthReady, navigate]);
 
 
 
@@ -489,12 +517,14 @@ export default function MultisitePage() {
         newStationName.trim(),
         newStationCode.trim(),
         JSON.stringify(locationObj),
-        resolveApiUrl(newStationApiUrl)
+        resolveApiUrl(newStationApiUrl),
+        newStationWebUrl.trim() ? normalizeUrl(newStationWebUrl.trim().replace(/\/$/, '')) : undefined,
+        newStationApiPassword.trim() || undefined
       );
 
       setNewStationName(''); setNewStationCode('');
       setNewStationLat(''); setNewStationLng('');
-      setNewStationAddress(''); setNewStationApiUrl(''); setNewStationWebUrl('');
+      setNewStationAddress(''); setNewStationApiUrl(''); setNewStationWebUrl(''); setNewStationApiPassword('');
       setConnStatus('idle'); setConnMs(null); setGeoStatus('idle');
       setIsAddModalOpen(false);
       setSelectedProvince(null);
@@ -1986,7 +2016,7 @@ export default function MultisitePage() {
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                       <button
-                        onClick={() => { setEditingStation(selectedView.station); setEditWebUrl(selectedView.station.webUrl || ''); }}
+                        onClick={() => { setEditingStation(selectedView.station); setEditWebUrl(selectedView.station.webUrl || ''); setEditApiPassword(''); }}
                         title="Cấu hình URL giao diện web"
                         style={{
                           background: 'transparent', border: '1px solid var(--admin-border)',
@@ -2097,10 +2127,18 @@ export default function MultisitePage() {
                         setIsOpeningStation(true);
                         try {
                           let url = baseUrl;
+                          const stationCode = selectedView.station.code || '';
                           try {
                             const { token } = await stationApi.getRemoteToken(selectedView.station.id);
-                            if (token) url = `${baseUrl}?token=${encodeURIComponent(token)}`;
-                          } catch { /* fallback: mở không token */ }
+                            const params = new URLSearchParams();
+                            if (token) params.set('token', token);
+                            if (stationCode) params.set('stationCode', stationCode);
+                            const qs = params.toString();
+                            if (qs) url = `${baseUrl}?${qs}`;
+                          } catch {
+                            /* fallback: mở không token, nhưng vẫn truyền stationCode */
+                            if (stationCode) url = `${baseUrl}?stationCode=${encodeURIComponent(stationCode)}`;
+                          }
                           window.open(url, `station_${selectedView.station.id}`, 'width=1440,height=900,noopener');
                         } finally {
                           setIsOpeningStation(false);
@@ -2369,9 +2407,41 @@ export default function MultisitePage() {
                 )}
                 {connStatus === 'fail' && (
                   <span style={{ fontSize: '0.68rem', color: 'var(--admin-danger)' }}>
-                    ● Không thể kết nối tới trạm con
+                    ● Không thể kết nối tới trạm con (Vẫn có thể lưu trạm, hệ thống sẽ tự kết nối sau)
                   </span>
                 )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                  MẬT KHẨU `stationadmin`
+                </label>
+                <div style={{
+                  padding: '7px 10px',
+                  background: 'var(--admin-layer-1)',
+                  border: '1px solid var(--admin-border)',
+                  fontSize: '0.72rem',
+                  color: 'var(--admin-text-muted)',
+                  fontFamily: 'monospace'
+                }}>
+                  Tài khoản dùng cố định: stationadmin
+                </div>
+                <input
+                  type="password"
+                  placeholder="Để trống sẽ dùng mặc định Station@123"
+                  value={newStationApiPassword}
+                  onChange={e => setNewStationApiPassword(e.target.value)}
+                  style={{
+                    background: 'var(--admin-layer-2)',
+                    border: '1px solid var(--admin-border)',
+                    padding: '8px 10px',
+                    fontSize: '0.75rem',
+                    color: 'var(--admin-text)',
+                    outline: 'none'
+                  }}
+                />
+                <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
+                  Nếu trạm con chưa đổi mật khẩu, có thể để trống.
+                </span>
               </div>
 
             </div>
@@ -2415,7 +2485,7 @@ export default function MultisitePage() {
           <div className="modal-content" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span style={{ fontSize: '0.8rem', fontWeight: 800, letterSpacing: '0.05em' }}>
-                CẤU HÌNH URL GIAO DIỆN — {editingStation.name}
+                CẤU HÌNH TRẠM CON — {editingStation.name}
               </span>
               <button className="modal-close" onClick={() => setEditingStation(null)}>✕</button>
             </div>
@@ -2452,6 +2522,36 @@ export default function MultisitePage() {
                   URL đầy đủ để mở giao diện trạm trong trình duyệt (bao gồm giao thức và cổng)
                 </span>
               </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                  TÀI KHOẢN API (cố định)
+                </label>
+                <div style={{
+                  padding: '7px 10px', background: 'var(--admin-layer-1)',
+                  border: '1px solid var(--admin-border)', fontSize: '0.75rem',
+                  color: 'var(--admin-text-muted)', fontFamily: 'monospace'
+                }}>
+                  {editingStation.apiUsername || 'stationadmin'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                  MẬT KHẨU API TRẠM CON
+                </label>
+                <input
+                  type="password"
+                  placeholder={editingStation.hasApiPassword ? 'Để trống nếu không đổi' : 'Mặc định: Station@123'}
+                  value={editApiPassword}
+                  onChange={e => setEditApiPassword(e.target.value)}
+                  style={{
+                    background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
+                    padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none', width: '100%', boxSizing: 'border-box'
+                  }}
+                />
+                <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
+                  Nếu trạm con đã đổi mật khẩu của `stationadmin`, cập nhật lại tại đây.
+                </span>
+              </div>
             </div>
             <div style={{
               padding: '12px 24px', borderTop: '1px solid var(--admin-border)',
@@ -2461,21 +2561,26 @@ export default function MultisitePage() {
                 style={{ padding: '6px 16px', fontSize: '0.75rem' }}>Hủy</button>
               <button
                 className="btn-industrial btn-primary"
-                disabled={isSavingEdit || !editWebUrl.trim()}
+                disabled={isSavingEdit || (!editWebUrl.trim() && !editingStation.webUrl && !editApiPassword.trim())}
                 onClick={async () => {
                   setIsSavingEdit(true);
                   try {
-                    const webUrlNorm = normalizeUrl(editWebUrl.trim().replace(/\/$/, ''));
+                    const webUrlNorm = editWebUrl.trim()
+                      ? normalizeUrl(editWebUrl.trim().replace(/\/$/, ''))
+                      : editingStation.webUrl;
                     await stationApi.updateStation(editingStation.id, {
                       name: editingStation.name,
                       code: editingStation.code,
                       location: editingStation.location,
                       apiUrl: editingStation.apiUrl,
+                      apiUsername: editingStation.apiUsername || 'stationadmin',
+                      apiPassword: editApiPassword.trim() || undefined,
                       webUrl: webUrlNorm,
                       status: editingStation.status
                     });
                     setEditingStation(null);
                     setEditWebUrl('');
+                    setEditApiPassword('');
                     await fetchStations(true);
                   } catch { alert('Lưu thất bại'); }
                   finally { setIsSavingEdit(false); }
@@ -3528,6 +3633,11 @@ function CentralMaintenanceView({ stations, provinces }: { stations: Station[]; 
   }, [stationId, status, provinceId, stations]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    window.addEventListener('maintenance:changed', load);
+    return () => window.removeEventListener('maintenance:changed', load);
+  }, [load]);
 
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>

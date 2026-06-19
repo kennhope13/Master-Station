@@ -39,10 +39,13 @@ public class DevicesController : ControllerBase
     private readonly AutoDiscoveryService _autoDiscovery;
     private readonly IHttpClientFactory _http;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly InternalAuthService _internalAuth;
+    private readonly IRealtimeNotifier _notifier;
 
     public DevicesController(AppDbContext db, DeviceService deviceService, PermissionService permissions,
                              IConfiguration config, HikvisionIsapiService isapi, CredentialEncryptionService crypto,
-                             AutoDiscoveryService autoDiscovery, IHttpClientFactory http, IServiceScopeFactory scopeFactory)
+                             AutoDiscoveryService autoDiscovery, IHttpClientFactory http, IServiceScopeFactory scopeFactory,
+                             InternalAuthService internalAuth, IRealtimeNotifier notifier)
     {
         _db = db;
         _deviceService = deviceService;
@@ -53,6 +56,8 @@ public class DevicesController : ControllerBase
         _autoDiscovery = autoDiscovery;
         _http = http;
         _scopeFactory = scopeFactory;
+        _internalAuth = internalAuth;
+        _notifier = notifier;
     }
 
     /// <summary>
@@ -112,8 +117,6 @@ public class DevicesController : ControllerBase
     /// Lấy danh sách thiết bị theo trạm
     /// Query: ?type=camera để lọc theo loại
     /// </summary>
-    private static readonly ConcurrentDictionary<Guid, (string Token, DateTime ExpiresAt)> _tokenCache = new();
-
     private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -130,35 +133,89 @@ public class DevicesController : ControllerBase
         return false;
     }
 
-    private async Task<string?> GetOrFetchTokenAsync(Guid stationId, string apiBase, bool forceRefresh = false)
+    private async Task<string?> GetOrFetchTokenAsync(Station station, string apiBase, bool forceRefresh = false)
     {
-        if (!forceRefresh && _tokenCache.TryGetValue(stationId, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
+        var authKey = $"{ResolveApiUsername(station)}|{station.ApiPassword ?? ""}";
+        if (!forceRefresh &&
+            _tokenCache.TryGetValue(station.Id, out var cached) &&
+            cached.ExpiresAt > DateTime.UtcNow &&
+            cached.AuthKey == authKey)
         {
             return cached.Token;
         }
 
+        // Try 1: Internal token endpoint
         try
         {
             var loginClient = _http.CreateClient();
-            var loginBody = JsonContent.Create(new { username = "admin", password = "Admin@123" });
-            var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/login", loginBody);
-            if (!loginRes.IsSuccessStatusCode)
-                return null;
-
-            var loginJson = await loginRes.Content.ReadFromJsonAsync<JsonElement>();
-            if (loginJson.TryGetProperty("token", out var tokenProp))
+            _internalAuth.ApplyHeaders(loginClient);
+            var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/internal-token", JsonContent.Create(new { }));
+            if (loginRes.IsSuccessStatusCode)
             {
-                var token = tokenProp.GetString();
-                if (!string.IsNullOrEmpty(token))
+                var loginJson = await loginRes.Content.ReadFromJsonAsync<JsonElement>();
+                if (loginJson.TryGetProperty("token", out var tokenProp))
                 {
-                    _tokenCache[stationId] = (token, DateTime.UtcNow.AddMinutes(30));
-                    return token;
+                    var token = tokenProp.GetString();
+                    if (!string.IsNullOrEmpty(token))
+                    {
+                        _tokenCache[station.Id] = (token, DateTime.UtcNow.AddMinutes(30), authKey);
+                        return token;
+                    }
                 }
             }
         }
         catch (Exception ex)
         {
-            System.Console.WriteLine($"[DevicesController] Error authenticating with child station {stationId}: {ex.Message}");
+            System.Console.WriteLine($"[DevicesController] Error authenticating via internal-token with child station {station.Id}: {ex.Message}");
+        }
+
+        // Try 2: Fallback to standard login endpoint with decrypted password
+        try
+        {
+            var username = ResolveApiUsername(station);
+            var decryptedPassword = "";
+            try
+            {
+                decryptedPassword = _crypto.Decrypt(station.ApiPassword);
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Decrypt failed for station {station.Id}: {ex.Message}");
+                decryptedPassword = station.ApiPassword ?? "";
+            }
+
+            if (!string.IsNullOrEmpty(username))
+            {
+                var loginClient = _http.CreateClient();
+                var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/login", JsonContent.Create(new
+                {
+                    username = username,
+                    password = decryptedPassword
+                }));
+
+                if (loginRes.IsSuccessStatusCode)
+                {
+                    var loginJson = await loginRes.Content.ReadFromJsonAsync<JsonElement>();
+                    if (loginJson.TryGetProperty("token", out var tokenProp))
+                    {
+                        var token = tokenProp.GetString();
+                        if (!string.IsNullOrEmpty(token))
+                        {
+                            _tokenCache[station.Id] = (token, DateTime.UtcNow.AddMinutes(30), authKey);
+                            return token;
+                        }
+                    }
+                }
+                else
+                {
+                    var errorStr = await loginRes.Content.ReadAsStringAsync();
+                    System.Console.WriteLine($"[DevicesController] Fallback login failed for station {station.Id} (Status {loginRes.StatusCode}): {errorStr}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Console.WriteLine($"[DevicesController] Error authenticating via fallback login with child station {station.Id}: {ex.Message}");
         }
 
         return null;
@@ -175,7 +232,7 @@ public class DevicesController : ControllerBase
             var apiBase = s.ApiUrl.TrimEnd('/');
             try
             {
-                var token = await GetOrFetchTokenAsync(s.Id, apiBase);
+                var token = await GetOrFetchTokenAsync(s, apiBase);
                 if (!string.IsNullOrEmpty(token))
                 {
                     using var client = _http.CreateClient();
@@ -212,7 +269,7 @@ public class DevicesController : ControllerBase
             var apiBase = station.ApiUrl.TrimEnd('/');
             try
             {
-                var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                var token = await GetOrFetchTokenAsync(station, apiBase);
                 if (!string.IsNullOrEmpty(token))
                 {
                     station.LastContactAt = DateTime.UtcNow;
@@ -321,7 +378,7 @@ public class DevicesController : ControllerBase
             var apiBase = station.ApiUrl.TrimEnd('/');
             try
             {
-                var token = await GetOrFetchTokenAsync(req.StationId, apiBase);
+                var token = await GetOrFetchTokenAsync(station, apiBase);
                 if (!string.IsNullOrEmpty(token))
                 {
                     using var client = _http.CreateClient();
@@ -449,7 +506,7 @@ public class DevicesController : ControllerBase
             var apiBase = station.ApiUrl.TrimEnd('/');
             try
             {
-                var token = await GetOrFetchTokenAsync(req.StationId, apiBase);
+                var token = await GetOrFetchTokenAsync(station, apiBase);
                 if (!string.IsNullOrEmpty(token))
                 {
                     using var client = _http.CreateClient();
@@ -468,6 +525,7 @@ public class DevicesController : ControllerBase
                     if (response.IsSuccessStatusCode)
                     {
                         var createdDevice = await response.Content.ReadFromJsonAsync<JsonElement>();
+                        _ = _notifier.SendDeviceListChangedAsync("created", req.StationId, Guid.Empty);
                         return StatusCode((int)response.StatusCode, createdDevice);
                     }
                     else
@@ -515,6 +573,7 @@ public class DevicesController : ControllerBase
         };
         _db.Devices.Add(device);
         await _db.SaveChangesAsync();
+        _ = _notifier.SendDeviceListChangedAsync("created", device.StationId, device.Id);
 
         // Camera → đăng ký stream với go2rtc. Pass DECRYPTED config để build RTSP URL đúng.
         if (device.Type.StartsWith("camera") && req.Config != null)
@@ -634,7 +693,9 @@ public class DevicesController : ControllerBase
                 var (stationId, apiBase) = remoteInfo.Value;
                 try
                 {
-                    var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                    var station = await _db.Stations.FindAsync(stationId);
+                    if (station == null) return NotFound();
+                    var token = await GetOrFetchTokenAsync(station, apiBase);
                     if (!string.IsNullOrEmpty(token))
                     {
                         using var client = _http.CreateClient();
@@ -645,6 +706,7 @@ public class DevicesController : ControllerBase
                         if (response.IsSuccessStatusCode)
                         {
                             var updatedDevice = await response.Content.ReadFromJsonAsync<JsonElement>();
+                            _ = _notifier.SendDeviceListChangedAsync("updated", stationId, id);
                             return Ok(updatedDevice);
                         }
                         else
@@ -672,6 +734,7 @@ public class DevicesController : ControllerBase
         }
         device.Status = req.Status ?? device.Status;
         await _db.SaveChangesAsync();
+        _ = _notifier.SendDeviceListChangedAsync("updated", device.StationId, device.Id);
 
         // Nếu là camera → re-register stream với go2rtc sau khi cập nhật config
         if (device.Type.StartsWith("camera"))
@@ -720,7 +783,9 @@ public class DevicesController : ControllerBase
                 var (stationId, apiBase) = remoteInfo.Value;
                 try
                 {
-                    var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                    var station = await _db.Stations.FindAsync(stationId);
+                    if (station == null) return NotFound();
+                    var token = await GetOrFetchTokenAsync(station, apiBase);
                     if (!string.IsNullOrEmpty(token))
                     {
                         using var client = _http.CreateClient();
@@ -730,6 +795,7 @@ public class DevicesController : ControllerBase
                         var response = await client.DeleteAsync($"{apiBase}/api/v1/devices/{id}");
                         if (response.IsSuccessStatusCode)
                         {
+                            _ = _notifier.SendDeviceListChangedAsync("deleted", stationId, id);
                             return NoContent();
                         }
                         else
@@ -776,6 +842,7 @@ public class DevicesController : ControllerBase
         // 3. Xóa thiết bị chính
         _db.Devices.Remove(device);
         await _db.SaveChangesAsync();
+        _ = _notifier.SendDeviceListChangedAsync("deleted", device.StationId, device.Id);
 
         return NoContent();
     }
@@ -795,7 +862,9 @@ public class DevicesController : ControllerBase
                 var (stationId, apiBase) = remoteInfo.Value;
                 try
                 {
-                    var token = await GetOrFetchTokenAsync(stationId, apiBase);
+                    var station = await _db.Stations.FindAsync(stationId);
+                    if (station == null) return NotFound();
+                    var token = await GetOrFetchTokenAsync(station, apiBase);
                     if (!string.IsNullOrEmpty(token))
                     {
                         using var client = _http.CreateClient();
@@ -966,6 +1035,13 @@ public class DevicesController : ControllerBase
             // Fail silently or log if possible to prevent background thread crash
         }
     }
+
+    private static readonly ConcurrentDictionary<Guid, (string Token, DateTime ExpiresAt, string AuthKey)> _tokenCache = new();
+    private const string DefaultApiUsername = "stationadmin";
+    private const string DefaultApiPassword = "Station@123";
+
+    private static string ResolveApiUsername(Station station)
+        => string.IsNullOrWhiteSpace(station.ApiUsername) ? DefaultApiUsername : station.ApiUsername.Trim();
 
     /// <summary>
     /// Query nhiệt độ tức thời tại các tọa độ — proxy tới AI Engine.

@@ -60,6 +60,44 @@ public class TeamsController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Name))
             return BadRequest(new { message = "Tên tổ không được để trống" });
 
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            if (req.ProvinceId == null)
+            {
+                return BadRequest(new { message = "Tài khoản của bạn yêu cầu phải chọn Tỉnh khi tạo tổ thao tác." });
+            }
+            if (!allowedProvinceIds.Contains(req.ProvinceId.Value))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền tạo tổ thao tác tại tỉnh này." });
+            }
+        }
+
+        if (req.ProvinceId == null && req.StationIds != null && req.StationIds.Length > 0)
+        {
+            return BadRequest(new { message = "Không thể gán trạm giám sát khi tổ thao tác không có Tỉnh quản lý." });
+        }
+
+        if (req.StationIds != null && req.StationIds.Length > 0)
+        {
+            var invalidStationsExist = await _db.Stations
+                .AnyAsync(s => req.StationIds.Contains(s.Id) && s.ProvinceId != req.ProvinceId);
+            if (invalidStationsExist)
+            {
+                return BadRequest(new { message = "Một số trạm được chọn không thuộc Tỉnh quản lý của tổ thao tác." });
+            }
+
+            var allowedStationIds = await _permissions.GetAllowedStationIdsAsync();
+            if (allowedStationIds != null)
+            {
+                var unauthorizedStationsExist = req.StationIds.Any(sid => !allowedStationIds.Contains(sid));
+                if (unauthorizedStationsExist)
+                {
+                    return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát đã chọn." });
+                }
+            }
+        }
+
         var team = new Team
         {
             Name = req.Name.Trim(),
@@ -83,6 +121,46 @@ public class TeamsController : ControllerBase
         var team = await _db.Teams.FindAsync(id);
         if (team == null) return NotFound(new { message = "Không tìm thấy tổ thao tác" });
 
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            if (team.ProvinceId == null || !allowedProvinceIds.Contains(team.ProvinceId.Value))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền chỉnh sửa tổ thao tác ngoài tỉnh được gán." });
+            }
+            if (req.ProvinceId == null || !allowedProvinceIds.Contains(req.ProvinceId.Value))
+            {
+                return StatusCode(403, new { message = "Tỉnh mới không nằm trong danh sách quản lý của bạn." });
+            }
+        }
+
+        var targetProvinceId = req.ProvinceId ?? team.ProvinceId;
+
+        if (targetProvinceId == null && req.StationIds != null && req.StationIds.Length > 0)
+        {
+            return BadRequest(new { message = "Không thể gán trạm giám sát khi tổ thao tác không có Tỉnh quản lý." });
+        }
+
+        if (req.StationIds != null && req.StationIds.Length > 0)
+        {
+            var invalidStationsExist = await _db.Stations
+                .AnyAsync(s => req.StationIds.Contains(s.Id) && s.ProvinceId != targetProvinceId);
+            if (invalidStationsExist)
+            {
+                return BadRequest(new { message = "Một số trạm được chọn không thuộc Tỉnh quản lý của tổ thao tác." });
+            }
+
+            var allowedStationIds = await _permissions.GetAllowedStationIdsAsync();
+            if (allowedStationIds != null)
+            {
+                var unauthorizedStationsExist = req.StationIds.Any(sid => !allowedStationIds.Contains(sid));
+                if (unauthorizedStationsExist)
+                {
+                    return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát đã chọn." });
+                }
+            }
+        }
+
         if (req.Name != null) team.Name = req.Name.Trim();
         team.ProvinceId = req.ProvinceId; // Can be set to null
         if (req.StationIds != null) team.StationIds = req.StationIds;
@@ -101,6 +179,15 @@ public class TeamsController : ControllerBase
     {
         var team = await _db.Teams.FindAsync(id);
         if (team == null) return NotFound(new { message = "Không tìm thấy tổ thao tác" });
+
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            if (team.ProvinceId == null || !allowedProvinceIds.Contains(team.ProvinceId.Value))
+            {
+                return StatusCode(403, new { message = "Bạn không có quyền xóa tổ thao tác ngoài tỉnh được gán." });
+            }
+        }
 
         // Unlink users belonging to this team
         var usersInTeam = await _db.Users.Where(u => u.TeamId == id).ToListAsync();

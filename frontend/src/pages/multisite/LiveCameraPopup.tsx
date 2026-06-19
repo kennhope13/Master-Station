@@ -76,14 +76,23 @@ export default function LiveCameraPopup() {
         const enriched = result.cameras.map(c => {
           const urls = (c.streamUrls || {}) as Record<string, string>;
           const dev = c.device as any;
-          const existingCfg = typeof dev.config === 'object' && dev.config ? dev.config : {};
+          
+          let existingCfg = {};
+          if (dev.config) {
+            try {
+              existingCfg = typeof dev.config === 'string' ? JSON.parse(dev.config) : dev.config;
+            } catch (e) {
+              console.error('Error parsing camera config:', e);
+            }
+          }
+
           return {
             ...dev,
             config: {
               ...existingCfg,
-              go2rtc_id:      existingCfg.go2rtc_id      || getStreamId(urls.main_webrtc),
-              go2rtc_optical: existingCfg.go2rtc_optical || getStreamId(urls.optical_webrtc),
-              go2rtc_thermal: existingCfg.go2rtc_thermal || getStreamId(urls.thermal_webrtc),
+              go2rtc_id:      (existingCfg as any).go2rtc_id      || getStreamId(urls.main_webrtc),
+              go2rtc_optical: (existingCfg as any).go2rtc_optical || getStreamId(urls.optical_webrtc),
+              go2rtc_thermal: (existingCfg as any).go2rtc_thermal || getStreamId(urls.thermal_webrtc),
             },
           };
         });
