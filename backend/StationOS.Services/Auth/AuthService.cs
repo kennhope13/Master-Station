@@ -261,6 +261,7 @@ public class AuthService
         {
             provinceAdmin.ProvinceIds = await _db.Provinces.Select(p => p.Id).ToArrayAsync();
         }
+        _db.Entry(provinceAdmin).Property(u => u.ProvinceIds).IsModified = true;
 
         // 4. Upsert station admin (Admin Trạm)
         var stationAdmin = await _db.Users.FirstOrDefaultAsync(u => u.Username == "stationadmin");
@@ -290,8 +291,8 @@ public class AuthService
         manager.Email = "manager@StationOS.vn";
         manager.IsActive = true;
         manager.MustChangePassword = false;
-        // Manager may have broad station access – assign null (unrestricted)
-        manager.StationIds = null;
+        // Manager should only manage assigned stations
+        manager.StationIds = sampleStation != null ? new[] { sampleStation.Id } : null;
 
         // 6. Upsert operator (Nhân viên)
         var operatorUser = await _db.Users.FirstOrDefaultAsync(u => u.Username == "operator");
@@ -305,8 +306,8 @@ public class AuthService
         operatorUser.Email = "operator@StationOS.vn";
         operatorUser.IsActive = true;
         operatorUser.MustChangePassword = false;
-        // Operator may be limited to specific stations – assign null (no restriction)
-        operatorUser.StationIds = null;
+        // Operator should only monitor assigned stations
+        operatorUser.StationIds = sampleStation != null ? new[] { sampleStation.Id } : null;
 
         // 7. Seed default Teams and Team-based users
         var laProv = await _db.Provinces.FirstOrDefaultAsync(p => p.Code == "LA");
@@ -346,7 +347,9 @@ public class AuthService
         operatorProv.Email = "operatorprovince@StationOS.vn";
         operatorProv.IsActive = true;
         operatorProv.MustChangePassword = false;
-        operatorProv.ProvinceIds = await _db.Provinces.Select(p => p.Id).ToArrayAsync();
+        // Assign Tây Ninh and Long An provinces for demo
+        operatorProv.ProvinceIds = provIds.ToArray();
+        _db.Entry(operatorProv).Property(u => u.ProvinceIds).IsModified = true;
 
         // 9. Upsert Team Leader
         var teamLeader = await _db.Users.FirstOrDefaultAsync(u => u.Username == "teamleader");
