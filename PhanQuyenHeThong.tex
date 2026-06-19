@@ -86,7 +86,7 @@ Hệ thống sử dụng mô hình phân cấp dạng cây từ cấp cao nhất
 \section{Bảng Phân Quyền Chi Tiết các Tài Khoản Mặc Định}
 Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương ứng với các tầng phân cấp:
 
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{6pt}
 \begin{longtable}{p{2.6cm} p{2.2cm} p{2.4cm} p{3.2cm} p{6.8cm}}
 \caption{Danh sách tài khoản quản trị mặc định và chức năng chi tiết.} \label{tab:rbac} \\
 \toprule
@@ -105,38 +105,30 @@ Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương
 \endlastfoot
 
 Admin Toàn Cục & \texttt{multi} & \texttt{Demo@2024} & Toàn bộ hệ thống (Không giới hạn Tỉnh/Trạm). & 
-\begin{itemize}
-    \item Thêm, sửa, xóa các Tỉnh/Đơn vị thành phố trong hệ thống.
-    \item Thêm mới, cấu hình kết nối, gỡ liên kết các Trạm Con vào Tỉnh.
-    \item Tạo mới và phân quyền cho tài khoản Admin cấp dưới (\texttt{provinceadmin}, \texttt{teamleader}, \texttt{stationadmin}).
-    \item Quản lý, kích hoạt, xem giới hạn Giftcode bản quyền toàn cục.
-    \item Giám sát camera, biểu đồ đo đạc, lịch sử cảnh báo và báo cáo phân tích trên toàn bộ hệ thống.
-    \item Điều khiển thiết bị từ xa tại bất kỳ trạm con nào.
-\end{itemize} \\
+$\bullet$ Thêm, sửa, xóa các Tỉnh trong hệ thống. \newline
+$\bullet$ Thêm mới, kết nối, gỡ bỏ Trạm Con khỏi Tỉnh. \newline
+$\bullet$ Tạo mới, phân quyền Admin cấp dưới (\texttt{provinceadmin}, \texttt{teamleader}, \texttt{stationadmin}). \newline
+$\bullet$ Kích hoạt, quản lý Giftcode bản quyền toàn cục. \newline
+$\bullet$ Giám sát camera trực tiếp, biểu đồ đo đạc, xem cảnh báo toàn hệ thống. \newline
+$\bullet$ Điều khiển thiết bị từ xa tại bất kỳ trạm nào. \\
 \midrule
-Admin Tỉnh & \texttt{provinceadmin} & \texttt{Province@123} & Chỉ trong Tỉnh được gán (Ví dụ: Tây Ninh, Long An...). & 
-\begin{itemize}
-    \item Quản lý danh sách các Trạm Con và các Tổ thao tác lưu động trực thuộc tỉnh được phân công.
-    \item Tạo mới và quản lý tài khoản nhân sự cấp dưới (Tổ trưởng, Admin Trạm, Nhân viên vận hành) thuộc tỉnh.
-    \item Kích hoạt, gia hạn Giftcode bản quyền cho các Trạm Con trong tỉnh.
-    \item Xem trực tuyến camera, bản đồ số, trạng thái thiết bị và báo cáo tổng hợp thuộc địa bàn quản lý.
-\end{itemize} \\
+Admin Tỉnh & \texttt{provinceadmin} & \texttt{Province@123} & Chỉ trong Tỉnh được gán (Tây Ninh, Long An...). & 
+$\bullet$ Quản lý danh sách các Trạm Con và Tổ thao tác trực thuộc tỉnh phụ trách. \newline
+$\bullet$ Tạo tài khoản cấp dưới (Tổ trưởng, Admin Trạm, Nhân viên) trong tỉnh. \newline
+$\bullet$ Kích hoạt, gia hạn Giftcode bản quyền cho các Trạm Con thuộc tỉnh. \newline
+$\bullet$ Xem camera, bản đồ số, trạng thái thiết bị và báo cáo tổng hợp thuộc tỉnh. \\
 \midrule
 Tổ trưởng Tổ thao tác & \texttt{teamleader} & \texttt{TeamLeader@123} & Các trạm do Tổ thao tác phụ trách. & 
-\begin{itemize}
-    \item Giám sát thời gian thực các trạm biến áp được phân công phụ trách.
-    \item Xem trực tiếp camera, nhận cảnh báo cháy, nhiệt độ cao, xâm nhập khẩn cấp tại hiện trường để đi xử lý sự cố.
-    \item Điều khiển bật/tắt thiết bị ngoại vi (còi, đèn cảnh báo), điều khiển quay quét camera PTZ khi làm nhiệm vụ.
-    \item Xem nhật ký sự cố và xuất báo cáo vận hành của các trạm thuộc tổ quản lý.
-\end{itemize} \\
+$\bullet$ Giám sát thời gian thực các trạm biến áp được phân công. \newline
+$\bullet$ Theo dõi camera trực tiếp, tiếp nhận cảnh báo khẩn cấp tại hiện trường. \newline
+$\bullet$ Điều khiển thiết bị ngoại vi (còi, đèn, camera PTZ) khi xử lý sự cố. \newline
+$\bullet$ Xem lịch sử sự cố và xuất báo cáo vận hành thuộc tổ. \\
 \midrule
 Admin Trạm & \texttt{stationadmin} & \texttt{Station@123} & Chỉ trong Trạm con được gán. & 
-\begin{itemize}
-    \item Thiết lập sơ đồ kết nối camera, cảm biến nhiệt độ, cảm biến PD cục bộ tại trạm con.
-    \item Cấu hình các luật cảnh báo tự động tại trạm (ngưỡng nhiệt độ an toàn, vùng quét phát hiện xâm nhập).
-    \item Quản lý và phân công lịch trực cho nhân viên vận hành thuộc trạm.
-    \item Xem camera, lịch sử ghi hình, nhật ký cảnh báo và báo cáo hiệu suất thiết bị của trạm con.
-\end{itemize} \\
+$\bullet$ Cấu hình camera, cảm biến nhiệt độ, cảm biến PD cục bộ tại trạm con. \newline
+$\bullet$ Thiết lập ngưỡng luật cảnh báo tự động (nhiệt độ, xâm nhập) tại trạm. \newline
+$\bullet$ Quản lý nhân sự và gán lịch trực cho nhân viên vận hành tại trạm con. \newline
+$\bullet$ Xem camera trực tiếp, lịch sử ghi hình và báo cáo hiệu suất thiết bị trạm. \\
 \end{longtable}
 
 \section{Các Quy Tắc Bảo Mật Đặc Biệt Trong Mã Nguồn}
