@@ -87,16 +87,16 @@ Hệ thống sử dụng mô hình phân cấp dạng cây từ cấp cao nhất
 Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương ứng với các tầng phân cấp:
 
 \setlength{\tabcolsep}{4pt}
-\begin{longtable}{>{\centering\arraybackslash}p{0.6cm} p{1.8cm} p{1.8cm} p{2.0cm} p{2.6cm} p{6.2cm}}
+\begin{longtable}{p{2.6cm} p{2.2cm} p{2.4cm} p{3.2cm} p{6.8cm}}
 \caption{Danh sách tài khoản quản trị mặc định và chức năng chi tiết.} \label{tab:rbac} \\
 \toprule
-\textbf{STT} & \textbf{Cấp Quản Lý} & \textbf{Tài Khoản (Username)} & \textbf{Mật Khẩu Mặc Định} & \textbf{Phạm Vi (Scope)} & \textbf{Chi Tiết Chức Năng Cho Phép} \\
+\textbf{Cấp Quản Lý} & \textbf{Tài Khoản (Username)} & \textbf{Mật Khẩu Mặc Định} & \textbf{Phạm Vi (Scope)} & \textbf{Chi Tiết Chức Năng Cho Phép} \\
 \midrule
 \endfirsthead
-\multicolumn{6}{c}%
+\multicolumn{5}{c}%
 {{\bfseries Bảng \thetable\ tiếp theo từ trang trước}} \\
 \toprule
-\textbf{STT} & \textbf{Cấp Quản Lý} & \textbf{Tài Khoản} & \textbf{Mật Khẩu} & \textbf{Phạm Vi (Scope)} & \textbf{Chi Tiết Chức Năng Cho Phép} \\
+\textbf{Cấp Quản Lý} & \textbf{Tài Khoản} & \textbf{Mật Khẩu} & \textbf{Phạm Vi (Scope)} & \textbf{Chi Tiết Chức Năng Cho Phép} \\
 \midrule
 \endhead
 \bottomrule
@@ -104,7 +104,7 @@ Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương
 \bottomrule
 \endlastfoot
 
-1 & Admin Toàn Cục & \texttt{multi} & \texttt{Demo@2024} & Toàn bộ hệ thống (Không giới hạn Tỉnh/Trạm). & 
+Admin Toàn Cục & \texttt{multi} & \texttt{Demo@2024} & Toàn bộ hệ thống (Không giới hạn Tỉnh/Trạm). & 
 \begin{itemize}
     \item Thêm, sửa, xóa các Tỉnh/Đơn vị thành phố trong hệ thống.
     \item Thêm mới, cấu hình kết nối, gỡ liên kết các Trạm Con vào Tỉnh.
@@ -114,7 +114,7 @@ Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương
     \item Điều khiển thiết bị từ xa tại bất kỳ trạm con nào.
 \end{itemize} \\
 \midrule
-2 & Admin Tỉnh & \texttt{provinceadmin} & \texttt{Province@123} & Chỉ trong Tỉnh được gán (Ví dụ: Tây Ninh, Long An...). & 
+Admin Tỉnh & \texttt{provinceadmin} & \texttt{Province@123} & Chỉ trong Tỉnh được gán (Ví dụ: Tây Ninh, Long An...). & 
 \begin{itemize}
     \item Quản lý danh sách các Trạm Con và các Tổ thao tác lưu động trực thuộc tỉnh được phân công.
     \item Tạo mới và quản lý tài khoản nhân sự cấp dưới (Tổ trưởng, Admin Trạm, Nhân viên vận hành) thuộc tỉnh.
@@ -122,7 +122,7 @@ Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương
     \item Xem trực tuyến camera, bản đồ số, trạng thái thiết bị và báo cáo tổng hợp thuộc địa bàn quản lý.
 \end{itemize} \\
 \midrule
-3 & Tổ trưởng Tổ thao tác & \texttt{teamleader} & \texttt{TeamLeader@123} & Các trạm do Tổ thao tác phụ trách. & 
+Tổ trưởng Tổ thao tác & \texttt{teamleader} & \texttt{TeamLeader@123} & Các trạm do Tổ thao tác phụ trách. & 
 \begin{itemize}
     \item Giám sát thời gian thực các trạm biến áp được phân công phụ trách.
     \item Xem trực tiếp camera, nhận cảnh báo cháy, nhiệt độ cao, xâm nhập khẩn cấp tại hiện trường để đi xử lý sự cố.
@@ -130,7 +130,7 @@ Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương
     \item Xem nhật ký sự cố và xuất báo cáo vận hành của các trạm thuộc tổ quản lý.
 \end{itemize} \\
 \midrule
-4 & Admin Trạm & \texttt{stationadmin} & \texttt{Station@123} & Chỉ trong Trạm con được gán. & 
+Admin Trạm & \texttt{stationadmin} & \texttt{Station@123} & Chỉ trong Trạm con được gán. & 
 \begin{itemize}
     \item Thiết lập sơ đồ kết nối camera, cảm biến nhiệt độ, cảm biến PD cục bộ tại trạm con.
     \item Cấu hình các luật cảnh báo tự động tại trạm (ngưỡng nhiệt độ an toàn, vùng quét phát hiện xâm nhập).
