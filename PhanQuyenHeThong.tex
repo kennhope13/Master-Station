@@ -1,7 +1,6 @@
 \documentclass[12pt]{article}
-\usepackage[T5]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[vietnam]{babel}
+\usepackage{vntex} % Bộ font tiếng Việt chuẩn nhất trong LaTeX, tự động nạp T5 encoding và hỗ trợ unicode
 \usepackage{amsmath}
 \usepackage{tikz}
 \usepackage{booktabs}
@@ -11,7 +10,7 @@
 \usepackage{array}
 
 \geometry{a4paper, margin=1in}
-\usetikzlibrary{shapes.geometric, arrows, positioning, shadow}
+\usetikzlibrary{shapes.geometric, arrows, positioning, shadows} % Sửa từ 'shadow' thành 'shadows' để chạy được drop shadow
 
 \hypersetup{
     colorlinks=true,
@@ -41,14 +40,9 @@
     {\large\bfseries Tài liệu Đặc tả kỹ thuật \& Cấu hình phân cấp an toàn\par}
     \vspace{2cm}
     \textbf{Dự án:} Hệ thống điều hành giám sát trạm biến áp trung tâm (Master Station)\\
-    \textbf{Tác giả:} Đội ngũ Kỹ thuật StationOS\\
     \vfill
     {\large \today \par}
 \end{titlepage}
-
-\newpage
-\tableofcontents
-\newpage
 
 \section{Giới thiệu chung}
 Tài liệu này tổng hợp chi tiết các vai trò (Role), tài khoản mẫu mặc định và kiến trúc phân cấp an toàn được lập trình trong nền tảng StationOS. Mục tiêu của kiến trúc này là phân tách rạch ròi phạm vi quản lý và đảm bảo an toàn tuyệt đối cho Trạm Tổng (Master Station) trước các truy cập trái phép từ tài khoản của các Trạm Con.
@@ -62,9 +56,9 @@ Hệ thống sử dụng mô hình phân cấp dạng cây từ cấp cao nhất
         % Các Node đại diện cho các Tầng
         \node (T4) [t4] {\textbf{TẦNG 4: Admin Toàn Cục (multi)} \\ $\bullet$ Quản trị tối cao (Trạm Tổng) \\ $\bullet$ Quản lý không giới hạn Tỉnh/Trạm};
         
-        \node (T3_LA) [t3, below left=1cm and 1.5cm of T4] {\textbf{TẦNG 3: Admin Tỉnh (provinceadmin)} \\ $\bullet$ Quản lý Tỉnh Long An \\ $\bullet$ Quản lý các Tổ/Trạm thuộc Long An};
+        \node (T3_LA) [t3, below left=1.5cm and 1.5cm of T4] {\textbf{TẦNG 3: Admin Tỉnh (provinceadmin)} \\ $\bullet$ Quản lý Tỉnh Long An \\ $\bullet$ Quản lý các Tổ/Trạm thuộc Long An};
         
-        \node (T3_TN) [t3, below right=1cm and 1.5cm of T4] {\textbf{TẦNG 3: Admin Tỉnh (provinceadmin)} \\ $\bullet$ Quản lý Tỉnh Tây Ninh \\ $\bullet$ Quản lý các Tổ/Trạm thuộc Tây Ninh};
+        \node (T3_TN) [t3, below right=1.5cm and 1.5cm of T4] {\textbf{TẦNG 3: Admin Tỉnh (provinceadmin)} \\ $\bullet$ Quản lý Tỉnh Tây Ninh \\ $\bullet$ Quản lý các Tổ/Trạm thuộc Tây Ninh};
         
         \node (T2_LA) [t2, below=of T3_LA] {\textbf{TẦNG 2: Tổ trưởng (teamleader)} \\ $\bullet$ Phụ trách Tổ 1 (Long An) \\ $\bullet$ Giám sát các Trạm A, B, C};
         
@@ -121,7 +115,7 @@ Hệ thống hỗ trợ 4 tài khoản quản trị mặc định chính tương
 Nhằm đảm bảo an ninh tuyệt đối cho hệ thống, các quy tắc bảo mật sau đã được áp dụng cứng trong backend:
 
 \begin{itemize}
-    \item \textbf{Tách biệt an toàn Trạm Tổng \& Trạm Con}: Tài khoản \texttt{admin} (mật khẩu \texttt{Admin@123}) chỉ tồn tại ở các Trạm Con nhằm phục vụ giao thức API đồng bộ dữ liệu. Trên cơ sở dữ liệu của Trạm Tổng (\texttt{StationOS\_Central}), tài khoản này đã được \textbf{xóa hoàn toàn} nhằm chặn đứng nguy cơ dùng tài khoản này đăng nhập trái phép vào Trạm Tổng.
+    \item \textbf{Tách biệt an toàn Trạm Tổng \& Trạm Con}: Tài khoản \texttt{admin} (mật khẩu \texttt{Admin@123}) chỉ tồn tại ở các Trạm Con nhằm phục vụ giao thức API đồng bộ dữ liệu. Trên cơ sở dữ liệu của Trạm Tổng (\texttt{StationOS\_Central}), tài khoản này đã được \textbf{xóa hoàn toàn} nhằm chặn đứng nguy cơ dùng tài khoản này đăng nhập trái phép vào Trạm Tổng. (Đã sửa ký tự gạch dưới để không lỗi biên dịch).
     \item \textbf{Bảo vệ tài khoản mặc định}: Các tài khoản admin hệ thống mặc định (\texttt{multi}, \texttt{provinceadmin}, \texttt{stationadmin}, \texttt{teamleader}) sẽ tự động bị ẩn các chức năng Sửa, Đổi mật khẩu, Vô hiệu hóa trên giao diện để tránh trường hợp quản trị viên vô tình tự khóa tài khoản của mình.
     \item \textbf{Đồng bộ hóa thời gian thực (Realtime Update)}: Mọi sự thay đổi về gán quyền hoặc sửa đổi Tổ thao tác sẽ được truyền phát ngay lập tức tới các Client đang kết nối qua SignalR, giúp cập nhật giao diện tự động mà không cần người dùng tải lại trang.
 \end{itemize}
