@@ -465,14 +465,14 @@ public class UsersController : ControllerBase
         return Ok(new { message = "Đổi mật khẩu thành công" });
     }
 
-    /// <summary>Vô hiệu hóa user. Restricted admin chỉ vô hiệu user trong scope trạm.</summary>
+    /// <summary>Vô hiệu hóa hoặc xóa vĩnh viễn user. ?permanent=true để xóa hẳn.</summary>
     [HttpDelete("{id:guid}")]
     [HasPermission("user:manage")]
-    public async Task<IActionResult> Deactivate(Guid id)
+    public async Task<IActionResult> Deactivate(Guid id, [FromQuery] bool permanent = false)
     {
         var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (currentUserId == id.ToString())
-            return BadRequest(new { message = "Không thể vô hiệu hóa tài khoản của chính mình" });
+            return BadRequest(new { message = permanent ? "Không thể xóa tài khoản của chính mình" : "Không thể vô hiệu hóa tài khoản của chính mình" });
 
         var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
 
@@ -481,6 +481,14 @@ public class UsersController : ControllerBase
 
         if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, user.TeamId, callerStationIds, callerProvinceIds))
             return Forbid();
+
+        if (permanent)
+        {
+            _db.Users.Remove(user);
+            await _db.SaveChangesAsync();
+            await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "deleted", ts = DateTime.UtcNow });
+            return Ok(new { message = $"Đã xóa vĩnh viễn tài khoản '{user.Username}'" });
+        }
 
         if (!user.IsActive)
             return BadRequest(new { message = "Tài khoản đã bị vô hiệu hóa" });

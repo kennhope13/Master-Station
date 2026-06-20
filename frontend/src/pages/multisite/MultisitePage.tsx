@@ -63,6 +63,11 @@ function extractProvinceName(location?: StationLocation): string {
   return preferred || segments[segments.length - 1] || 'Chưa phân tỉnh';
 }
 
+function compactStationTitle(name?: string): string {
+  if (!name) return '';
+  return name.replace(/^trạm biến áp\s*/i, 'TBA ');
+}
+
 function parseIsoDate(value: string): Date {
   const [year, month, day] = value.split('-').map(Number);
   return new Date(year || 1970, (month || 1) - 1, day || 1);
@@ -1178,7 +1183,7 @@ export default function MultisitePage() {
           />
 
           <span style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--admin-accent)', letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-            {selectedView ? selectedView.station.name : MULTISITE_TAB_TITLES[activeTab]}
+            {selectedView ? compactStationTitle(selectedView.station.name) : MULTISITE_TAB_TITLES[activeTab]}
           </span>
 
         </div>
@@ -1635,7 +1640,9 @@ export default function MultisitePage() {
             right: 0,
             bottom: 0,
             zIndex: 2,
-            overflow: 'auto',
+            display: 'flex',
+            minHeight: 0,
+            overflow: 'hidden',
             background: 'var(--admin-bg, #0b1220)',
             padding: 0
           }}
@@ -2286,12 +2293,15 @@ export default function MultisitePage() {
                   onChange={e => setNewStationProvinceId(e.target.value)}
                   style={{
                     background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
-                    padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none'
+                    padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none',
+                    colorScheme: 'dark', WebkitAppearance: 'none', appearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center'
                   }}
                 >
-                  <option value="">-- Chọn tỉnh --</option>
+                  <option value="" style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>-- Chọn tỉnh --</option>
                   {provinces.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id} style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>{p.name}</option>
                   ))}
                 </select>
               </div>

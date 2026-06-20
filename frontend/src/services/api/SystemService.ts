@@ -94,6 +94,11 @@ export class SystemService {
     return apiMutate('DELETE', `/users/${id}`);
   }
 
+  /** Xóa vĩnh viễn tài khoản (hard delete). */
+  async permanentDeleteUser(id: string): Promise<void> {
+    return apiMutate('DELETE', `/users/${id}?permanent=true`);
+  }
+
   /** Đổi mật khẩu. Admin không cần oldPassword; user thường thì cần. */
   async changePassword(id: string, data: { oldPassword?: string; newPassword: string }): Promise<{ message: string }> {
     return apiMutate('POST', `/users/${id}/change-password`, data);

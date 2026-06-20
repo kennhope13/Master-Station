@@ -12,7 +12,7 @@ import { useStationStore } from '@/store';
 import { useRealtime } from '@/hooks/useRealtime';
 import { 
   Search, UserPlus, Users, Clock, 
-  Activity, CheckCircle2, Shield, Edit2, Key, Trash2, 
+  Activity, CheckCircle2, Shield, Edit2, Key, Trash2, X,
   MoreHorizontal, ChevronLeft, Map, Plus
 } from 'lucide-react';
 import { fmtDateTime } from '@/utils/format';
@@ -74,6 +74,7 @@ const DEFAULT_PERMISSIONS_BY_ROLE: Record<string, string[]> = {
 
 export default function UserManagementPage({ embeddedMode = 'default' }: UserManagementPageProps) {
   const navigate = useNavigate();
+  const isEmbeddedCentral = embeddedMode === 'central';
   const [users, setUsers] = useState<UserItem[]>([]);
   const [stationsList, setStationsList] = useState<Station[]>([]);
   const [provincesList, setProvincesList] = useState<Province[]>([]);
@@ -349,6 +350,14 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     } catch (e: any) { alert(`Lỗi: ${e.message}`); }
   };
 
+  const permanentDeleteUser = async (u: UserItem) => {
+    if (!await confirmDialog({ title: 'XÓA VĨNH VIỄN TÀI KHOẢN', message: `Bạn có chắc chắn muốn XÓA VĨNH VIỄN tài khoản "${u.username}"?\n\nHành động này KHÔNG THỂ hoàn tác!`, confirmText: 'Xóa vĩnh viễn', danger: true })) return;
+    try {
+      await stationApi.permanentDeleteUser(u.id);
+      loadData();
+    } catch (e: any) { alert(`Lỗi: ${e.message}`); }
+  };
+
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [isPwModalOpen, setIsPwModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -409,16 +418,16 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   };
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', overflow: 'hidden' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', minHeight: 0, width: '100%', overflow: 'hidden' }}>
       
       <div style={{
         padding: '12px 20px',
         borderBottom: '1px solid var(--admin-border)',
-        display: 'flex', alignItems: 'center', gap: 20,
+        display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
         background: 'var(--admin-panel)',
         flexShrink: 0,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
           {filterStationId && (
             <button 
               onClick={() => setFilterStationId('')}
@@ -479,16 +488,16 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
         <div style={{ flex: 1 }} />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
           {(activeTab === 'users' || filterStationId || activeTab === 'stations') && (
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, flex: '1 1 220px' }}>
               <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--admin-text-muted)' }} />
               <input 
                 className="form-input" 
                 placeholder="Tìm nhân sự..." 
                 value={searchText}
                 onChange={e => setSearchText(e.target.value)}
-                style={{ width: 220, height: 32, paddingLeft: 30, fontSize: '.75rem', background: 'var(--admin-layer-2)' }} 
+                style={{ width: '100%', minWidth: 0, maxWidth: isEmbeddedCentral ? 320 : 360, height: 32, paddingLeft: 30, fontSize: '.75rem', background: 'var(--admin-layer-2)' }} 
               />
             </div>
           )}
@@ -511,6 +520,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
         <div style={{
           display: 'flex',
           alignItems: 'center',
+          flexWrap: 'wrap',
           padding: '0 20px',
           background: 'var(--admin-panel)',
           borderBottom: '1px solid var(--admin-border)',
@@ -529,7 +539,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
         </div>
       )}
 
-      <div className="custom-hud-scroll" style={{ flex: 1, overflowY: 'auto', padding: (activeTab === 'stations' && filterStationId) ? 0 : 20 }}>
+      <div className="custom-hud-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: (activeTab === 'stations' && filterStationId) ? 0 : 20 }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--admin-text-muted)' }}>
             <Activity className="animate-spin" style={{ margin: '0 auto 10px' }} /> Đang tải dữ liệu...
@@ -671,8 +681,8 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
             })}
           </div>
         ) : (
-          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 4, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 4, overflowX: 'auto', overflowY: 'hidden' }}>
+            <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
                 <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
                   <th style={TH_STYLE}>NHÂN SỰ / TÀI KHOẢN</th>
@@ -768,6 +778,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                               <ActionIcon icon={<Edit2 size={12} />} onClick={() => openEditModal(u)} title="Sửa thông tin" />
                               <ActionIcon icon={<Key size={12} />} onClick={() => openPwModal(u.id)} title="Đổi mật khẩu" />
                               {u.isActive && <ActionIcon icon={<Trash2 size={12} />} onClick={() => deactivateUser(u)} danger title="Vô hiệu hóa" />}
+                              <ActionIcon icon={<X size={12} />} onClick={() => permanentDeleteUser(u)} danger title="Xóa vĩnh viễn" />
                             </>
                           )}
                         </div>
@@ -783,13 +794,13 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
       {isUserModalOpen && (
         <div className="modal-overlay active">
-          <div className="modal-content" style={{ width: 860, maxWidth: '95vw' }}>
+          <div className="modal-content" style={{ width: 'min(860px, 95vw)', maxWidth: '95vw' }}>
             <div className="modal-header">
               <h3>{editingUserId ? `CẬP NHẬT TÀI KHOẢN` : 'THÊM TÀI KHOẢN MỚI'}</h3>
               <button className="modal-close-btn" onClick={() => setIsUserModalOpen(false)}>✕</button>
             </div>
-            <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div className="modal-body" style={{ maxHeight: 'min(75vh, calc(100dvh - 180px))', overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ fontSize: '.7rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', borderBottom: '1px solid var(--admin-border)', paddingBottom: 6 }}>
                     Thông tin tài khoản
@@ -983,7 +994,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
       {isTeamModalOpen && (
         <div className="modal-overlay active">
-          <div className="modal-content" style={{ width: 500 }}>
+          <div className="modal-content" style={{ width: 'min(500px, 95vw)', maxWidth: '95vw' }}>
             <div className="modal-header">
               <h3>{editingTeamId ? 'CẬP NHẬT TỔ THAO TÁC' : 'THÊM TỔ THAO TÁC MỚI'}</h3>
               <button className="modal-close-btn" onClick={() => setIsTeamModalOpen(false)}>✕</button>
@@ -1063,7 +1074,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
       {isPwModalOpen && (
         <div className="modal-overlay active">
-          <div className="modal-content" style={{ width: 400 }}>
+          <div className="modal-content" style={{ width: 'min(400px, 95vw)', maxWidth: '95vw' }}>
             <div className="modal-header"><h3>ĐỔI MẬT KHẨU</h3><button className="modal-close-btn" onClick={() => setIsPwModalOpen(false)}>✕</button></div>
             <div className="modal-body">
               <div className="form-group"><label>Mật khẩu mới</label><input className="form-input" type="password" value={pwData.newPassword} onChange={e => setPwData({...pwData, newPassword: e.target.value})} /></div>

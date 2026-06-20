@@ -131,6 +131,7 @@ class StationApiService {
   createUser = systemService.createUser.bind(systemService);
   updateUser = systemService.updateUser.bind(systemService);
   deactivateUser = systemService.deleteUser.bind(systemService);
+  permanentDeleteUser = systemService.permanentDeleteUser.bind(systemService);
   changePassword = systemService.changePassword.bind(systemService);
 
   // ── Teams ──────────────────────────────────────────────────
