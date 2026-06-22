@@ -9,7 +9,9 @@ export function isCentralUser(user?: User | null): boolean {
     user.username === 'multi' ||
     (user.role === 'admin' && (!user.station_ids || user.station_ids.length === 0)) ||
     user.role === 'admin_province' ||
-    user.role === 'operator_province'
+    user.role === 'operator_province' ||
+    user.role === 'team_leader' ||
+    user.role === 'team_member'
   );
 }
 

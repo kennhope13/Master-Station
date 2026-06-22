@@ -14,7 +14,15 @@ const resolveCssVar = (name: string, fallback: string) => {
   }
 };
 
-export default function ReportTab({ stationId }: { stationId: string }) {
+interface ReportTabProps {
+  stationId: string;
+  scopeType: 'fleet' | 'province' | 'team' | 'station';
+  scopeId: string;
+  scopeLabel: string;
+  stationIds: string[];
+}
+
+export default function ReportTab({ stationId, scopeType, scopeId, scopeLabel, stationIds }: ReportTabProps) {
   const chartInst = useRef<Chart | null>(null);
   const chartCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -39,79 +47,90 @@ export default function ReportTab({ stationId }: { stationId: string }) {
   useEffect(() => {
     const fetchMonitoringPoints = async () => {
       try {
-        const [devs, latestPoints, scores] = await Promise.all([
-          stationApi.getDevices(stationId),
-          stationApi.getLatestPoints(stationId),
-          stationApi.getHealthScores(stationId)
-        ]);
+        if (stationIds.length === 0) {
+          setCabinetList([]);
+          return;
+        }
 
-        const filteredDevs = devs.filter(d => 
-          d.type === 'plc_s7' || 
-          d.type === 'cabinet' || 
-          d.type === 'camera_pd' || 
-          d.type === 'camera_thermal' || 
-          d.type === 'camera_dual'
+        const stationPayloads = await Promise.all(
+          stationIds.map(async sid => {
+            const [devs, latestPoints, scores] = await Promise.all([
+              stationApi.getDevices(sid),
+              stationApi.getLatestPoints(sid),
+              stationApi.getHealthScores(sid)
+            ]);
+            return { sid, devs, latestPoints, scores };
+          })
         );
 
-        const list = filteredDevs.map(dev => {
-          const hInfo = scores.find(s => s.deviceId.toLowerCase() === dev.id.toLowerCase()) || { score: 100, risk: 'good' };
-          
-          // Identify points for this device
-          const devPoints = latestPoints.filter(p => p.deviceId.toLowerCase() === dev.id.toLowerCase());
-          
-          let t1Raw = devPoints.find(s => s.pointId === 'nhiet_do_pha_1' || s.pointId === 'temp_1')?.value;
-          let t2Raw = devPoints.find(s => s.pointId === 'nhiet_do_pha_2' || s.pointId === 'temp_2')?.value;
-          let t3Raw = devPoints.find(s => s.pointId === 'nhiet_do_pha_3' || s.pointId === 'temp_3')?.value;
-          let pdVal = devPoints.find(s => s.pointId === 'phong_dien' || s.pointId === 'pd')?.value ?? 0;
+        const list = stationPayloads.flatMap(({ sid, devs, latestPoints, scores }) => {
+          const filteredDevs = devs.filter(d =>
+            d.type === 'plc_s7' ||
+            d.type === 'cabinet' ||
+            d.type === 'camera_pd' ||
+            d.type === 'camera_thermal' ||
+            d.type === 'camera_dual'
+          );
 
-          // If it's a thermal camera, use ROI points (P1, P2...) as T1, T2...
-          if (dev.type === 'camera_thermal' || dev.type === 'camera_dual') {
-             const roiTemps = devPoints
-               .filter(p => p.pointId.toLowerCase().startsWith('p') && !isNaN(Number(p.pointId.substring(1))))
-               .sort((a, b) => a.pointId.localeCompare(b.pointId, undefined, { numeric: true }));
-             
-             if (roiTemps[0]) t1Raw = roiTemps[0].value;
-             if (roiTemps[1]) t2Raw = roiTemps[1].value;
-             if (roiTemps[2]) t3Raw = roiTemps[2].value;
-          }
+          return filteredDevs.map(dev => {
+            const hInfo = scores.find(s => s.deviceId.toLowerCase() === dev.id.toLowerCase()) || { score: 100, risk: 'good' };
+            const devPoints = latestPoints.filter(p => p.deviceId.toLowerCase() === dev.id.toLowerCase());
 
-          const t1 = t1Raw !== undefined && t1Raw !== null ? Math.round(t1Raw * 10) / 10 : null;
-          const t2 = t2Raw !== undefined && t2Raw !== null ? Math.round(t2Raw * 10) / 10 : null;
-          const t3 = t3Raw !== undefined && t3Raw !== null ? Math.round(t3Raw * 10) / 10 : null;
+            let t1Raw = devPoints.find(s => s.pointId === 'nhiet_do_pha_1' || s.pointId === 'temp_1')?.value;
+            let t2Raw = devPoints.find(s => s.pointId === 'nhiet_do_pha_2' || s.pointId === 'temp_2')?.value;
+            let t3Raw = devPoints.find(s => s.pointId === 'nhiet_do_pha_3' || s.pointId === 'temp_3')?.value;
+            let pdVal = devPoints.find(s => s.pointId === 'phong_dien' || s.pointId === 'pd')?.value ?? 0;
 
-          const tempMax = t1 !== null && t2 !== null && t3 !== null ? Math.max(t1, t2, t3) : (t1 || t2 || t3 || null);
-          const healthStatus = hInfo.risk || (hInfo.score >= 80 ? 'good' : hInfo.score >= 50 ? 'warning' : 'danger');
-          const pdLevel = pdVal > 50 ? 'high' : pdVal > 20 ? 'medium' : 'low';
+            if (dev.type === 'camera_thermal' || dev.type === 'camera_dual') {
+              const roiTemps = devPoints
+                .filter(p => p.pointId.toLowerCase().startsWith('p') && !isNaN(Number(p.pointId.substring(1))))
+                .sort((a, b) => a.pointId.localeCompare(b.pointId, undefined, { numeric: true }));
 
-          return {
-            id: dev.id,
-            name: dev.name || 'Điểm giám sát',
-            type: dev.type,
-            t1,
-            t2,
-            t3,
-            tempMax,
-            pdCount: Math.round(pdVal),
-            pdLevel,
-            healthScore: hInfo.score,
-            healthStatus,
-            urgencyReason: tempMax !== null && tempMax > 60 ? `Nhiệt độ tăng cao đạt mức ${tempMax}°C` : 'Trạng thái hoạt động bình thường.',
-            trendDirection: 'stable',
-            trendRate: 0.0,
-            forecastDays: null,
-            t1AvgThisWeek: t1 !== null ? Math.round(t1) : 0,
-            t1AvgLastWeek: t1 !== null ? Math.round(t1) : 0,
-            recommendationLevel: tempMax !== null && tempMax > 80 ? 'urgent' : tempMax !== null && tempMax > 60 ? 'monitor' : 'ok',
-            recommendation: tempMax !== null && tempMax > 80 ? 'Kiểm tra siết lại bu lông các tiếp điểm ngay lập tức!' : 'Tiếp tục theo dõi vận hành.'
-          };
+              if (roiTemps[0]) t1Raw = roiTemps[0].value;
+              if (roiTemps[1]) t2Raw = roiTemps[1].value;
+              if (roiTemps[2]) t3Raw = roiTemps[2].value;
+            }
+
+            const t1 = t1Raw !== undefined && t1Raw !== null ? Math.round(t1Raw * 10) / 10 : null;
+            const t2 = t2Raw !== undefined && t2Raw !== null ? Math.round(t2Raw * 10) / 10 : null;
+            const t3 = t3Raw !== undefined && t3Raw !== null ? Math.round(t3Raw * 10) / 10 : null;
+
+            const tempMax = t1 !== null && t2 !== null && t3 !== null ? Math.max(t1, t2, t3) : (t1 || t2 || t3 || null);
+            const healthStatus = hInfo.risk || (hInfo.score >= 80 ? 'good' : hInfo.score >= 50 ? 'warning' : 'danger');
+            const pdLevel = pdVal > 50 ? 'high' : pdVal > 20 ? 'medium' : 'low';
+
+            return {
+              id: `${sid}-${dev.id}`,
+              name: dev.name || 'Điểm giám sát',
+              type: dev.type,
+              stationId: sid,
+              t1,
+              t2,
+              t3,
+              tempMax,
+              pdCount: Math.round(pdVal),
+              pdLevel,
+              healthScore: hInfo.score,
+              healthStatus,
+              urgencyReason: tempMax !== null && tempMax > 60 ? `Nhiệt độ tăng cao đạt mức ${tempMax}°C` : 'Trạng thái hoạt động bình thường.',
+              trendDirection: 'stable',
+              trendRate: 0.0,
+              forecastDays: null,
+              t1AvgThisWeek: t1 !== null ? Math.round(t1) : 0,
+              t1AvgLastWeek: t1 !== null ? Math.round(t1) : 0,
+              recommendationLevel: tempMax !== null && tempMax > 80 ? 'urgent' : tempMax !== null && tempMax > 60 ? 'monitor' : 'ok',
+              recommendation: tempMax !== null && tempMax > 80 ? 'Kiểm tra siết lại bu lông các tiếp điểm ngay lập tức!' : 'Tiếp tục theo dõi vận hành.'
+            };
+          });
         });
+
         setCabinetList(list);
       } catch (err) {
         console.warn('[Report] Lỗi tải dữ liệu giám sát:', err);
       }
     };
     fetchMonitoringPoints();
-  }, [stationId]);
+  }, [stationIds]);
 
   useEffect(() => {
     if (type === 'daily') {
@@ -128,7 +147,12 @@ export default function ReportTab({ stationId }: { stationId: string }) {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const reps = await stationApi.getReports(stationId || undefined);
+      const reps = await stationApi.getReports({
+        scopeType,
+        stationId: scopeType === 'station' ? scopeId : undefined,
+        provinceId: scopeType === 'province' ? scopeId : undefined,
+        teamId: scopeType === 'team' ? scopeId : undefined,
+      });
       setHistory(reps);
     } catch {
     } finally {
@@ -138,11 +162,13 @@ export default function ReportTab({ stationId }: { stationId: string }) {
 
   useEffect(() => {
     loadHistory();
-  }, [stationId]);
+  }, [stationId, scopeType, scopeId]);
 
   const generateReport = async () => {
     if (!from || !to) { setErrorMsg('Chọn đầy đủ ngày'); return; }
     if (new Date(from) > new Date(to)) { setErrorMsg('Ngày bắt đầu phải trước ngày kết thúc'); return; }
+    if (scopeType !== 'fleet' && !scopeId) { setErrorMsg('Chọn phạm vi báo cáo'); return; }
+    if (stationIds.length === 0) { setErrorMsg('Không có trạm nào trong phạm vi báo cáo'); return; }
 
     setGenerating(true);
     setErrorMsg('');
@@ -154,17 +180,29 @@ export default function ReportTab({ stationId }: { stationId: string }) {
     }
 
     try {
-      const [histRaw, alertsInRange, report] = await Promise.all([
-        stationApi.getHistoryBulk(stationId, `${from}T00:00`, `${to}T23:59`, 60),
+      const [historyChunks, alertsInRange, report] = await Promise.all([
+        Promise.all(stationIds.map(sid => stationApi.getHistoryBulk(sid, `${from}T00:00`, `${to}T23:59`, 60))),
         stationApi.getAlerts(undefined, undefined, undefined, 500),
-        stationApi.generateReport({ stationId: stationId || undefined, type, from: `${from}T00:00:00`, to: `${to}T23:59:59` }),
+        stationApi.generateReport({
+          stationId: scopeType === 'station' ? scopeId : undefined,
+          scopeType,
+          provinceId: scopeType === 'province' ? scopeId : undefined,
+          teamId: scopeType === 'team' ? scopeId : undefined,
+          scopeLabel,
+          type,
+          from: `${from}T00:00:00`,
+          to: `${to}T23:59:59`
+        }),
       ]);
+      const histRaw = historyChunks.flat();
 
       setCurrentReportId(report.id);
 
       const filteredAlerts = alertsInRange.filter((a: AlertItem) => {
         const t = new Date(a.triggeredAt).getTime();
-        return t >= new Date(from).getTime() && t <= new Date(`${to}T23:59:59`).getTime();
+        return stationIds.includes(a.stationId || '') &&
+          t >= new Date(from).getTime() &&
+          t <= new Date(`${to}T23:59:59`).getTime();
       });
 
       const html = buildReportHtml(histRaw, filteredAlerts);
@@ -242,16 +280,18 @@ export default function ReportTab({ stationId }: { stationId: string }) {
           <div style="font-size:20px;font-weight:800;color:#1a56db;">STATION MONITOR ENTERPRISE</div>
           <div style="font-size:13px;font-weight:700;margin-top:4px;text-transform:uppercase;">${typeLabels[type] ?? type}</div>
           <div style="font-size:11px;color:#6b7280;margin-top:6px;">
+            Phạm vi: <b>${scopeLabel || 'Toàn hệ thống'}</b>
+            &nbsp;|&nbsp;
             Khoảng thời gian: <b>${fmtDate(from)}</b> – <b>${fmtDate(to)}</b>
             &nbsp;|&nbsp; Tạo lúc: ${fmtDateTime(new Date().toISOString())}
           </div>
         </div>
 
         ${opts.stats ? `
-        <!-- TỔNG QUAN TRẠM -->
+        <!-- TỔNG QUAN PHẠM VI -->
         <div style="margin-bottom:20px;">
           <div style="font-weight:700;font-size:11px;text-transform:uppercase;color:#374151;margin-bottom:10px;border-bottom:1px solid #e5e7eb;padding-bottom:6px;">
-            TỔNG QUAN TRẠM — ${cabinetList.length} TỦ ĐIỆN
+            TỔNG QUAN PHẠM VI — ${cabinetList.length} THIẾT BỊ/TỦ ĐIỆN
           </div>
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;">
             ${[
@@ -525,7 +565,9 @@ export default function ReportTab({ stationId }: { stationId: string }) {
               return (
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', background: 'var(--admin-panel)', borderRadius: 0, border: '1px solid var(--admin-border)' }}>
                   <span style={{ fontSize: '0.62rem', padding: '2px 6px', borderRadius: 0, background: `${color}22`, color: color, fontWeight: 700, whiteSpace: 'nowrap' }}>{typeLabels[r.type] ?? r.type}</span>
-                  <span style={{ flex: 1, fontSize: '0.7rem', color: 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tFrom}{tTo && tTo !== tFrom ? ' – ' + tTo : ''}</span>
+                  <span style={{ flex: 1, fontSize: '0.7rem', color: 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.scopeLabel ? `${r.scopeLabel} · ` : ''}{tFrom}{tTo && tTo !== tFrom ? ' – ' + tTo : ''}
+                  </span>
                   {r.fileUrl && (
                     <button onClick={async () => {
                       const blob = await stationApi.downloadReport(r.id);

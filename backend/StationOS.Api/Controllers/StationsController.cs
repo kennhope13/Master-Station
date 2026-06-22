@@ -26,6 +26,53 @@ public class StationsController : ControllerBase
     private readonly ILogger<StationsController> _logger;
     private const string DefaultApiUsername = "stationadmin";
     private const string DefaultApiPassword = "Station@123";
+    private const string DefaultProvinceAdminPasswordSuffix = "@2026!";
+    private const string DefaultStationAdminPasswordSuffix = "@26";
+
+    private async Task<bool> StationBelongsToProvinceAsync(Guid provinceId, string? stationName, string? locationJson)
+    {
+        var provinces = await _db.Provinces.AsNoTracking()
+            .Select(p => new { p.Id, p.Name, p.Code }).ToListAsync();
+
+        var selected = provinces.FirstOrDefault(p => p.Id == provinceId);
+        if (selected == null) return false;
+
+        string address = "";
+        if (!string.IsNullOrWhiteSpace(locationJson))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(locationJson);
+                if (doc.RootElement.TryGetProperty("address", out var ap))
+                    address = ap.GetString() ?? "";
+            }
+            catch { }
+        }
+
+        var haystack = address.ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(haystack)) return false;
+
+        var selectedName = selected.Name?.Trim().ToLowerInvariant() ?? "";
+        var selectedCode = selected.Code?.Trim().ToLowerInvariant() ?? "";
+        var selectedProvinceMatched =
+            (!string.IsNullOrWhiteSpace(selectedName) && haystack.Contains(selectedName)) ||
+            (!string.IsNullOrWhiteSpace(selectedCode) && haystack.Contains(selectedCode));
+
+        if (!selectedProvinceMatched)
+            return false;
+
+        foreach (var p in provinces)
+        {
+            if (p.Id == provinceId) continue;
+            var otherName = p.Name?.Trim().ToLowerInvariant() ?? "";
+            var otherCode = p.Code?.Trim().ToLowerInvariant() ?? "";
+            if ((!string.IsNullOrWhiteSpace(otherName) && haystack.Contains(otherName)) ||
+                (!string.IsNullOrWhiteSpace(otherCode) && haystack.Contains(otherCode)))
+                return false;
+        }
+
+        return true;
+    }
 
     public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory, CredentialEncryptionService crypto, InternalAuthService internalAuth, IRealtimeNotifier notifier, ILogger<StationsController> logger)
     {
@@ -36,6 +83,133 @@ public class StationsController : ControllerBase
         _internalAuth = internalAuth;
         _notifier = notifier;
         _logger = logger;
+    }
+
+    private static string NormalizeProvinceAccountToken(string? value)
+    {
+        var token = UsernameNormalizer.Normalize(
+            value?
+                .Replace("Tỉnh", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("Thành phố", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("TP.", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("TP", "", StringComparison.OrdinalIgnoreCase)
+                .Trim());
+        return string.IsNullOrWhiteSpace(token) ? "province" : token;
+    }
+
+    private static string NormalizeStationAccountToken(string? value)
+    {
+        var token = UsernameNormalizer.Normalize(value);
+        return string.IsNullOrWhiteSpace(token) ? "tram" : token;
+    }
+
+    private async Task EnsureProvinceAdminAccountAsync(Guid provinceId)
+    {
+        var province = await _db.Provinces.AsNoTracking().FirstOrDefaultAsync(p => p.Id == provinceId);
+        if (province == null)
+            return;
+
+        var hasProvinceAdmin = await _db.Users.AnyAsync(u =>
+            u.Role == "admin_province" &&
+            u.ProvinceIds != null &&
+            u.ProvinceIds.Contains(provinceId));
+
+        if (hasProvinceAdmin)
+            return;
+
+        var token = !string.IsNullOrWhiteSpace(province.Code)
+            ? NormalizeProvinceAccountToken(province.Code)
+            : NormalizeProvinceAccountToken(province.Name);
+
+        var usernameBase = $"admintinh{token}";
+        var username = usernameBase;
+        var suffix = 2;
+        while (await _db.Users.AnyAsync(u => u.Username == username))
+        {
+            username = $"{usernameBase}{suffix}";
+            suffix++;
+        }
+
+        var passwordToken = (!string.IsNullOrWhiteSpace(province.Code)
+            ? NormalizeProvinceAccountToken(province.Code).ToUpperInvariant()
+            : token.ToUpperInvariant());
+        var defaultPassword = $"Tinh{passwordToken}{DefaultProvinceAdminPasswordSuffix}";
+
+        var user = new User
+        {
+            Username = username,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultPassword, workFactor: 12),
+            ProvisionedPassword = _crypto.Encrypt(defaultPassword),
+            FullName = $"Quản trị viên {province.Name}",
+            Email = $"{username}@stationos.vn",
+            Role = "admin_province",
+            ProvinceIds = new[] { province.Id },
+            Permissions = PermissionService.GetDefaultPermissionsForRole("admin_province").ToArray(),
+            IsActive = true,
+            MustChangePassword = true,
+            LastPasswordChangedAt = DateTime.UtcNow
+        };
+
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Auto-created province admin account {Username} for province {ProvinceName} ({ProvinceId})",
+            username, province.Name, province.Id);
+    }
+
+    private async Task EnsureStationAdminAccountAsync(Station station)
+    {
+        var hasStationAdmin = await _db.Users.AnyAsync(u =>
+            u.Role == "admin_station" &&
+            u.StationIds != null &&
+            u.StationIds.Contains(station.Id));
+
+        if (hasStationAdmin)
+            return;
+
+        var token = !string.IsNullOrWhiteSpace(station.Code)
+            ? NormalizeStationAccountToken(station.Code)
+            : NormalizeStationAccountToken(station.Name);
+
+        var usernameBase = $"admintram{token}";
+        var username = usernameBase;
+        var suffix = 2;
+        while (await _db.Users.AnyAsync(u => u.Username == username))
+        {
+            username = $"{usernameBase}{suffix}";
+            suffix++;
+        }
+
+        var passwordToken = !string.IsNullOrWhiteSpace(station.Code)
+            ? NormalizeStationAccountToken(station.Code).ToUpperInvariant()
+            : token.ToUpperInvariant();
+        if (passwordToken.Length > 8)
+            passwordToken = passwordToken[..8];
+
+        var defaultPassword = $"Tram{passwordToken}{DefaultStationAdminPasswordSuffix}";
+
+        var user = new User
+        {
+            Username = username,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultPassword, workFactor: 12),
+            ProvisionedPassword = _crypto.Encrypt(defaultPassword),
+            FullName = $"Quản trị viên {station.Name}",
+            Email = $"{username}@stationos.vn",
+            Role = "admin_station",
+            StationIds = new[] { station.Id },
+            Permissions = PermissionService.GetDefaultPermissionsForRole("admin_station").ToArray(),
+            IsActive = true,
+            MustChangePassword = true,
+            LastPasswordChangedAt = DateTime.UtcNow
+        };
+
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Auto-created station admin account {Username} for station {StationName} ({StationId})",
+            username, station.Name, station.Id);
     }
 
     /// <summary>Lấy danh sách trạm biến áp. Operator chỉ thấy trạm được phân quyền.</summary>
@@ -134,8 +308,7 @@ public class StationsController : ControllerBase
         {
             if (provinceId == null)
             {
-                // Auto-assign the first permitted province when multiple are available
-                provinceId = allowedProvinceIds.FirstOrDefault();
+                return BadRequest(new { message = "Bạn phải chọn tỉnh trong phạm vi được phân quyền trước khi tạo trạm." });
             }
             else if (!allowedProvinceIds.Contains(provinceId.Value))
             {
@@ -148,6 +321,9 @@ public class StationsController : ControllerBase
         {
             return BadRequest(new { message = "Bạn phải chỉ định tỉnh cho trạm." });
         }
+
+        if (!await StationBelongsToProvinceAsync(provinceId.Value, req.Name, req.Location))
+            return StatusCode(403, new { message = "Bạn không có quyền thêm trạm ở ngoài tỉnh được phân công." });
 
         // Validate location JSON contains lat and lng
         if (string.IsNullOrWhiteSpace(req.Location))
@@ -182,6 +358,8 @@ public class StationsController : ControllerBase
         };
         _db.Stations.Add(station);
         await _db.SaveChangesAsync();
+        await EnsureProvinceAdminAccountAsync(provinceId.Value);
+        await EnsureStationAdminAccountAsync(station);
         _ = _notifier.SendStationListChangedAsync("created", station.Id);
         return CreatedAtAction(nameof(GetById), new { id = station.Id }, ToStationResponse(station));
     }
@@ -209,6 +387,10 @@ public class StationsController : ControllerBase
                 return StatusCode(403, new { message = "Tỉnh mới không nằm trong danh sách quản lý của bạn." });
             }
         }
+
+        var targetProvinceId = req.ProvinceId ?? station.ProvinceId;
+        if (targetProvinceId != null && !await StationBelongsToProvinceAsync(targetProvinceId.Value, req.Name, req.Location))
+            return StatusCode(403, new { message = "Bạn không có quyền thêm trạm ở ngoài tỉnh được phân công." });
 
         station.Name       = req.Name;
         station.Code       = req.Code;
@@ -454,6 +636,83 @@ public class StationsController : ControllerBase
             _logger.LogError(ex, "Lỗi xảy ra trong quá trình xóa trạm {StationId}", id);
             return StatusCode(500, new { message = "Lỗi hệ thống khi xóa trạm: " + ex.Message });
         }
+    }
+
+    [HttpPost("internal/repair-province-links")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RepairProvinceLinks()
+    {
+        if (!_internalAuth.IsAuthorized(HttpContext))
+            return Unauthorized(new { message = "Internal auth failed" });
+
+        var provinces = await _db.Provinces
+            .AsNoTracking()
+            .Select(p => new { p.Id, p.Name, p.Code })
+            .ToListAsync();
+
+        if (provinces.Count == 0)
+            return Ok(new { updated = 0, message = "Không có tỉnh nào để đối chiếu." });
+
+        static string NormalizeProvinceToken(string value)
+            => value.Trim().ToLowerInvariant()
+                .Replace("tỉnh ", "")
+                .Replace("thành phố ", "")
+                .Replace("tp. ", "")
+                .Replace("tp ", "")
+                .Trim();
+
+        static IEnumerable<string> BuildAliases(string? name, string? code)
+        {
+            var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(name)) aliases.Add(NormalizeProvinceToken(name));
+            if (!string.IsNullOrWhiteSpace(code)) aliases.Add(NormalizeProvinceToken(code));
+            return aliases.Where(x => !string.IsNullOrWhiteSpace(x));
+        }
+
+        static string ExtractAddress(string? locationJson)
+        {
+            if (string.IsNullOrWhiteSpace(locationJson)) return string.Empty;
+            try
+            {
+                using var doc = JsonDocument.Parse(locationJson);
+                if (doc.RootElement.TryGetProperty("address", out var addressProp))
+                    return addressProp.GetString() ?? string.Empty;
+            }
+            catch
+            {
+            }
+            return string.Empty;
+        }
+
+        var aliasMap = provinces
+            .Select(p => new
+            {
+                ProvinceId = p.Id,
+                Aliases = BuildAliases(p.Name, p.Code).OrderByDescending(x => x.Length).ToArray()
+            })
+            .ToList();
+
+        var stations = await _db.Stations.ToListAsync();
+        var updated = 0;
+        foreach (var station in stations)
+        {
+            var haystack = NormalizeProvinceToken($"{station.Name} {ExtractAddress(station.Location)}");
+            if (string.IsNullOrWhiteSpace(haystack)) continue;
+
+            var matched = aliasMap.FirstOrDefault(x => x.Aliases.Any(alias => haystack.Contains(alias)));
+            if (matched == null) continue;
+
+            if (station.ProvinceId != matched.ProvinceId)
+            {
+                station.ProvinceId = matched.ProvinceId;
+                updated++;
+            }
+        }
+
+        if (updated > 0)
+            await _db.SaveChangesAsync();
+
+        return Ok(new { updated });
     }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, (string Token, DateTime ExpiresAt, string AuthKey)> _tokenCache = new();

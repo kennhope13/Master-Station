@@ -8,6 +8,7 @@
 //   DELETE /api/v1/teams/{id}     — Xóa tổ (admin/manager)
 // ============================================================
 
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,7 @@ using StationOS.Data;
 using StationOS.Data.Entities;
 using StationOS.Services;
 using StationOS.Api.Filters;
+using StationOS.Services.Security;
 
 namespace StationOS.Api.Controllers;
 
@@ -27,18 +29,93 @@ public class TeamsController : ControllerBase
     private readonly AppDbContext _db;
     private readonly PermissionService _permissions;
     private readonly Microsoft.AspNetCore.SignalR.IHubContext<Hubs.RealtimeHub> _hubContext;
+    private readonly CredentialEncryptionService _crypto;
+    private const string DefaultTeamLeaderPasswordSuffix = "@26";
 
-    public TeamsController(AppDbContext db, PermissionService permissions, Microsoft.AspNetCore.SignalR.IHubContext<Hubs.RealtimeHub> hubContext)
+    public TeamsController(AppDbContext db, PermissionService permissions, Microsoft.AspNetCore.SignalR.IHubContext<Hubs.RealtimeHub> hubContext, CredentialEncryptionService crypto)
     {
         _db = db;
         _permissions = permissions;
         _hubContext = hubContext;
+        _crypto = crypto;
     }
 
-    /// <summary>Danh sách tổ thao tác.</summary>
+    private static string NormalizeAccountToken(string? value)
+    {
+        var token = UsernameNormalizer.Normalize(value);
+        return string.IsNullOrWhiteSpace(token) ? "team" : token;
+    }
+
+    private async Task EnsureDefaultTeamLeaderAsync(Team team)
+    {
+        var hasLeader = await _db.Users.AnyAsync(u => u.Role == "team_leader" && u.TeamId == team.Id);
+        if (hasLeader)
+            return;
+
+        var province = team.ProvinceId.HasValue
+            ? await _db.Provinces.AsNoTracking().FirstOrDefaultAsync(p => p.Id == team.ProvinceId.Value)
+            : null;
+
+        var teamToken = NormalizeAccountToken(team.Name);
+        var provinceToken = NormalizeAccountToken(!string.IsNullOrWhiteSpace(province?.Code) ? province!.Code : province?.Name);
+        var usernameToken = string.IsNullOrWhiteSpace(provinceToken) ? teamToken : $"{teamToken}{provinceToken}";
+        var usernameBase = $"teamleader{usernameToken}";
+        var username = usernameBase;
+        var suffix = 2;
+        while (await _db.Users.AnyAsync(u => u.Username == username))
+        {
+            username = $"{usernameBase}{suffix}";
+            suffix++;
+        }
+
+        var shortTeamToken = teamToken.Length > 6 ? teamToken[..6] : teamToken;
+        var shortProvinceToken = provinceToken.Length > 3 ? provinceToken[..3] : provinceToken;
+        var passwordToken = $"{char.ToUpperInvariant(shortTeamToken[0])}{shortTeamToken[1..]}{shortProvinceToken.ToUpperInvariant()}";
+        var defaultPassword = $"{passwordToken}{DefaultTeamLeaderPasswordSuffix}";
+
+        var user = new User
+        {
+            Username = username,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultPassword, workFactor: 12),
+            ProvisionedPassword = _crypto.Encrypt(defaultPassword),
+            FullName = $"Tổ trưởng {team.Name}",
+            Email = $"{username}@stationos.vn",
+            Role = "team_leader",
+            TeamId = team.Id,
+            Permissions = PermissionService.GetDefaultPermissionsForRole("team_leader").ToArray(),
+            IsActive = true,
+            MustChangePassword = true,
+            LastPasswordChangedAt = DateTime.UtcNow
+        };
+
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+    }
+
+    /// <summary>Danh sách tổ thao tác — lọc theo phân cấp tổ → tỉnh → toàn cục.</summary>
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
+        var callerRole = User.FindFirstValue(ClaimTypes.Role);
+        var callerTeamIdStr = User.FindFirstValue("teamId");
+
+        // Tổ trưởng chỉ thấy tổ của mình
+        if (callerRole == "team_leader" && Guid.TryParse(callerTeamIdStr, out var callerTeamId))
+        {
+            var ownTeam = await _db.Teams.AsNoTracking().FirstOrDefaultAsync(t => t.Id == callerTeamId);
+            return Ok(ownTeam != null ? new[] { ownTeam } : Array.Empty<Team>());
+        }
+
+        // Admin tỉnh chỉ thấy tổ trong tỉnh của mình
+        var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
+        if (allowedProvinceIds != null)
+        {
+            var provincedTeams = await _db.Teams.AsNoTracking()
+                .Where(t => t.ProvinceId != null && allowedProvinceIds.Contains(t.ProvinceId.Value))
+                .ToListAsync();
+            return Ok(provincedTeams);
+        }
+
         var teams = await _db.Teams.AsNoTracking().ToListAsync();
         return Ok(teams);
     }
@@ -52,11 +129,16 @@ public class TeamsController : ControllerBase
         return Ok(team);
     }
 
-    /// <summary>Tạo tổ thao tác mới.</summary>
+    /// <summary>Tạo tổ thao tác mới. Tổ trưởng không được tạo tổ mới.</summary>
     [HttpPost]
     [HasPermission("user:manage")]
     public async Task<IActionResult> Create([FromBody] CreateTeamRequest req)
     {
+        // Chỉ admin và admin_province mới được tạo tổ
+        var callerRole = User.FindFirstValue(ClaimTypes.Role);
+        if (callerRole == "team_leader")
+            return Forbid();
+
         if (string.IsNullOrWhiteSpace(req.Name))
             return BadRequest(new { message = "Tên tổ không được để trống" });
 
@@ -107,19 +189,34 @@ public class TeamsController : ControllerBase
 
         _db.Teams.Add(team);
         await _db.SaveChangesAsync();
+        await EnsureDefaultTeamLeaderAsync(team);
 
         await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = "", status = "team_changed", ts = DateTime.UtcNow });
 
         return Ok(team);
     }
 
-    /// <summary>Cập nhật tổ thao tác.</summary>
+    /// <summary>Cập nhật tổ thao tác. Tổ trưởng chỉ sửa được tổ của mình.</summary>
     [HttpPut("{id:guid}")]
     [HasPermission("user:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateTeamRequest req)
     {
         var team = await _db.Teams.FindAsync(id);
         if (team == null) return NotFound(new { message = "Không tìm thấy tổ thao tác" });
+
+        // Tổ trưởng chỉ sửa được tổ của mình, không đổi được tỉnh hay trạm
+        var callerRole = User.FindFirstValue(ClaimTypes.Role);
+        var callerTeamIdStr = User.FindFirstValue("teamId");
+        if (callerRole == "team_leader")
+        {
+            if (!Guid.TryParse(callerTeamIdStr, out var callerTeamId) || callerTeamId != id)
+                return Forbid();
+            // Tổ trưởng chỉ đổi được tên tổ
+            if (req.Name != null) team.Name = req.Name.Trim();
+            await _db.SaveChangesAsync();
+            await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = "", status = "team_changed", ts = DateTime.UtcNow });
+            return Ok(team);
+        }
 
         var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
         if (allowedProvinceIds != null)
@@ -172,11 +269,16 @@ public class TeamsController : ControllerBase
         return Ok(team);
     }
 
-    /// <summary>Xóa tổ thao tác.</summary>
+    /// <summary>Xóa tổ thao tác. Tổ trưởng không được xóa tổ.</summary>
     [HttpDelete("{id:guid}")]
     [HasPermission("user:manage")]
     public async Task<IActionResult> Delete(Guid id)
     {
+        // Tổ trưởng không được xóa tổ
+        var callerRole = User.FindFirstValue(ClaimTypes.Role);
+        if (callerRole == "team_leader")
+            return Forbid();
+
         var team = await _db.Teams.FindAsync(id);
         if (team == null) return NotFound(new { message = "Không tìm thấy tổ thao tác" });
 
@@ -189,12 +291,9 @@ public class TeamsController : ControllerBase
             }
         }
 
-        // Unlink users belonging to this team
+        // Delete all users belonging to this team
         var usersInTeam = await _db.Users.Where(u => u.TeamId == id).ToListAsync();
-        foreach (var u in usersInTeam)
-        {
-            u.TeamId = null;
-        }
+        _db.Users.RemoveRange(usersInTeam);
 
         _db.Teams.Remove(team);
         await _db.SaveChangesAsync();

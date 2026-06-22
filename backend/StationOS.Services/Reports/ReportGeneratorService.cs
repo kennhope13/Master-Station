@@ -16,6 +16,10 @@ namespace StationOS.Services.Reports;
 
 public record ReportOptions(
     Guid StationId,
+    string ScopeType,
+    Guid? ProvinceId,
+    Guid? TeamId,
+    string? ScopeLabel,
     string Type,           // daily | monthly | event
     DateTime PeriodFrom,
     DateTime PeriodTo,
@@ -37,15 +41,53 @@ public class ReportGeneratorService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        bool isFleet = opts.StationId == Guid.Empty;
+        var scopeType = string.IsNullOrWhiteSpace(opts.ScopeType) ? "station" : opts.ScopeType.Trim().ToLowerInvariant();
+        var stationIds = new List<Guid>();
+
+        if (scopeType == "station")
+        {
+            if (opts.StationId != Guid.Empty)
+                stationIds.Add(opts.StationId);
+        }
+        else if (scopeType == "province" && opts.ProvinceId.HasValue)
+        {
+            stationIds = await db.Stations
+                .Where(s => s.ProvinceId == opts.ProvinceId.Value)
+                .Select(s => s.Id)
+                .ToListAsync();
+        }
+        else if (scopeType == "team" && opts.TeamId.HasValue)
+        {
+            var team = await db.Teams.AsNoTracking().FirstOrDefaultAsync(t => t.Id == opts.TeamId.Value);
+            stationIds = team?.StationIds?.Distinct().ToList() ?? new List<Guid>();
+        }
+        else
+        {
+            scopeType = "fleet";
+            stationIds = await db.Stations.Select(s => s.Id).ToListAsync();
+        }
+
+        bool isFleet = scopeType == "fleet";
+        bool isMultiStationScope = scopeType is "province" or "team" or "fleet";
+        var targetStationId = scopeType == "station" ? opts.StationId : Guid.Empty;
 
         // ── Lấy dữ liệu ─────────────────────────────────────
-        var station = isFleet ? null : await db.Stations.FindAsync(opts.StationId);
-        var stationName = isFleet ? "Toàn hệ thống (Fleet Summary)" : (station?.Name ?? "Trạm biến áp");
+        var station = scopeType == "station" && opts.StationId != Guid.Empty ? await db.Stations.FindAsync(opts.StationId) : null;
+        var scopeLabel = !string.IsNullOrWhiteSpace(opts.ScopeLabel)
+            ? opts.ScopeLabel!
+            : isFleet
+                ? "Toàn hệ thống"
+                : scopeType == "province"
+                    ? "Báo cáo theo tỉnh"
+                    : scopeType == "team"
+                        ? "Báo cáo theo tổ"
+                        : (station?.Name ?? "Trạm biến áp");
+        var stationName = isMultiStationScope ? scopeLabel : (station?.Name ?? "Trạm biến áp");
 
         // Alerts trong kỳ
         var alertQuery = db.Alerts.AsQueryable();
-        if (!isFleet) alertQuery = alertQuery.Where(a => a.StationId == opts.StationId);
+        if (!isFleet)
+            alertQuery = alertQuery.Where(a => stationIds.Contains(a.StationId));
         
         var alerts = await alertQuery
             .Where(a => a.TriggeredAt >= opts.PeriodFrom
@@ -56,7 +98,8 @@ public class ReportGeneratorService
 
         // Sensor readings — lấy thống kê theo thiết bị và điểm đo
         var readingQuery = db.SensorReadings.AsQueryable();
-        if (!isFleet) readingQuery = readingQuery.Where(r => r.StationId == opts.StationId);
+        if (!isFleet)
+            readingQuery = readingQuery.Where(r => stationIds.Contains(r.StationId));
 
         var readings = await readingQuery
             .Where(r => r.Time >= opts.PeriodFrom
@@ -78,7 +121,8 @@ public class ReportGeneratorService
 
         // Metadata để resolve tên thân thiện
         var devicesQuery = db.Devices.AsQueryable();
-        if (!isFleet) devicesQuery = devicesQuery.Where(d => d.StationId == opts.StationId);
+        if (!isFleet)
+            devicesQuery = devicesQuery.Where(d => stationIds.Contains(d.StationId));
         var devices = await devicesQuery.ToDictionaryAsync(d => d.Id);
 
         var roiPoints = await db.RoiPoints.Where(r => devices.Keys.Contains(r.DeviceId)).ToListAsync();
@@ -120,7 +164,7 @@ public class ReportGeneratorService
                             c.Item().Text("STATION MONITOR ENTERPRISE")
                                 .Bold().FontSize(13).FontColor("#1a56db");
                             c.Item().Text(title).Bold().FontSize(10);
-                            c.Item().PaddingTop(2).Text($"Trạm: {stationName}   |   Kỳ: {periodStr}")
+                            c.Item().PaddingTop(2).Text($"{(isMultiStationScope ? "Phạm vi" : "Trạm")}: {stationName}   |   Kỳ: {periodStr}")
                                 .FontSize(8).FontColor("#6b7280");
                             c.Item().Text($"Tạo lúc: {DateTime.Now:dd/MM/yyyy HH:mm}")
                                 .FontSize(7.5f).FontColor("#9ca3af");
@@ -306,7 +350,11 @@ public class ReportGeneratorService
         var report = new Report
         {
             Id          = reportId,
-            StationId   = opts.StationId,
+            StationId   = targetStationId,
+            ScopeType   = scopeType,
+            ProvinceId  = opts.ProvinceId,
+            TeamId      = opts.TeamId,
+            ScopeLabel  = scopeLabel,
             Type        = opts.Type,
             PeriodFrom  = opts.PeriodFrom,
             PeriodTo    = opts.PeriodTo,

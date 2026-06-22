@@ -3,6 +3,7 @@
 // GET  /api/v1/license/status   — public, trả về trạng thái
 // POST /api/v1/license/activate — yêu cầu admin JWT
 // POST /api/v1/license/validate — public, kiểm tra key (không kích hoạt)
+// GET  /api/v1/license/limits   — public, trả về resource usage vs limits
 // ============================================================
 
 using Microsoft.AspNetCore.Authorization;
@@ -20,7 +21,7 @@ public class LicenseController : ControllerBase
 
     public LicenseController(LicenseService license) => _license = license;
 
-    /// <summary>Lấy trạng thái license hiện tại: tier, số người dùng tối đa, ngày hết hạn, số phiên đang hoạt động.</summary>
+    /// <summary>Lấy trạng thái license hiện tại: tier, giới hạn tài nguyên, ngày hết hạn, số phiên đang hoạt động.</summary>
     /// <returns>Thông tin license đang kích hoạt hoặc activated = false nếu chưa kích hoạt.</returns>
     [HttpGet("status")]
     public async Task<IActionResult> Status()
@@ -34,6 +35,11 @@ public class LicenseController : ControllerBase
             activated      = true,
             tier           = status.Tier,
             maxUsers       = status.MaxUsers,
+            maxStations    = status.MaxStations,
+            maxCameras     = status.MaxCameras,
+            maxRoiPoints   = status.MaxRoiPoints,
+            maxRoiRegions  = status.MaxRoiRegions,
+            maxPdRegions   = status.MaxPdRegions,
             expiresAt      = status.ExpiresAt,
             activatedAt    = status.ActivatedAt,
             activeSessions = status.ActiveSessions,
@@ -59,24 +65,44 @@ public class LicenseController : ControllerBase
         return Ok(new { message = "Kích hoạt license thành công" });
     }
 
-    /// <summary>Kiểm tra tính hợp lệ của license key mà không kích hoạt. Trả về tier, maxUsers, ngày hết hạn nếu hợp lệ.</summary>
+    /// <summary>Kiểm tra tính hợp lệ của license key mà không kích hoạt.</summary>
     /// <param name="req">License key cần kiểm tra.</param>
-    /// <returns>Kết quả kiểm tra: valid, tier, maxUsers, expiresAt, daysRemaining.</returns>
+    /// <returns>Kết quả kiểm tra: valid, tier, tất cả giới hạn tài nguyên, ngày hết hạn.</returns>
     [HttpPost("validate")]
     public IActionResult Validate([FromBody] LicenseKeyRequest req)
     {
-        var (valid, tier, maxUsers, expiresAt, error) = _license.ValidateKey(req.Key ?? "");
-        if (!valid)
-            return BadRequest(new { valid = false, message = error });
+        var info = _license.ValidateKey(req.Key ?? "");
+        if (!info.Valid)
+            return BadRequest(new { valid = false, message = info.ErrorMessage });
 
         return Ok(new
         {
-            valid,
-            tier,
-            maxUsers,
-            expiresAt,
-            daysRemaining = (int)(expiresAt - DateTime.UtcNow).TotalDays
+            valid          = true,
+            tier           = info.Tier,
+            maxUsers       = info.MaxUsers,
+            maxStations    = info.MaxStations,
+            maxCameras     = info.MaxCameras,
+            maxRoiPoints   = info.MaxRoiPoints,
+            maxRoiRegions  = info.MaxRoiRegions,
+            maxPdRegions   = info.MaxPdRegions,
+            expiresAt      = info.ExpiresAt,
+            daysRemaining  = (int)(info.ExpiresAt - DateTime.UtcNow).TotalDays
         });
+    }
+
+    /// <summary>Trả về tổng quan sử dụng tài nguyên hiện tại so với giới hạn license.</summary>
+    /// <returns>Danh sách từng loại tài nguyên: tên, current, max, exceeded.</returns>
+    [HttpGet("limits")]
+    public async Task<IActionResult> Limits()
+    {
+        var limits = await _license.GetAllResourceLimitsAsync();
+        return Ok(limits.Select(l => new
+        {
+            resource = l.Resource,
+            current  = l.Current,
+            max      = l.Max >= 999 ? -1 : l.Max,   // -1 = unlimited
+            exceeded = l.Exceeded
+        }));
     }
 }
 

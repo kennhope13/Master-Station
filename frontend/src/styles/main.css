@@ -15331,3 +15331,14 @@ body.has-critical-banner .panels-grid {
   resize: vertical;
   font-family: inherit;
 }
+
+.leaflet-tile {
+  border: none !important;
+  outline: none !important;
+}
+.leaflet-tile-container {
+  image-rendering: auto;
+}
+.leaflet-container {
+  background: #1a1a2e;
+}

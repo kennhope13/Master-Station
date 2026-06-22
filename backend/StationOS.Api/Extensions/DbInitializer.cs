@@ -52,6 +52,11 @@ public static class DbInitializer
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ApiPassword"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""WebUrl"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""LastContactAt"" timestamptz;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""ProvisionedPassword"" text;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Reports"" ADD COLUMN IF NOT EXISTS ""ScopeType"" text DEFAULT 'station';");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Reports"" ADD COLUMN IF NOT EXISTS ""ProvinceId"" uuid;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Reports"" ADD COLUMN IF NOT EXISTS ""TeamId"" uuid;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Reports"" ADD COLUMN IF NOT EXISTS ""ScopeLabel"" text;");
 
         // await SeedDefaultStationAsync(db);
 

@@ -53,6 +53,54 @@
 .nvr-sel {
   background: #000; border: 1px solid #334155; color: #fff;
   height: 24px; font-size: 10px; font-weight: 800; padding: 0 4px; cursor: pointer;
+  color-scheme: dark;
+}
+
+.nvr-sel-button {
+  min-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.nvr-sel-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  background: #0c0f16;
+  border: 1px solid #334155;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 200;
+}
+
+.nvr-sel-item {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #111827;
+  background: transparent;
+  color: #e2e8f0;
+  text-align: left;
+  padding: 7px 9px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.nvr-sel-item:hover {
+  background: #111827;
+}
+
+.nvr-sel-item.active {
+  background: #1e293b;
+  color: var(--admin-accent);
+}
+
+.nvr-sel option {
+  background: #0c0f16;
+  color: #e2e8f0;
 }
 
 .nvr-lb {
@@ -60,6 +108,26 @@
   width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .nvr-lb:hover { background: var(--admin-accent); color: #000; }
+
+/* ─── FILTER BAR ────────────────── */
+.audit-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 36px;
+  background: #080b12;
+  border-bottom: 1px solid #1e293b;
+  flex-shrink: 0;
+}
+
+.audit-filter-label {
+  font-size: 9px;
+  font-weight: 900;
+  color: #475569;
+  letter-spacing: 1.5px;
+  white-space: nowrap;
+}
 
 /* ─── MAIN AREA ────────────────── */
 .rtm-main { flex: 1; display: flex; overflow: hidden; min-height: 0; }

@@ -270,7 +270,8 @@
 }
 
 .form-input,
-.form-select {
+.form-select,
+select {
     padding: 10px 14px;
     border-radius: 0px;
     border: 1px solid var(--admin-border, var(--admin-border));
@@ -279,43 +280,56 @@
     font-size: .85rem;
 }
 
+select {
+    color-scheme: dark;
+}
+
 /* Select option colors per theme (browsers ignore CSS vars on <option>) */
 .form-select option,
-select.form-input option {
+select.form-input option,
+select option {
     background: #0f172a;
     color: #e2e8f0;
 }
 .theme-industrial .form-select option,
-.theme-industrial select.form-input option {
+.theme-industrial select.form-input option,
+.theme-industrial select option {
     background: #24272a;
     color: #e2e8f0;
 }
 .theme-blue .form-select option,
-.theme-blue select.form-input option {
+.theme-blue select.form-input option,
+.theme-blue select option {
     background: #101f42;
     color: #e2e8f0;
 }
 .theme-hightech .form-select option,
 .theme-hightech select.form-input option,
+.theme-hightech select option,
 .theme-high-tech .form-select option,
-.theme-high-tech select.form-input option {
+.theme-high-tech select.form-input option,
+.theme-high-tech select option {
     background: #0a1628;
     color: #e2e8f0;
 }
 .theme-cyberpunk .form-select option,
-.theme-cyberpunk select.form-input option {
+.theme-cyberpunk select.form-input option,
+.theme-cyberpunk select option {
     background: #150833;
     color: #e2e8f0;
 }
 .theme-light .form-select option,
 .theme-light select.form-input option,
+.theme-light select option,
 .theme-soft-light .form-select option,
-.theme-soft-light select.form-input option {
+.theme-soft-light select.form-input option,
+.theme-soft-light select option {
     background: #ffffff;
     color: #1e293b;
 }
 .theme-silver .form-select option,
-.theme-silver select.form-input option {
+.theme-silver select.form-input option,
+.theme-silver select option {
     background: #f8fafc;
     color: #1e293b;
 }

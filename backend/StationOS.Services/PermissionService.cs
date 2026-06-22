@@ -13,6 +13,7 @@
 // ============================================================
 
 using System.Security.Claims;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Data;
@@ -29,6 +30,50 @@ public class PermissionService
     {
         _http = http;
         _db   = db;
+    }
+
+    private static string NormalizeProvinceToken(string value)
+    {
+        return value
+            .Trim()
+            .ToLowerInvariant()
+            .Replace("tỉnh ", "")
+            .Replace("thành phố ", "")
+            .Replace("tp. ", "")
+            .Replace("tp ", "")
+            .Trim();
+    }
+
+    private static IEnumerable<string> BuildProvinceAliases(string? name, string? code)
+    {
+        var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(name))
+        {
+            aliases.Add(NormalizeProvinceToken(name));
+        }
+
+        if (!string.IsNullOrWhiteSpace(code))
+        {
+            aliases.Add(NormalizeProvinceToken(code));
+        }
+
+        return aliases.Where(x => !string.IsNullOrWhiteSpace(x));
+    }
+
+    private static string ExtractAddress(string? locationJson)
+    {
+        if (string.IsNullOrWhiteSpace(locationJson)) return string.Empty;
+        try
+        {
+            using var doc = JsonDocument.Parse(locationJson);
+            if (doc.RootElement.TryGetProperty("address", out var addressProp))
+                return addressProp.GetString() ?? string.Empty;
+        }
+        catch
+        {
+        }
+        return string.Empty;
     }
 
     /// <summary>
@@ -66,12 +111,41 @@ public class PermissionService
                 return Array.Empty<Guid>(); // Chưa gán tỉnh → không thấy trạm nào
             }
 
-            // Lấy tất cả stationId thuộc các tỉnh đó
-            var stationIds = await _db.Stations
+            var provinces = await _db.Provinces
+                .AsNoTracking()
+                .Select(p => new { p.Id, p.Name, p.Code })
+                .ToListAsync();
+
+            var allowedProvinceAliases = provinces
+                .Where(p => dbUser.ProvinceIds.Contains(p.Id))
+                .SelectMany(p => BuildProvinceAliases(p.Name, p.Code))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var otherProvinceAliases = provinces
+                .Where(p => !dbUser.ProvinceIds.Contains(p.Id))
+                .SelectMany(p => BuildProvinceAliases(p.Name, p.Code))
+                .OrderByDescending(x => x.Length)
+                .ToArray();
+
+            var candidateStations = await _db.Stations
                 .AsNoTracking()
                 .Where(s => s.ProvinceId != null && dbUser.ProvinceIds.Contains(s.ProvinceId!.Value))
+                .Select(s => new { s.Id, s.Name, s.Location })
+                .ToListAsync();
+
+            var stationIds = candidateStations
+                .Where(s =>
+                {
+                    var haystack = NormalizeProvinceToken($"{s.Name} {ExtractAddress(s.Location)}");
+                    if (string.IsNullOrWhiteSpace(haystack)) return true;
+
+                    var mentionsOtherProvince = otherProvinceAliases.Any(alias => haystack.Contains(alias));
+                    if (!mentionsOtherProvince) return true;
+
+                    return allowedProvinceAliases.Any(alias => haystack.Contains(alias));
+                })
                 .Select(s => s.Id)
-                .ToArrayAsync();
+                .ToArray();
 
             return stationIds;
         }
@@ -184,7 +258,7 @@ public class PermissionService
     {
         "station:view", "station:manage", "device:view", "device:manage",
         "rule:view", "rule:manage", "user:view", "user:manage",
-        "report:view", "report:manage"
+        "report:view", "report:manage", "license:manage"
     };
 
     private static readonly string[] OperatorProvincePermissions = new[]
@@ -197,11 +271,12 @@ public class PermissionService
         "station:view", "device:view", "rule:view", "report:view"
     };
 
-    // Tổ trưởng: có thêm device:manage (quản lý thiết bị cụm trạm)
+    // Tổ trưởng: quản lý tổ + nhân viên trong tổ + trạm của tổ
     private static readonly string[] TeamLeaderPermissions = new[]
     {
         "station:view", "device:view", "device:manage",
-        "rule:view", "report:view"
+        "rule:view", "report:view",
+        "user:view", "user:manage"
     };
 
     // Manager: quản lý trạm, có device:manage

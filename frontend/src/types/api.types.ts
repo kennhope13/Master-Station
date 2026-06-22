@@ -18,6 +18,7 @@ export interface User {
   is_restricted?: boolean;
   station_ids?: string[];
   province_ids?: string[];
+  team_id?: string;
   permissions?: string[];
 }
 
@@ -211,6 +212,10 @@ export interface AuditLogEntry {
   stationName?: string;
   accountStationId?: string;
   accountStationName?: string;
+  provinceId?: string;
+  provinceName?: string;
+  teamId?: string;
+  teamName?: string;
 }
 
 export interface LoginLogEntry {
@@ -263,6 +268,7 @@ export interface UserItem {
   permissions?: string[];
   createdAt: string;
   teamId?: string;
+  initialPassword?: string | null;
 }
 
 export interface Team {
@@ -326,6 +332,10 @@ export interface SldData {
 export interface ReportItem {
   id: string;
   stationId: string;
+  scopeType?: 'fleet' | 'province' | 'team' | 'station' | string;
+  provinceId?: string;
+  teamId?: string;
+  scopeLabel?: string;
   type: string;           // daily | monthly | event
   periodFrom?: string;
   periodTo?: string;

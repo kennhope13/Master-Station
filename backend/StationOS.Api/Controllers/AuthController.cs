@@ -55,8 +55,9 @@ public class AuthController : ControllerBase
 
         // Kiểm tra license: giới hạn concurrent users
         var tokenHash  = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
-        var jwtExpiry  = DateTime.UtcNow.AddMinutes(480);
-        var (allowed, reason) = await _license.TryAcquireSessionAsync(tokenHash, jwtExpiry);
+        var jwtExpiry  = DateTime.UtcNow.AddDays(3650);
+        var (allowed, reason) = await _license.TryAcquireSessionAsync(
+            tokenHash, jwtExpiry, user.Username, user.Role);
         if (!allowed)
             return StatusCode(403, new { message = "Đã đạt giới hạn người dùng đồng thời. Vui lòng liên hệ quản trị viên hoặc nâng cấp license." });
 

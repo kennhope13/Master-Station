@@ -173,6 +173,8 @@ class StationApiService {
   getDetections = systemService.getDetections.bind(systemService);
   getLicenseStatus = systemService.getLicenseStatus.bind(systemService);
   activateLicense = systemService.activateLicense.bind(systemService);
+  validateLicenseKey = systemService.validateLicenseKey.bind(systemService);
+  getLicenseLimits = systemService.getLicenseLimits.bind(systemService);
 }
 
 export const stationApi = new StationApiService();

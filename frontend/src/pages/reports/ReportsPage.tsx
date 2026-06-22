@@ -7,7 +7,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ToolbarSelect from '@/components/ui/ToolbarSelect';
-import { stationApi, AlertItem } from '@/services/StationApiService';
+import { stationApi, AlertItem, Province, Team } from '@/services/StationApiService';
 import { useStationStore } from '@/store';
 import { TabId } from './types';
 import ExportTab from './tabs/ExportTab';
@@ -33,7 +33,11 @@ export default function ReportsPage({ embeddedMode = 'default', initialStationId
   };
 
   const [stationId, setStationId] = useState(initialStationId);
+  const [reportScopeType, setReportScopeType] = useState<'fleet' | 'province' | 'team' | 'station'>('fleet');
+  const [reportScopeId, setReportScopeId] = useState('');
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [provinces, setProvinces] = useState<Province[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const stations = useStationStore(s => s.stations);
   const fetchStations = useStationStore(s => s.fetch);
 
@@ -45,7 +49,42 @@ export default function ReportsPage({ embeddedMode = 'default', initialStationId
       }
     }).catch(() => {});
     stationApi.getAlerts(undefined, undefined, undefined, 500).then(setAlerts).catch(() => {});
+    stationApi.getProvinces().then(setProvinces).catch(() => {});
+    stationApi.getTeams().then(setTeams).catch(() => {});
   }, [fetchStations, initialStationId]);
+
+  useEffect(() => {
+    setReportScopeId('');
+  }, [reportScopeType]);
+
+  const reportScopeOptions = [
+    { value: 'fleet', label: 'Toàn hệ thống' },
+    { value: 'province', label: 'Theo tỉnh' },
+    { value: 'team', label: 'Theo tổ' },
+    { value: 'station', label: 'Theo trạm' },
+  ];
+
+  const reportEntityOptions = reportScopeType === 'province'
+    ? provinces.map(p => ({ value: p.id, label: p.name }))
+    : reportScopeType === 'team'
+      ? teams.map(t => ({ value: t.id, label: t.name }))
+      : reportScopeType === 'station'
+        ? stations.map(s => ({ value: s.id, label: s.name }))
+        : [{ value: '', label: 'Toàn hệ thống' }];
+
+  const selectedReportStationIds = reportScopeType === 'fleet'
+    ? stations.map(s => s.id)
+    : reportScopeType === 'province'
+      ? stations.filter(s => s.provinceId === reportScopeId).map(s => s.id)
+      : reportScopeType === 'team'
+        ? (teams.find(t => t.id === reportScopeId)?.stationIds || [])
+        : reportScopeId
+          ? [reportScopeId]
+          : [];
+
+  const selectedReportScopeLabel = reportScopeType === 'fleet'
+    ? `Toàn hệ thống (${stations.length} trạm)`
+    : reportEntityOptions.find(option => option.value === reportScopeId)?.label || '';
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', overflow: 'hidden' }}>
@@ -58,15 +97,42 @@ export default function ReportsPage({ embeddedMode = 'default', initialStationId
               </div>
             )}
             <div className="page-toolbar-group" style={{ gap: 10 }}>
-              <div className="page-toolbar-cell" style={{ height: 26, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="page-cell-label" style={{ fontSize: '0.6rem', fontWeight: 800 }}>TRẠM:</span>
-                <ToolbarSelect
-                  value={stationId}
-                  onChange={setStationId}
-                  options={[{ value: '', label: 'Tất cả các trạm' }, ...stations.map(s => ({ value: s.id, label: s.name }))]}
-                  width={180}
-                />
-              </div>
+              {activeTab === 'export' ? (
+                <div className="page-toolbar-cell" style={{ height: 26, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="page-cell-label" style={{ fontSize: '0.6rem', fontWeight: 800 }}>TRẠM:</span>
+                  <ToolbarSelect
+                    value={stationId}
+                    onChange={setStationId}
+                    options={[{ value: '', label: 'Tất cả các trạm' }, ...stations.map(s => ({ value: s.id, label: s.name }))]}
+                    width={180}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div className="page-toolbar-cell" style={{ height: 26, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="page-cell-label" style={{ fontSize: '0.6rem', fontWeight: 800 }}>PHẠM VI:</span>
+                    <ToolbarSelect
+                      value={reportScopeType}
+                      onChange={value => setReportScopeType(value as 'fleet' | 'province' | 'team' | 'station')}
+                      options={reportScopeOptions}
+                      width={150}
+                    />
+                  </div>
+                  {reportScopeType !== 'fleet' && (
+                    <div className="page-toolbar-cell" style={{ height: 26, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="page-cell-label" style={{ fontSize: '0.6rem', fontWeight: 800 }}>
+                        {reportScopeType === 'province' ? 'TỈNH:' : reportScopeType === 'team' ? 'TỔ:' : 'TRẠM:'}
+                      </span>
+                      <ToolbarSelect
+                        value={reportScopeId}
+                        onChange={setReportScopeId}
+                        options={[{ value: '', label: '-- Chọn --' }, ...reportEntityOptions]}
+                        width={190}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
               <div style={{ width: 1, height: 16, background: 'var(--admin-border)', margin: '0 4px' }} />
               <button 
                 onClick={() => setActiveTab('export')} 
@@ -101,7 +167,15 @@ export default function ReportsPage({ embeddedMode = 'default', initialStationId
       <div style={{ padding: embeddedMode === 'central' ? '0 14px 10px 14px' : '0 20px 20px 20px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div className="admin-card" style={{ padding: 12, overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column', borderRadius: '0 0 3px 3px', borderTop: '1px solid var(--admin-border)' }}>
           {activeTab === 'export' && <ExportTab stationId={stationId} alerts={alerts} />}
-          {activeTab === 'report' && <ReportTab stationId={stationId} />}
+          {activeTab === 'report' && (
+            <ReportTab
+              stationId={stationId}
+              scopeType={reportScopeType}
+              scopeId={reportScopeId}
+              scopeLabel={selectedReportScopeLabel}
+              stationIds={selectedReportStationIds}
+            />
+          )}
         </div>
       </div>
     </div>

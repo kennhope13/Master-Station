@@ -16,6 +16,7 @@ export class SystemService {
       ...u,
       province_ids: u.provinceIds || u.province_ids,
       station_ids: u.stationIds || u.station_ids,
+      initialPassword: u.initialPassword ?? u.initial_password ?? null,
     };
   }
 
@@ -149,7 +150,7 @@ export class SystemService {
 
   // ── License ───────────────────────────────────────────────
 
-  /** Trạng thái license: hợp lệ/hết hạn, số ngày còn lại, module được phép. */
+  /** Trạng thái license: hợp lệ/hết hạn, số ngày còn lại, giới hạn tài nguyên. */
   async getLicenseStatus(): Promise<any> {
     return apiFetch('/license/status');
   }
@@ -157,6 +158,16 @@ export class SystemService {
   /** Kích hoạt license bằng key. */
   async activateLicense(key: string): Promise<any> {
     return apiMutate('POST', '/license/activate', { key });
+  }
+
+  /** Kiểm tra tính hợp lệ key mà không kích hoạt. */
+  async validateLicenseKey(key: string): Promise<any> {
+    return apiMutate('POST', '/license/validate', { key });
+  }
+
+  /** Tổng quan sử dụng tài nguyên hiện tại vs giới hạn license. */
+  async getLicenseLimits(): Promise<any[]> {
+    return apiFetch('/license/limits');
   }
 }
 

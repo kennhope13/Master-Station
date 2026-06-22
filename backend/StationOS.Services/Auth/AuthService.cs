@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Services.Security;
 
 namespace StationOS.Services.Auth;
 
@@ -21,11 +22,13 @@ public class AuthService
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
+    private readonly CredentialEncryptionService _crypto;
 
-    public AuthService(AppDbContext db, IConfiguration config)
+    public AuthService(AppDbContext db, IConfiguration config, CredentialEncryptionService crypto)
     {
         _db = db;
         _config = config;
+        _crypto = crypto;
     }
 
     /// <summary>
@@ -34,6 +37,8 @@ public class AuthService
     /// </summary>
     public async Task<(string token, string refreshToken, User user)?> LoginAsync(string username, string password)
     {
+        username = UsernameNormalizer.Normalize(username);
+
         // Tìm user active trong DB
         var user = await _db.Users
             .FirstOrDefaultAsync(u => u.Username == username && u.IsActive);
@@ -87,6 +92,7 @@ public class AuthService
             return (false, "Mật khẩu mới không được trùng với mật khẩu cũ");
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword, workFactor: 12);
+        user.ProvisionedPassword = null;
         user.MustChangePassword = false;
         user.LastPasswordChangedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
@@ -127,6 +133,11 @@ public class AuthService
         if (user.ProvinceIds != null && user.ProvinceIds.Length > 0)
         {
             claims.Add(new Claim("provinceIds", string.Join(",", user.ProvinceIds)));
+        }
+
+        if (user.TeamId != null)
+        {
+            claims.Add(new Claim("teamId", user.TeamId.ToString()!));
         }
 
         var permissionsSet = new HashSet<string>();
@@ -170,6 +181,8 @@ public class AuthService
     /// </summary>
     public async Task SeedAdminIfNotExistsAsync()
     {
+        await NormalizeExistingUsernamesAsync();
+
         // 0. Seed Provinces if none exist
         if (!await _db.Provinces.AnyAsync())
         {
@@ -180,19 +193,9 @@ public class AuthService
 
             _db.Provinces.AddRange(pTayNinh, pCanTho, pLongAn, pVinhLong);
             await _db.SaveChangesAsync();
-
-             // Link existing stations to provinces
-             var stations = await _db.Stations.ToListAsync();
-             foreach (var s in stations)
-             {
-                 if (s.Name.Contains("An Thạnh") || s.Name.Contains("Tây Ninh")) s.ProvinceId = pTayNinh.Id;
-                 else if (s.Name.Contains("Cái Răng")) s.ProvinceId = pCanTho.Id;
-                 else if (s.Name.Contains("Tân Trụ") || s.Name.Contains("Tân An") || s.Name.Contains("Long An")) s.ProvinceId = pLongAn.Id;
-                 else if (s.Name.Contains("Trà Ôn")) s.ProvinceId = pVinhLong.Id;
-                 else s.ProvinceId = pTayNinh.Id; // default fallback
-             }
-             await _db.SaveChangesAsync();
         }
+
+        await SyncStationProvinceAssignmentsAsync();
 
         // 1. Upsert admin (Trạm con) - Only if not Central
         var connStr = _config.GetConnectionString("Default") ?? "";
@@ -234,33 +237,6 @@ public class AuthService
         multi.IsActive = true;
         multi.MustChangePassword = false;
 
-        // 3. Upsert province admin (Admin Tỉnh)
-        var provinceAdmin = await _db.Users.FirstOrDefaultAsync(u => u.Username == "provinceadmin");
-        if (provinceAdmin == null)
-        {
-            provinceAdmin = new User { Username = "provinceadmin", Role = "admin_province" };
-            _db.Users.Add(provinceAdmin);
-        }
-        provinceAdmin.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Province@123", workFactor: 12);
-        provinceAdmin.FullName = "Quản trị viên Tỉnh";
-        provinceAdmin.Email = "provinceadmin@StationOS.vn";
-        provinceAdmin.IsActive = true;
-        provinceAdmin.MustChangePassword = false;
-        // Assign Long An province for demo
-        var laProvince = await _db.Provinces.FirstOrDefaultAsync(p => p.Code == "LA");
-        var provIds = new List<Guid>();
-        if (laProvince != null) provIds.Add(laProvince.Id);
-
-        if (provIds.Count > 0)
-        {
-            provinceAdmin.ProvinceIds = provIds.ToArray();
-        }
-        else
-        {
-            provinceAdmin.ProvinceIds = await _db.Provinces.Select(p => p.Id).ToArrayAsync();
-        }
-        _db.Entry(provinceAdmin).Property(u => u.ProvinceIds).IsModified = true;
-
         // 4. Upsert station admin (Admin Trạm)
         var stationAdmin = await _db.Users.FirstOrDefaultAsync(u => u.Username == "stationadmin");
         if (stationAdmin == null)
@@ -277,60 +253,140 @@ public class AuthService
         var sampleStation = await _db.Stations.FirstOrDefaultAsync();
         stationAdmin.StationIds = sampleStation != null ? new[] { sampleStation.Id } : null;
 
-        // 5. Remove redundant local accounts (manager, operator) to keep seed clean
+        // 5. Remove redundant local accounts (manager, operator, provinceadmin) to keep seed clean
         var existingManager = await _db.Users.FirstOrDefaultAsync(u => u.Username == "manager");
         if (existingManager != null) _db.Users.Remove(existingManager);
         var existingOperator = await _db.Users.FirstOrDefaultAsync(u => u.Username == "operator");
         if (existingOperator != null) _db.Users.Remove(existingOperator);
+        var existingProvinceAdmin = await _db.Users.FirstOrDefaultAsync(u => u.Username == "provinceadmin");
+        if (existingProvinceAdmin != null) _db.Users.Remove(existingProvinceAdmin);
 
-        // 7. Seed default Teams and Team-based users
-        var laProv = await _db.Provinces.FirstOrDefaultAsync(p => p.Code == "LA");
-        var tnProv = await _db.Provinces.FirstOrDefaultAsync(p => p.Code == "TN");
-
-        var team1 = await _db.Teams.FirstOrDefaultAsync(t => t.Name == "Tổ thao tác lưu động 1");
-        if (team1 == null)
-        {
-            team1 = new Team { Name = "Tổ thao tác lưu động 1" };
-            _db.Teams.Add(team1);
-        }
-        team1.ProvinceId = laProv?.Id;
-        var allStationIds = await _db.Stations.Select(s => s.Id).ToArrayAsync();
-        team1.StationIds = allStationIds;
-
-        var team2 = await _db.Teams.FirstOrDefaultAsync(t => t.Name == "Tổ thao tác lưu động 2");
-        if (team2 == null)
-        {
-            team2 = new Team { Name = "Tổ thao tác lưu động 2" };
-            _db.Teams.Add(team2);
-        }
-        team2.ProvinceId = tnProv?.Id;
-        team2.StationIds = allStationIds.Take(2).ToArray();
-
-        // Save changes first to get Team IDs
-        await _db.SaveChangesAsync();
-
-        // 8. Remove redundant account (operatorprovince) if it exists
+        // 7. Remove redundant account (operatorprovince) if it exists
         var existingOpProv = await _db.Users.FirstOrDefaultAsync(u => u.Username == "operatorprovince");
         if (existingOpProv != null) _db.Users.Remove(existingOpProv);
 
-        // 9. Upsert Team Leader (Tầng 2 Admin Tổ)
-        var teamLeader = await _db.Users.FirstOrDefaultAsync(u => u.Username == "teamleader");
-        if (teamLeader == null)
-        {
-            teamLeader = new User { Username = "teamleader", Role = "team_leader" };
-            _db.Users.Add(teamLeader);
-        }
-        teamLeader.PasswordHash = BCrypt.Net.BCrypt.HashPassword("TeamLeader@123", workFactor: 12);
-        teamLeader.FullName = "Tổ trưởng Tổ 1";
-        teamLeader.Email = "teamleader@StationOS.vn";
-        teamLeader.IsActive = true;
-        teamLeader.MustChangePassword = false;
-        teamLeader.TeamId = team1.Id;
+        // 8. Remove redundant account (teamleader) if it exists
+        var existingTeamLeader = await _db.Users.FirstOrDefaultAsync(u => u.Username == "teamleader");
+        if (existingTeamLeader != null) _db.Users.Remove(existingTeamLeader);
 
-        // 10. Remove redundant account (teammember) if it exists
+        // 9. Remove redundant account (teammember) if it exists
         var existingTeamMember = await _db.Users.FirstOrDefaultAsync(u => u.Username == "teammember");
         if (existingTeamMember != null) _db.Users.Remove(existingTeamMember);
 
         await _db.SaveChangesAsync();
+    }
+
+    private async Task NormalizeExistingUsernamesAsync()
+    {
+        var users = await _db.Users.OrderBy(u => u.CreatedAt).ToListAsync();
+        if (users.Count == 0) return;
+
+        var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+
+        foreach (var user in users)
+        {
+            var normalized = UsernameNormalizer.Normalize(user.Username);
+            if (string.IsNullOrWhiteSpace(normalized))
+                normalized = $"user{user.Id.ToString("N")[..8]}";
+
+            var candidate = normalized;
+            var suffix = 2;
+            while (reserved.Contains(candidate))
+            {
+                candidate = $"{normalized}{suffix}";
+                suffix++;
+            }
+
+            reserved.Add(candidate);
+            if (!string.Equals(user.Username, candidate, StringComparison.Ordinal))
+            {
+                user.Username = candidate;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await _db.SaveChangesAsync();
+    }
+
+    private async Task SyncStationProvinceAssignmentsAsync()
+    {
+        static IEnumerable<string> BuildProvinceAliases(Province province)
+        {
+            var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(province.Name))
+            {
+                aliases.Add(province.Name.Trim());
+
+                var normalized = province.Name
+                    .Replace("Tỉnh ", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("Thành phố ", "", StringComparison.OrdinalIgnoreCase)
+                    .Replace("TP. ", "", StringComparison.OrdinalIgnoreCase)
+                    .Trim();
+
+                if (!string.IsNullOrWhiteSpace(normalized))
+                    aliases.Add(normalized);
+            }
+
+            if (!string.IsNullOrWhiteSpace(province.Code))
+                aliases.Add(province.Code.Trim());
+
+            return aliases;
+        }
+
+        var provinces = await _db.Provinces.AsNoTracking().ToListAsync();
+        if (provinces.Count == 0) return;
+
+        var provinceAliases = provinces
+            .Select(p => new
+            {
+                Province = p,
+                Aliases = BuildProvinceAliases(p)
+                    .OrderByDescending(a => a.Length)
+                    .ToArray()
+            })
+            .ToList();
+
+        var stations = await _db.Stations.ToListAsync();
+        var changed = false;
+
+        foreach (var station in stations)
+        {
+            // Only match against name and address text — NOT the raw location JSON
+            // (the JSON contains field names like "lat" which would falsely match "LA")
+            string address = "";
+            if (!string.IsNullOrWhiteSpace(station.Location))
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(station.Location);
+                    if (doc.RootElement.TryGetProperty("address", out var ap))
+                        address = ap.GetString() ?? "";
+                }
+                catch { }
+            }
+
+            // Province determined by map coordinates/address only — not station name
+            // Match against full official name only ("Tỉnh X", "Thành phố X") to avoid
+            // false matches from ward/district names (e.g., "Phường Long An" ≠ tỉnh Long An)
+            var haystack = address.ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(haystack)) continue;
+
+            var matchedProvince = provinceAliases.FirstOrDefault(x =>
+                !string.IsNullOrWhiteSpace(x.Province.Name) &&
+                haystack.Contains(x.Province.Name.Trim().ToLowerInvariant())
+            )?.Province;
+
+            if (matchedProvince != null && station.ProvinceId != matchedProvince.Id)
+            {
+                station.ProvinceId = matchedProvince.Id;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await _db.SaveChangesAsync();
     }
 }

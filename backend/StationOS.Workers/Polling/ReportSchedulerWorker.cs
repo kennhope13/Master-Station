@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // ReportSchedulerWorker — Hangfire job: tạo daily report 00:05
 // Đăng ký trong Program.cs với RecurringJob
 // ============================================================
@@ -43,7 +43,7 @@ public class ReportSchedulerWorker
 
             foreach (var station in stations)
             {
-                var opts = new ReportOptions(station.Id, "daily", from, to);
+                var opts = new ReportOptions(station.Id, "station", null, null, station.Name, "daily", from, to);
                 var report = await _generator.GenerateAsync(opts);
                 _logger.LogInformation("[ReportScheduler] Đã tạo báo cáo {Id} cho trạm {Station}", report.Id, station.Name);
             }

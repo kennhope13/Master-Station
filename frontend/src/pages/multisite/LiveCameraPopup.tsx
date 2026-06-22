@@ -1,14 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Video, RefreshCw, Wifi, WifiOff, AlertTriangle, Maximize2, Minimize2, Square
+  Video, RefreshCw, Wifi, WifiOff, AlertTriangle, Maximize2, Minimize2, Square, ChevronLeft, ChevronRight, Grid, ChevronDown
 } from 'lucide-react';
 import { authService } from '@/services/AuthService';
 import { stationApi } from '@/services/StationApiService';
 import type { CameraDevice, Station } from '@/types/api.types';
 import { GO2RTC_URL } from '@/utils/env';
-
-type CamLayout = '1' | '4' | '9';
 
 function expandCameras(cams: CameraDevice[]): CameraDevice[] {
   const out: CameraDevice[] = [];
@@ -33,9 +31,70 @@ export default function LiveCameraPopup() {
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
   const [go2rtcBase, setGo2rtcBase] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [layout, setLayout] = useState<CamLayout>('4');
+  const [layout, setLayout] = useState<{ cols: number; rows: number }>({ cols: 2, rows: 2 });
+  const [prevLayout, setPrevLayout] = useState<{ cols: number; rows: number }>({ cols: 2, rows: 2 });
+
+  const changeLayout = (newLayout: { cols: number; rows: number }) => {
+    setLayout(newLayout);
+    if (newLayout.cols !== 1 || newLayout.rows !== 1) {
+      setPrevLayout(newLayout);
+    }
+  };
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [hoverGrid, setHoverGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedCellIndex, setSelectedCellIndex] = useState<number>(0);
+  const [cellCameras, setCellCameras] = useState<Record<number, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const maxCams = layout.cols * layout.rows;
+  useEffect(() => {
+    if (selectedCellIndex >= maxCams) {
+      setSelectedCellIndex(0);
+    }
+  }, [layout, selectedCellIndex, maxCams]);
+
+  const [savedLayouts, setSavedLayouts] = useState<{
+    id: string;
+    name: string;
+    cols: number;
+    rows: number;
+    selectedCamFilter: string;
+  }[]>([]);
+  const [newLayoutName, setNewLayoutName] = useState('');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('stationos_saved_layouts');
+      if (stored) {
+        setSavedLayouts(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const handleSaveLayout = () => {
+    if (!newLayoutName.trim()) return;
+    const item = {
+      id: Date.now().toString(),
+      name: newLayoutName.trim(),
+      cols: layout.cols,
+      rows: layout.rows,
+      selectedCamFilter: '' // Popup does not have separate camera filters
+    };
+    const updated = [...savedLayouts, item];
+    setSavedLayouts(updated);
+    localStorage.setItem('stationos_saved_layouts', JSON.stringify(updated));
+    setNewLayoutName('');
+  };
+
+  const handleDeleteLayout = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedLayouts.filter(l => l.id !== id);
+    setSavedLayouts(updated);
+    localStorage.setItem('stationos_saved_layouts', JSON.stringify(updated));
+  };
 
   // Set window title and ensure auth
   useEffect(() => {
@@ -66,6 +125,8 @@ export default function LiveCameraPopup() {
     setLoading(true);
     setCameras([]);
     setExpandedId(null);
+    setCellCameras({});
+    setSelectedCellIndex(0);
     stationApi.getRemoteCameras(stationId)
       .then(result => {
         setGo2rtcBase(result.go2rtcBase ?? null);
@@ -103,13 +164,23 @@ export default function LiveCameraPopup() {
   }, [authReady, stationId, refreshKey]);
 
   const isOffline = station?.connectionStatus !== 'online';
-  const cols = layout === '1' ? 1 : layout === '4' ? 2 : 3;
-  const maxCams = parseInt(layout);
-  const visibleCams = useMemo(() => expandedId
-    ? cameras.filter(c => c.id === expandedId)
-    : cameras.slice(0, maxCams),
-  [cameras, expandedId, maxCams]);
-  const emptyCells = expandedId ? 0 : Math.max(0, maxCams - visibleCams.length);
+  const cols = layout.cols;
+  const gridCams = useMemo(() => {
+    if (expandedId) {
+      const cam = cameras.find(c => c.id === expandedId);
+      return cam ? [cam] : [];
+    }
+    const list: (CameraDevice | undefined)[] = [];
+    for (let i = 0; i < maxCams; i++) {
+      const assignedId = cellCameras[i];
+      if (assignedId) {
+        list.push(cameras.find(c => c.id === assignedId));
+      } else {
+        list.push(cameras[i]);
+      }
+    }
+    return list;
+  }, [cameras, expandedId, maxCams, cellCameras]);
 
   return (
     <div style={{
@@ -156,25 +227,258 @@ export default function LiveCameraPopup() {
 
         <div style={{ width: 1, height: 16, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
 
-        {/* Layout buttons */}
-        {(['1', '4', '9'] as CamLayout[]).map(l => (
+        {/* Grid Layout Selector Dropdown */}
+        <div style={{ position: 'relative' }}>
           <button
-            key={l}
-            onClick={() => { setLayout(l); setExpandedId(null); }}
-            title={l === '1' ? 'Toàn màn hình' : l === '4' ? 'Lưới 2×2' : 'Lưới 3×3'}
+            onClick={() => setDropdownOpen(!dropdownOpen)}
             style={{
-              width: 24, height: 24, padding: 0,
-              border: '1px solid',
-              borderColor: layout === l ? 'rgba(245,158,11,0.8)' : 'rgba(255,255,255,0.12)',
-              background: layout === l ? 'rgba(245,158,11,0.12)' : 'transparent',
-              color: layout === l ? '#f59e0b' : 'rgba(255,255,255,0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              height: 24,
+              padding: '0 8px',
+              background: dropdownOpen ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              color: '#fff',
+              fontSize: '10px',
+              fontWeight: 700,
               cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
+              borderRadius: 0,
+              outline: 'none',
             }}
           >
-            <LayoutIcon layout={l} active={layout === l} />
+            <Grid size={12} style={{ color: '#f59e0b' }} />
+            <span>Bố cục: {layout.cols} × {layout.rows}</span>
+            <ChevronDown size={10} style={{ opacity: 0.6 }} />
           </button>
-        ))}
+
+          {dropdownOpen && (
+            <>
+              {/* Click overlay to close */}
+              <div
+                onClick={() => {
+                  setDropdownOpen(false);
+                  setHoverGrid(null);
+                }}
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  zIndex: 998,
+                }}
+              />
+              
+              {/* Dropdown panel */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  right: 0,
+                  marginTop: 4,
+                  background: '#0f172a',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  padding: 10,
+                  zIndex: 999,
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+                  borderRadius: 0,
+                  width: 'max-content',
+                }}
+              >
+                <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Chọn bố cục nhanh
+                </div>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 5, marginBottom: 10 }}>
+                  {[
+                    { cols: 1, rows: 1, label: 'Lưới 1×1' },
+                    { cols: 2, rows: 2, label: 'Lưới 2×2' },
+                    { cols: 3, rows: 3, label: 'Lưới 3×3' },
+                    { cols: 4, rows: 4, label: 'Lưới 4×4' },
+                    { cols: 6, rows: 4, label: 'Lưới 6×4' },
+                    { cols: 6, rows: 5, label: 'Lưới 6×5' },
+                    { cols: 6, rows: 6, label: 'Lưới 6×6' },
+                    { cols: 8, rows: 8, label: 'Lưới 8×8' },
+                  ].map((preset) => (
+                    <button
+                      key={`${preset.cols}-${preset.rows}`}
+                      onClick={() => {
+                        changeLayout(preset);
+                        setExpandedId(null);
+                        setDropdownOpen(false);
+                      }}
+                      style={{
+                        background: (layout.cols === preset.cols && layout.rows === preset.rows) ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                        border: (layout.cols === preset.cols && layout.rows === preset.rows) ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)',
+                        color: (layout.cols === preset.cols && layout.rows === preset.rows) ? '#f59e0b' : '#fff',
+                        fontSize: '9px',
+                        fontWeight: 600,
+                        padding: '3px 2px',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        borderRadius: 0,
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Lưới tự chọn
+                    </span>
+                    <span style={{ fontSize: '10px', fontWeight: 700, color: '#f59e0b' }}>
+                      {hoverGrid ? `${hoverGrid.cols} × ${hoverGrid.rows} (${hoverGrid.cols * hoverGrid.rows} ô)` : `${layout.cols} × ${layout.rows} (${layout.cols * layout.rows} ô)`}
+                    </span>
+                  </div>
+
+                  <div 
+                    onMouseLeave={() => setHoverGrid(null)}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(10, 16px)',
+                      gap: 2,
+                      background: 'rgba(0, 0, 0, 0.2)',
+                      padding: 4,
+                      border: '1px solid rgba(255, 255, 255, 0.05)'
+                    }}
+                  >
+                    {Array.from({ length: 10 }).map((_, r) =>
+                      Array.from({ length: 10 }).map((_, c) => {
+                        const isHighlighted = hoverGrid
+                          ? (r < hoverGrid.rows && c < hoverGrid.cols)
+                          : (r < layout.rows && c < layout.cols);
+                        return (
+                          <div
+                            key={`${r}-${c}`}
+                            onMouseEnter={() => setHoverGrid({ rows: r + 1, cols: c + 1 })}
+                            onClick={() => {
+                              changeLayout({ cols: c + 1, rows: r + 1 });
+                              setExpandedId(null);
+                              setDropdownOpen(false);
+                              setHoverGrid(null);
+                            }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              background: isHighlighted ? 'rgba(245, 158, 11, 0.45)' : 'rgba(255, 255, 255, 0.04)',
+                              border: isHighlighted ? '1px solid rgba(245, 158, 11, 0.8)' : '1px solid rgba(255, 255, 255, 0.08)',
+                              cursor: 'pointer',
+                              transition: 'all 0.1s ease',
+                            }}
+                          />
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 8, marginTop: 8 }}>
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Lưu bố cục hiện tại
+                  </div>
+                  <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
+                    <input
+                      type="text"
+                      value={newLayoutName}
+                      onChange={(e) => setNewLayoutName(e.target.value)}
+                      placeholder="Tên bố cục..."
+                      style={{
+                        flex: 1,
+                        background: 'rgba(0, 0, 0, 0.2)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        color: '#fff',
+                        fontSize: '10px',
+                        padding: '3px 6px',
+                        outline: 'none',
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleSaveLayout();
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={handleSaveLayout}
+                      style={{
+                        background: '#f59e0b',
+                        color: '#000',
+                        border: 'none',
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        cursor: 'pointer',
+                        borderRadius: 0,
+                      }}
+                    >
+                      Lưu
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: '10px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Bố cục đã lưu
+                  </div>
+                  {savedLayouts.length === 0 ? (
+                    <div style={{ fontSize: '9px', color: 'rgba(255, 255, 255, 0.3)', fontStyle: 'italic', padding: '2px 0' }}>
+                      Chưa có bố cục nào được lưu
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 100, overflowY: 'auto' }}>
+                      {savedLayouts.map((l) => (
+                        <div
+                          key={l.id}
+                          onClick={() => {
+                            changeLayout({ cols: l.cols, rows: l.rows });
+                            setExpandedId(null);
+                            setDropdownOpen(false);
+                          }}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '3px 5px',
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            border: '1px solid rgba(255, 255, 255, 0.05)',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                          }}
+                        >
+                          <span style={{ fontSize: '10px', color: '#fff', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>
+                            {l.name} ({l.cols}x{l.rows})
+                          </span>
+                          <button
+                            onClick={(e) => handleDeleteLayout(l.id, e)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'rgba(255, 255, 255, 0.4)',
+                              cursor: 'pointer',
+                              fontSize: '10px',
+                              padding: '0 3px',
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.4)'}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Refresh */}
         <button
@@ -193,63 +497,201 @@ export default function LiveCameraPopup() {
         </button>
       </div>
 
-      {/* Camera grid */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        {loading && (
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 10,
-            color: 'rgba(255,255,255,0.35)'
-          }}>
-            <RefreshCw size={20} style={{ animation: 'popup-spin 1s linear infinite' }} />
-            <span style={{ fontSize: '0.72rem', fontWeight: 600 }}>Đang tải camera...</span>
-            <style>{`@keyframes popup-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-          </div>
-        )}
-
-        {!loading && cameras.length === 0 && (
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 12, color: 'rgba(255,255,255,0.25)'
-          }}>
-            {isOffline
-              ? <WifiOff size={40} style={{ opacity: 0.4 }} />
-              : <Video size={40} style={{ opacity: 0.4 }} />
-            }
-            <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>
-              {isOffline ? 'Trạm đang offline' : 'Trạm chưa có camera nào được cấu hình'}
-            </span>
-          </div>
-        )}
-
+      {/* Main Area with Sidebar */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
+        {/* Camera Sidebar */}
         {!loading && cameras.length > 0 && (
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${expandedId ? 1 : cols}, 1fr)`,
-            gridAutoRows: '1fr',
-            gap: 2, height: '100%', padding: 2, boxSizing: 'border-box'
+            width: 200,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'rgba(15,23,42,0.95)',
+            borderRight: '1px solid rgba(255,255,255,0.07)',
+            overflow: 'hidden'
           }}>
-            {visibleCams.map(cam => (
-              <CameraCell
-                key={cam.id}
-                camera={cam}
-                go2rtcBase={go2rtcBase ?? GO2RTC_URL}
-                isExpanded={expandedId === cam.id}
-                onExpand={() => setExpandedId(cam.id)}
-                onCollapse={() => setExpandedId(null)}
-              />
-            ))}
-            {emptyCells > 0 && Array.from({ length: emptyCells }).map((_, i) => (
-              <div key={`ph-${i}`} style={{
-                background: '#0d1117',
-                border: '1px dashed rgba(255,255,255,0.05)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center'
-              }}>
-                <Video size={20} style={{ opacity: 0.1 }} />
+            <div style={{
+              padding: '10px 14px',
+              borderBottom: '1px solid rgba(255,255,255,0.07)',
+              fontSize: '0.62rem',
+              fontWeight: 800,
+              color: 'rgba(255,255,255,0.4)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              letterSpacing: '0.05em'
+            }}>
+              <span>DANH SÁCH CAMERA</span>
+              {expandedId && (
+                <button
+                  onClick={() => {
+                    setExpandedId(null);
+                    setCellCameras({});
+                    setLayout(prevLayout);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#f59e0b',
+                    fontSize: '9px',
+                    cursor: 'pointer',
+                    fontWeight: 700,
+                    padding: 0
+                  }}
+                >
+                  Hiện tất cả
+                </button>
+              )}
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <div
+                onClick={() => {
+                  setExpandedId(null);
+                  setCellCameras({});
+                  setLayout(prevLayout);
+                }}
+                style={{
+                  padding: '10px 14px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid rgba(255,255,255,0.05)',
+                  background: !expandedId ? 'rgba(245,158,11,0.08)' : 'transparent',
+                  borderLeft: !expandedId ? '3px solid #f59e0b' : '3px solid transparent',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.15s'
+                }}
+              >
+                <Grid size={12} style={{ color: !expandedId ? '#f59e0b' : 'rgba(255,255,255,0.4)' }} />
+                <span style={{
+                  fontWeight: !expandedId ? 800 : 500,
+                  fontSize: '0.68rem',
+                  color: !expandedId ? '#fff' : 'rgba(255,255,255,0.4)'
+                }}>Tất cả camera</span>
               </div>
-            ))}
+              {cameras.map(c => {
+                const currentCellCamId = cellCameras[selectedCellIndex] || cameras[selectedCellIndex]?.id;
+                const active = currentCellCamId === c.id;
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => {
+                      setCellCameras(prev => ({
+                        ...prev,
+                        [selectedCellIndex]: c.id
+                      }));
+                    }}
+                    style={{
+                      padding: '10px 14px',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      background: active ? 'rgba(245,158,11,0.08)' : 'transparent',
+                      borderLeft: active ? '3px solid #f59e0b' : '3px solid transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <span style={{
+                      width: 5, height: 5, borderRadius: '50%',
+                      background: '#10b981',
+                      boxShadow: '0 0 4px #10b981'
+                    }} />
+                    <span style={{
+                      fontWeight: active ? 800 : 500,
+                      fontSize: '0.68rem',
+                      color: active ? '#fff' : 'rgba(255,255,255,0.7)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      flex: 1
+                    }}>
+                      {c.name}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
+
+        {/* Camera grid area */}
+        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+          {loading && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 10,
+              color: 'rgba(255,255,255,0.35)'
+            }}>
+              <RefreshCw size={20} style={{ animation: 'popup-spin 1s linear infinite' }} />
+              <span style={{ fontSize: '0.72rem', fontWeight: 600 }}>Đang tải camera...</span>
+              <style>{`@keyframes popup-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+            </div>
+          )}
+
+          {!loading && cameras.length === 0 && (
+            <div style={{
+              position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 12, color: 'rgba(255,255,255,0.25)'
+            }}>
+              {isOffline
+                ? <WifiOff size={40} style={{ opacity: 0.4 }} />
+                : <Video size={40} style={{ opacity: 0.4 }} />
+              }
+              <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>
+                {isOffline ? 'Trạm đang offline' : 'Trạm chưa có camera nào được cấu hình'}
+              </span>
+            </div>
+          )}
+
+          {!loading && cameras.length > 0 && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${expandedId ? 1 : cols}, 1fr)`,
+              gridAutoRows: '1fr',
+              gap: 2, height: '100%', padding: 2, boxSizing: 'border-box'
+            }}>
+              {gridCams.map((cam, i) => {
+                const isSelected = selectedCellIndex === i;
+                return (
+                  <div
+                    key={i}
+                    onClick={() => !expandedId && setSelectedCellIndex(i)}
+                    style={{
+                      position: 'relative',
+                      height: '100%',
+                      minHeight: 0,
+                      outline: (!expandedId && isSelected) ? '2px solid #f59e0b' : 'none',
+                      outlineOffset: -2,
+                      zIndex: (!expandedId && isSelected) ? 10 : 1,
+                      cursor: !expandedId ? 'pointer' : 'default'
+                    }}
+                  >
+                    {cam ? (
+                      <CameraCell
+                        camera={cam}
+                        go2rtcBase={go2rtcBase ?? GO2RTC_URL}
+                        isExpanded={expandedId === cam.id}
+                        onExpand={() => setExpandedId(cam.id)}
+                        onCollapse={() => setExpandedId(null)}
+                      />
+                    ) : (
+                      <div style={{
+                        height: '100%',
+                        background: '#0d1117',
+                        border: '1px dashed rgba(255,255,255,0.05)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                      }}>
+                        <Video size={20} style={{ opacity: 0.1 }} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -326,22 +768,4 @@ function CameraCell({ camera, go2rtcBase, isExpanded, onExpand, onCollapse }: {
   );
 }
 
-function LayoutIcon({ layout, active }: { layout: CamLayout; active: boolean }) {
-  const c = active ? '#f59e0b' : 'currentColor';
-  if (layout === '1') return <Square size={10} color={c} />;
-  if (layout === '4') return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-      <rect x="0" y="0" width="4" height="4" fill={c} opacity="0.9"/>
-      <rect x="6" y="0" width="4" height="4" fill={c} opacity="0.9"/>
-      <rect x="0" y="6" width="4" height="4" fill={c} opacity="0.9"/>
-      <rect x="6" y="6" width="4" height="4" fill={c} opacity="0.9"/>
-    </svg>
-  );
-  return (
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-      {[0,3.5,7].map(row => [0,3.5,7].map(col => (
-        <rect key={`${row}-${col}`} x={col} y={row} width="2" height="2" fill={c} opacity="0.9"/>
-      )))}
-    </svg>
-  );
-}
+

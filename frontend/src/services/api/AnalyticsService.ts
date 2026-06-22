@@ -15,11 +15,22 @@ export class AnalyticsService {
 
   /** Tạo báo cáo mới (daily/monthly/event). Backend xử lý async, trả về ReportItem với status. */
   async generateReport(data: {
-    stationId?: string; type: string; from: string; to: string;
+    stationId?: string;
+    scopeType?: 'fleet' | 'province' | 'team' | 'station';
+    provinceId?: string;
+    teamId?: string;
+    scopeLabel?: string;
+    type: string;
+    from: string;
+    to: string;
   }): Promise<ReportItem> {
     const guidEmpty = '00000000-0000-0000-0000-000000000000';
     return apiMutate('POST', '/reports/generate', {
-      stationId: data.stationId || guidEmpty, 
+      stationId: data.stationId || guidEmpty,
+      scopeType: data.scopeType || 'station',
+      provinceId: data.provinceId || null,
+      teamId: data.teamId || null,
+      scopeLabel: data.scopeLabel || null,
       type: data.type,
       from: new Date(data.from).toISOString(),
       to: new Date(data.to).toISOString(),
@@ -27,8 +38,18 @@ export class AnalyticsService {
   }
 
   /** Danh sách báo cáo đã tạo của trạm. */
-  async getReports(stationId?: string): Promise<ReportItem[]> {
-    const q = stationId ? `?stationId=${stationId}` : '?stationId=00000000-0000-0000-0000-000000000000';
+  async getReports(filters?: {
+    stationId?: string;
+    scopeType?: 'fleet' | 'province' | 'team' | 'station';
+    provinceId?: string;
+    teamId?: string;
+  }): Promise<ReportItem[]> {
+    const params = new URLSearchParams();
+    if (filters?.scopeType) params.set('scopeType', filters.scopeType);
+    if (filters?.stationId) params.set('stationId', filters.stationId);
+    if (filters?.provinceId) params.set('provinceId', filters.provinceId);
+    if (filters?.teamId) params.set('teamId', filters.teamId);
+    const q = params.toString() ? `?${params.toString()}` : '';
     return apiFetch<ReportItem[]>(`/reports${q}`);
   }
 

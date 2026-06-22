@@ -50,7 +50,21 @@ public class ReportsController : ControllerBase
         var userIdStr = User.FindFirst("sub")?.Value ?? User.FindFirst("nameid")?.Value;
         Guid? userId  = Guid.TryParse(userIdStr, out var uid) ? uid : null;
 
-        var opts   = new ReportOptions(req.StationId, req.Type, req.From, req.To, userId);
+        var scopeType = string.IsNullOrWhiteSpace(req.ScopeType) ? "station" : req.ScopeType.Trim().ToLowerInvariant();
+        var validScopes = new[] { "fleet", "province", "team", "station" };
+        if (!validScopes.Contains(scopeType))
+            return BadRequest($"scopeType phải là: {string.Join(", ", validScopes)}");
+
+        if (scopeType == "province" && req.ProvinceId == null)
+            return BadRequest("provinceId là bắt buộc khi tạo báo cáo theo tỉnh");
+
+        if (scopeType == "team" && req.TeamId == null)
+            return BadRequest("teamId là bắt buộc khi tạo báo cáo theo tổ");
+
+        if (scopeType == "station" && req.StationId == Guid.Empty)
+            return BadRequest("stationId là bắt buộc khi tạo báo cáo theo trạm");
+
+        var opts = new ReportOptions(req.StationId, scopeType, req.ProvinceId, req.TeamId, req.ScopeLabel, req.Type, req.From, req.To, userId);
         var report = await _generator.GenerateAsync(opts);
 
         return Ok(MapReport(report));
@@ -63,10 +77,20 @@ public class ReportsController : ControllerBase
     /// <returns>Danh sách báo cáo.</returns>
     [HttpGet]
     [HasPermission("report:view")]
-    public async Task<IActionResult> List([FromQuery] Guid? stationId, [FromQuery] int limit = 50)
+    public async Task<IActionResult> List([FromQuery] Guid? stationId, [FromQuery] Guid? provinceId, [FromQuery] Guid? teamId, [FromQuery] string? scopeType, [FromQuery] int limit = 50)
     {
         var q = _db.Reports.AsQueryable();
+        var normalizedScopeType = string.IsNullOrWhiteSpace(scopeType) ? null : scopeType.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(normalizedScopeType))
+        {
+            if (normalizedScopeType == "station")
+                q = q.Where(r => r.ScopeType == normalizedScopeType || r.ScopeType == null || r.ScopeType == "");
+            else
+                q = q.Where(r => r.ScopeType == normalizedScopeType);
+        }
         if (stationId.HasValue) q = q.Where(r => r.StationId == stationId);
+        if (provinceId.HasValue) q = q.Where(r => r.ProvinceId == provinceId);
+        if (teamId.HasValue) q = q.Where(r => r.TeamId == teamId);
 
         var reports = await q
             .OrderByDescending(r => r.GeneratedAt)
@@ -137,6 +161,10 @@ public class ReportsController : ControllerBase
     {
         r.Id,
         r.StationId,
+        scopeType = string.IsNullOrWhiteSpace(r.ScopeType) ? (r.StationId == Guid.Empty ? "fleet" : "station") : r.ScopeType,
+        r.ProvinceId,
+        r.TeamId,
+        r.ScopeLabel,
         r.Type,
         r.PeriodFrom,
         r.PeriodTo,
@@ -148,6 +176,10 @@ public class ReportsController : ControllerBase
 
 public record GenerateRequest(
     Guid     StationId,
+    string?  ScopeType,
+    Guid?    ProvinceId,
+    Guid?    TeamId,
+    string?  ScopeLabel,
     string   Type,
     DateTime From,
     DateTime To);

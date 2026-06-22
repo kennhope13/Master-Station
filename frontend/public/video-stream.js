@@ -6,14 +6,16 @@ import {VideoRTC} from './video-rtc.js';
  */
 class VideoStream extends VideoRTC {
     set divMode(value) {
-        this.querySelector('.mode').innerText = value;
-        this.querySelector('.status').innerText = '';
+        this.setAttribute('mode', value.toLowerCase());
+        this.querySelector('.mode').innerText = value === 'loading' ? 'Đang kết nối' : value;
+        this.querySelector('.status').innerText = value === 'loading' ? 'Đang tải luồng video...' : '';
     }
 
     set divError(value) {
-        const state = this.querySelector('.mode').innerText;
+        const state = this.getAttribute('mode');
         if (state !== 'loading') return;
-        this.querySelector('.mode').innerText = 'error';
+        this.setAttribute('mode', 'error');
+        this.querySelector('.mode').innerText = 'Lỗi kết nối';
         this.querySelector('.status').innerText = value;
     }
 
@@ -28,22 +30,80 @@ class VideoStream extends VideoRTC {
         <style>
         video-stream {
             position: relative;
+            background: #090d16;
+            font-family: system-ui, -apple-system, sans-serif;
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
         }
         .info {
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            padding: 12px;
-            color: white;
+            inset: 0;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            color: #94a3b8;
             pointer-events: none;
+            text-align: center;
+            z-index: 10;
+            background: rgba(8, 13, 22, 0.85);
+            box-sizing: border-box;
+            transition: all 0.2s ease;
+        }
+        /* Hide info when video is playing */
+        video-stream[mode="rtc"] .info,
+        video-stream[mode="mse"] .info,
+        video-stream[mode="hls"] .info,
+        video-stream[mode="mp4"] .info,
+        video-stream[mode="mjpeg"] .info {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        .mode {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 4px 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 8px;
+            border-radius: 0;
+            color: #fff;
+        }
+        video-stream[mode="error"] .mode {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.4);
+            color: #f87171;
+        }
+        video-stream[mode="loading"] .mode {
+            background: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.4);
+            color: #fbbf24;
+            animation: stream-pulse 1.5s infinite;
+        }
+        .status {
+            font-size: 10px;
+            line-height: 1.4;
+            max-width: 90%;
+            word-break: break-word;
+            color: #64748b;
+        }
+        video-stream[mode="error"] .status {
+            color: #94a3b8;
+        }
+        @keyframes stream-pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
         }
         </style>
         <div class="info">
-            <div class="status"></div>
             <div class="mode"></div>
+            <div class="status"></div>
         </div>
         `;
 

@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, RefreshCw, ChevronRight, ChevronLeft, LayoutGrid, Database } from 'lucide-react';
 import { stationApi, Station } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { isCentralUser } from '@/utils/centralAccess';
 import { fmtDateTime, fmtTimeRange } from '@/utils/format';
+import { Province, Team } from '@/types/api.types';
 import './AuditLogPage.css';
 
 type TabId = 'all' | 'audit' | 'login';
@@ -25,6 +26,62 @@ interface LogItem {
 interface AuditLogPageProps {
   embeddedMode?: 'default' | 'central';
   stationIdOverride?: string | null;
+}
+
+function AuditFilterDropdown({
+  value,
+  options,
+  onChange,
+  minWidth = 110
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  minWidth?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const activeLabel = options.find(option => option.value === value)?.label || options[0]?.label || '';
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', minWidth }}>
+      <button type="button" className="nvr-sel nvr-sel-button" onClick={() => setOpen(prev => !prev)}>
+        <span>{activeLabel}</span>
+        <span style={{ color: '#64748b' }}>{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <div className="nvr-sel-menu">
+          {options.map(option => {
+            const active = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={`nvr-sel-item ${active ? 'active' : ''}`}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatActionLabel(type: string, action: string, entity?: string) {
@@ -52,8 +109,12 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [searchText, setSearchText] = useState('');
+  const [filterProvince, setFilterProvince] = useState('');
+  const [filterTeam, setFilterTeam] = useState('');
   const [filterStation, setFilterStation] = useState(stationIdOverride || '');
   const [stationsList, setStationsList] = useState<Station[]>([]);
+  const [provincesList, setProvincesList] = useState<Province[]>([]);
+  const [teamsList, setTeamsList] = useState<Team[]>([]);
   const [selectedLog, setSelectedLog] = useState<LogItem | null>(null);
   const [isEpOpen, setIsEpOpen] = useState(true);
 
@@ -70,6 +131,8 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   useEffect(() => {
     if (isCentralMode) {
       stationApi.getStations().then(setStationsList).catch(console.error);
+      stationApi.getProvinces().then(setProvincesList).catch(console.error);
+      stationApi.getTeams().then(setTeamsList).catch(console.error);
     }
   }, [isCentralMode]);
 
@@ -112,12 +175,28 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Tập stationId thuộc tỉnh/tổ đang chọn; null = không có bộ lọc nào
+  const filteredStationIds = useMemo<Set<string> | null>(() => {
+    if (!isCentralMode || (!filterProvince && !filterTeam)) return null;
+    let ids = stationsList.map(s => s.id);
+    if (filterProvince) ids = ids.filter(id => stationsList.find(s => s.id === id)?.provinceId === filterProvince);
+    if (filterTeam) {
+      const team = teamsList.find(t => t.id === filterTeam);
+      if (team?.stationIds?.length) ids = ids.filter(id => team.stationIds!.includes(id));
+    }
+    return new Set(ids);
+  }, [isCentralMode, stationsList, teamsList, filterProvince, filterTeam]);
+
   const filtered = useMemo(() => {
     let source = activeTab === 'all' ? logs : logs.filter(l => l.type === activeTab);
+    // Khi chưa chọn trạm cụ thể nhưng đang lọc theo tỉnh/tổ → lọc client-side
+    if (!filterStation && filteredStationIds && (filterProvince || filterTeam)) {
+      source = source.filter(l => l.stationId ? filteredStationIds.has(l.stationId) : false);
+    }
     if (!searchText) return source;
     const q = searchText.toLowerCase();
     return source.filter(l => l.action.toLowerCase().includes(q) || l.info.toLowerCase().includes(q) || l.who.toLowerCase().includes(q));
-  }, [logs, activeTab, searchText]);
+  }, [logs, activeTab, searchText, filterStation, filteredStationIds, filterProvince, filterTeam]);
 
   const groupedStations = useMemo(() => {
     const grouped = new Map<string, { id: string; name: string; items: LogItem[] }>();
@@ -159,31 +238,42 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
         <div style={{ flex: 1 }} />
         <div className="nvr-ep-filters" style={{ display:'flex', gap: 10, alignItems: 'center' }}>
            <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>LOẠI:</span>
-           <select className="nvr-sel" value={activeTab} onChange={e => setSearchParams({ auditTab: e.target.value })}>
-              <option value="all">TẤT CẢ</option>
-              <option value="audit">HÀNH ĐỘNG</option>
-              <option value="login">ĐĂNG NHẬP</option>
-           </select>
+           <AuditFilterDropdown
+             value={activeTab}
+             onChange={value => setSearchParams({ auditTab: value })}
+             options={[
+               { value: 'all', label: 'TẤT CẢ' },
+               { value: 'audit', label: 'HÀNH ĐỘNG' },
+               { value: 'login', label: 'ĐĂNG NHẬP' }
+             ]}
+           />
            <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>THỜI GIAN:</span>
            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-             <select className="nvr-sel" style={{ minWidth: 100 }} value={timeRange} onChange={e => setTimeRange(e.target.value)}>
-                <option value="today">HÔM NAY</option>
-                <option value="yesterday">HÔM QUA</option>
-                <option value="7d">7 NGÀY QUA</option>
-                <option value="custom">CHỌN NGÀY CỤ THỂ</option>
-                <option value="all">TẤT CẢ LỊCH SỬ</option>
-             </select>
+             <AuditFilterDropdown
+               value={timeRange}
+               minWidth={130}
+               onChange={setTimeRange}
+               options={[
+                 { value: 'today', label: 'HÔM NAY' },
+                 { value: 'yesterday', label: 'HÔM QUA' },
+                 { value: '7d', label: '7 NGÀY QUA' },
+                 { value: 'custom', label: 'CHỌN NGÀY CỤ THỂ' },
+                 { value: 'all', label: 'TẤT CẢ LỊCH SỬ' }
+               ]}
+             />
              {timeRange === 'custom' && (
                <div style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#000', border: '1px solid #334155', padding: '2px 8px', height: 26 }}>
                  <input 
-                   type="date" 
+                   type="text"
+                   placeholder="YYYY-MM-DD"
                    style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 11, outline: 'none', cursor: 'pointer' }} 
                    value={customFrom} 
                    onChange={e => setCustomFrom(e.target.value)} 
                  />
                  <span style={{ color: '#475569', fontSize: 10, fontWeight: 900 }}>→</span>
                  <input 
-                   type="date" 
+                   type="text"
+                   placeholder="YYYY-MM-DD"
                    style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 11, outline: 'none', cursor: 'pointer' }} 
                    value={customTo} 
                    onChange={e => setCustomTo(e.target.value)} 
@@ -195,6 +285,57 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
         </div>
       </header>
 
+      {isCentralMode && (
+        <div className="audit-filter-bar">
+          <span className="audit-filter-label">TỈNH</span>
+          <AuditFilterDropdown
+            value={filterProvince}
+            minWidth={140}
+            onChange={v => { setFilterProvince(v); setFilterTeam(''); setFilterStation(''); }}
+            options={[
+              { value: '', label: 'TẤT CẢ TỈNH' },
+              ...provincesList.map(p => ({ value: p.id, label: p.name.toUpperCase() }))
+            ]}
+          />
+          <span className="audit-filter-label">TỔ</span>
+          <AuditFilterDropdown
+            value={filterTeam}
+            minWidth={130}
+            onChange={v => { setFilterTeam(v); setFilterStation(''); }}
+            options={[
+              { value: '', label: 'TẤT CẢ TỔ' },
+              ...(filterProvince
+                ? teamsList.filter(t => t.provinceId === filterProvince)
+                : teamsList
+              ).map(t => ({ value: t.id, label: t.name.toUpperCase() }))
+            ]}
+          />
+          <span className="audit-filter-label">TRẠM</span>
+          <AuditFilterDropdown
+            value={filterStation}
+            minWidth={140}
+            onChange={v => setFilterStation(v)}
+            options={[
+              { value: '', label: 'TẤT CẢ TRẠM' },
+              ...(filteredStationIds
+                ? stationsList.filter(s => filteredStationIds.has(s.id))
+                : stationsList
+              ).map(s => ({ value: s.id, label: s.name.toUpperCase() }))
+            ]}
+          />
+          {(filterProvince || filterTeam || filterStation) && (
+            <button
+              className="nvr-lb"
+              title="Xóa bộ lọc"
+              onClick={() => { setFilterProvince(''); setFilterTeam(''); setFilterStation(''); }}
+              style={{ fontSize: 10, width: 'auto', padding: '0 8px', gap: 4, display: 'flex', alignItems: 'center' }}
+            >
+              ✕ XÓA LỌC
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="rtm-main">
         {isCentralMode && (
           <aside className="nvr-left-sidebar">
@@ -203,9 +344,12 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
               <div className={`sb-item ${!filterStation ? 'active' : ''}`} onClick={() => setFilterStation('')}>
                 <LayoutGrid size={13} />
                 <span className="txt">TẤT CẢ TRẠM</span>
-                <span className="cnt">{stationsList.length}</span>
+                <span className="cnt">{filteredStationIds ? filteredStationIds.size : stationsList.length}</span>
               </div>
-              {stationsList.map(s => (
+              {(filteredStationIds
+                ? stationsList.filter(s => filteredStationIds.has(s.id))
+                : stationsList
+              ).map(s => (
                 <div key={s.id} className={`sb-item ${filterStation === s.id ? 'active' : ''}`} onClick={() => setFilterStation(s.id)}>
                   <Database size={13} />
                   <span className="txt">{s.name.toUpperCase()}</span>

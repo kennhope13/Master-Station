@@ -423,3 +423,91 @@
 .nvr-roi-marker:hover span:last-child {
   margin-left: 0 !important;
 }
+
+/* ── Stepper + Dropdown Grid Selector ── */
+.rtm-grid-stepper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--admin-layer-2);
+  border: 1px solid var(--admin-border);
+  border-radius: 0;
+  overflow: hidden;
+  height: 28px;
+  box-sizing: border-box;
+}
+
+.rtm-grid-stepper .stepper-btn {
+  background: transparent;
+  border: none;
+  color: var(--admin-text-muted);
+  width: 28px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-radius: 0;
+}
+
+.rtm-grid-stepper .stepper-btn:hover:not(:disabled) {
+  background: var(--admin-hover);
+  color: var(--admin-text);
+}
+
+.rtm-grid-stepper .stepper-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.stepper-input-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  border-left: 1px solid var(--admin-border);
+  border-right: 1px solid var(--admin-border);
+  background: var(--admin-panel);
+  padding: 0 8px;
+  gap: 4px;
+  cursor: text;
+}
+
+.stepper-input {
+  width: 32px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0;
+  color: var(--admin-text);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  padding: 0;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.stepper-input:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.stepper-input:focus {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--admin-accent);
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepper-unit {
+  font-size: 10px;
+  color: var(--admin-text-muted);
+  font-weight: 700;
+  user-select: none;
+}

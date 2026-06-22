@@ -130,7 +130,7 @@ export default function App() {
             <Route path="user-management" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><UserManagementPage /></ProtectedRoute>} />
             <Route path="rule-engine" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><RuleEnginePage /></ProtectedRoute>} />
             <Route path="settings" element={<ProtectedRoute roles={['admin']} denyRestricted><SettingsPage /></ProtectedRoute>} />
-            <Route path="license" element={<ProtectedRoute roles={['admin', 'admin_province']}><LicensePage /></ProtectedRoute>} />
+            <Route path="license" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><LicensePage /></ProtectedRoute>} />
             <Route path="*" element={<div style={{color:'var(--admin-text)', padding:20}}>404 - Page not found</div>} />
           </Route>
         </Routes>

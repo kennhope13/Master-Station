@@ -3,7 +3,7 @@
 // Giao diện hợp nhất: Bảng quản trị & Theo dõi nhân sự theo trạm
 // ============================================================
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { stationApi, UserItem, Station, LoginLogEntry, PermissionInfo, Province, Team } from '@/services/StationApiService';
 import { confirmDialog } from '@/utils/confirm';
@@ -12,7 +12,7 @@ import { useStationStore } from '@/store';
 import { useRealtime } from '@/hooks/useRealtime';
 import { 
   Search, UserPlus, Users, Clock, 
-  Activity, CheckCircle2, Shield, Edit2, Key, Trash2, X,
+  Activity, CheckCircle2, Shield, Edit2, Trash2, X,
   MoreHorizontal, ChevronLeft, Map, Plus
 } from 'lucide-react';
 import { fmtDateTime } from '@/utils/format';
@@ -25,7 +25,7 @@ const ROLE_CFG = {
   admin:             { label: 'ADMIN TOÀN CỤC', color: 'var(--admin-danger)',  bg: 'rgba(239,68,68,0.1)' },
   admin_province:    { label: 'ADMIN TỈNH',     color: '#8b5cf6',              bg: 'rgba(139,92,246,0.1)' },
   operator_province: { label: 'OPERATOR TỈNH',  color: '#0d9488',              bg: 'rgba(13,148,136,0.1)' },
-  team_leader:       { label: 'TỔ TRƯỞNG',      color: '#ec4899',              bg: 'rgba(236,72,153,0.1)' },
+  team_leader:       { label: 'TỔ TRƯỞNG',      color: '#f59e0b',              bg: 'rgba(245,158,11,0.12)' },
   team_member:       { label: 'NHÂN VIÊN TỔ',  color: '#3b82f6',              bg: 'rgba(59,130,246,0.1)' },
   admin_station:     { label: 'ADMIN TRẠM',     color: '#06b6d4',              bg: 'rgba(6,182,212,0.1)' },
   manager:           { label: 'MANAGER',        color: '#f59e0b',              bg: 'rgba(245,158,11,0.1)' },
@@ -72,9 +72,116 @@ const DEFAULT_PERMISSIONS_BY_ROLE: Record<string, string[]> = {
   ],
 };
 
+function FilterDropdown({
+  value,
+  placeholder,
+  options,
+  onChange,
+  width = 170
+}: {
+  value: string;
+  placeholder: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  width?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const activeLabel = options.find(option => option.value === value)?.label || placeholder;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', width, flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(prev => !prev)}
+        style={{
+          width: '100%',
+          height: 32,
+          padding: '0 10px',
+          border: '1px solid var(--admin-border)',
+          background: 'var(--admin-layer-2)',
+          color: 'var(--admin-text)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          fontSize: '.72rem',
+          cursor: 'pointer',
+          borderRadius: 4
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeLabel}</span>
+        <span style={{ fontSize: '.68rem', color: 'var(--admin-text-muted)' }}>{open ? '▴' : '▾'}</span>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            zIndex: 30,
+            maxHeight: 260,
+            overflowY: 'auto',
+            background: 'var(--admin-panel)',
+            border: '1px solid var(--admin-border)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+            borderRadius: 4
+          }}
+        >
+          {options.map(option => {
+            const active = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  border: 'none',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  background: active ? 'var(--admin-layer-3)' : 'transparent',
+                  color: active ? 'var(--admin-accent)' : 'var(--admin-text)',
+                  textAlign: 'left',
+                  fontSize: '.72rem',
+                  cursor: 'pointer',
+                  fontWeight: active ? 800 : 600
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function UserManagementPage({ embeddedMode = 'default' }: UserManagementPageProps) {
   const navigate = useNavigate();
   const isEmbeddedCentral = embeddedMode === 'central';
+  const currentUser = authService.getUser();
+  const callerProvinceIds = currentUser?.province_ids || [];
+  const isProvinceAdmin = currentUser?.role === 'admin_province';
   const [users, setUsers] = useState<UserItem[]>([]);
   const [stationsList, setStationsList] = useState<Station[]>([]);
   const [provincesList, setProvincesList] = useState<Province[]>([]);
@@ -83,6 +190,10 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   const [loading, setLoading] = useState(true);
   const [filterStationId, setFilterStationId] = useState('');
   const [searchText, setSearchText] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [provinceFilter, setProvinceFilter] = useState('');
+  const [teamFilter, setTeamFilter] = useState('');
+  const [teamProvinceFilter, setTeamProvinceFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'stations' | 'teams' | 'users'>('stations');
   const [teamsList, setTeamsList] = useState<Team[]>([]);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
@@ -156,7 +267,6 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
         stationApi.getTeams()
       ]);
 
-      const currentUser = authService.getUser();
       console.log('DEBUG: currentUser', currentUser);
       let filteredStations = s;
       let filteredProvinces = provs;
@@ -176,6 +286,17 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           filteredTeams = teams.filter(t => t.stationIds?.some(sid => currStations.includes(sid.toLowerCase())));
           const provinceIdsOfStations = filteredStations.map(st => st.provinceId).filter(Boolean) as string[];
           filteredProvinces = provs.filter(p => provinceIdsOfStations.some(sid => sid.toLowerCase() === p.id.toLowerCase()));
+        } else if (currentUser.role === 'team_leader') {
+          // Tổ trưởng chỉ thấy tổ của mình (backend đã lọc, đồng bộ lại frontend)
+          const currTeamId = currentUser.team_id?.toLowerCase();
+          filteredTeams = currTeamId ? teams.filter(t => t.id.toLowerCase() === currTeamId) : [];
+          const ownTeam = filteredTeams[0];
+          filteredStations = ownTeam?.stationIds
+            ? s.filter(st => ownTeam.stationIds!.map(id => id.toLowerCase()).includes(st.id.toLowerCase()))
+            : [];
+          filteredProvinces = ownTeam?.provinceId
+            ? provs.filter(p => p.id.toLowerCase() === ownTeam.provinceId!.toLowerCase())
+            : [];
         }
       }
 
@@ -191,11 +312,43 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   };
 
   const getStationUsers = (stationId: string) => {
-    return users.filter(u => u.station_ids?.includes(stationId));
+    const station = stationsList.find(s => s.id === stationId);
+
+    return users.filter(u => {
+      if (u.station_ids?.includes(stationId)) return true;
+
+      if (u.teamId) {
+        const team = teamsList.find(t => t.id === u.teamId);
+        if (team?.stationIds?.includes(stationId)) return true;
+      }
+
+      if (
+        station?.provinceId &&
+        ['admin_province', 'operator_province'].includes(u.role) &&
+        u.province_ids?.includes(station.provinceId)
+      ) {
+        return true;
+      }
+
+      return false;
+    });
   };
 
+  const getUserProvinceIds = (user: UserItem) => {
+    if (user.province_ids?.length) return user.province_ids;
+    if (user.teamId) {
+      const team = teamsList.find(t => t.id === user.teamId);
+      return team?.provinceId ? [team.provinceId] : [];
+    }
+    const stationProvinceIds = (user.station_ids || [])
+      .map(id => stationsList.find(s => s.id === id)?.provinceId)
+      .filter(Boolean) as string[];
+    return [...new Set(stationProvinceIds)];
+  };
+
+  const getUserTeamId = (user: UserItem) => user.teamId || '';
+
   const filteredUsers = useMemo(() => {
-    const currentUser = authService.getUser();
     let list = users;
 
     if (currentUser && currentUser.role !== 'admin') {
@@ -245,11 +398,57 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           return false;
         }
 
+        if (currentUser.role === 'team_leader') {
+          // Tổ trưởng thấy nhân viên trong tổ của mình
+          const currTeamId = currentUser.team_id?.toLowerCase();
+          if (!currTeamId) return false;
+
+          if (target.teamId && target.teamId.toLowerCase() === currTeamId) return true;
+
+          // Hoặc user có trạm trùng với trạm trong tổ
+          const ownTeam = teamsList.find(t => t.id.toLowerCase() === currTeamId);
+          if (ownTeam?.stationIds) {
+            const teamStationIds = ownTeam.stationIds.map(id => id.toLowerCase());
+            const targetStations = (target.station_ids || []).map(id => id.toLowerCase());
+            if (targetStations.some(sid => teamStationIds.includes(sid))) return true;
+          }
+
+          return false;
+        }
+
         return target.username === currentUser.username;
       });
     }
 
-    if (filterStationId) list = list.filter(u => (u.station_ids ?? []).includes(filterStationId) || u.role === 'admin');
+    if (filterStationId) {
+      const selectedStation = stationsList.find(s => s.id === filterStationId);
+      list = list.filter(u => {
+        if (u.role === 'admin') return true;
+        if (u.station_ids?.includes(filterStationId)) return true;
+
+        if (u.teamId) {
+          const team = teamsList.find(t => t.id === u.teamId);
+          if (team?.stationIds?.includes(filterStationId)) return true;
+        }
+
+        if (
+          selectedStation?.provinceId &&
+          ['admin_province', 'operator_province'].includes(u.role) &&
+          u.province_ids?.includes(selectedStation.provinceId)
+        ) {
+          return true;
+        }
+
+        return false;
+      });
+    }
+    if (roleFilter) list = list.filter(u => u.role === roleFilter);
+    if (provinceFilter) {
+      list = list.filter(u => getUserProvinceIds(u).includes(provinceFilter));
+    }
+    if (teamFilter) {
+      list = list.filter(u => getUserTeamId(u) === teamFilter);
+    }
     if (searchText.trim()) {
       const q = searchText.trim().toLowerCase();
       list = list.filter(u =>
@@ -259,13 +458,31 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
       );
     }
     return list;
-  }, [users, filterStationId, searchText, stationsList, teamsList]);
+  }, [users, filterStationId, roleFilter, provinceFilter, teamFilter, searchText, stationsList, teamsList]);
 
   const getLastActive = (username: string) => {
     const userLogs = loginLogs.filter(l => l.username === username);
     if (userLogs.length === 0) return null;
     return userLogs[0]?.ts ?? null;
   };
+
+  const filteredTeamsView = useMemo(() => {
+    let list = teamsList;
+
+    if (teamProvinceFilter) {
+      list = list.filter(team => team.provinceId === teamProvinceFilter);
+    }
+
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      list = list.filter(team =>
+        team.name.toLowerCase().includes(q) ||
+        (team.description || '').toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [teamsList, teamProvinceFilter, searchText]);
 
 
 
@@ -327,19 +544,15 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   const openAddModal = () => {
     setEditingUserId(null);
     setFormData({ username: '', fullName: '', email: '', password: '', confirmPassword: '', role: 'operator', isActive: true, station_ids: [], province_ids: [], permissions: DEFAULT_PERMISSIONS_BY_ROLE['operator'] || [], teamId: '' });
+    setPwData({ newPassword: '', confirmPassword: '' });
     setIsUserModalOpen(true);
   };
 
   const openEditModal = (u: UserItem) => {
     setEditingUserId(u.id);
     setFormData({ username: u.username, fullName: u.fullName || '', email: u.email || '', password: '', confirmPassword: '', role: u.role, isActive: u.isActive, station_ids: u.station_ids || [], province_ids: u.province_ids || [], permissions: u.permissions || [], teamId: u.teamId || '' });
-    setIsUserModalOpen(true);
-  };
-
-  const openPwModal = (id: string) => {
-    setEditingUserId(id);
     setPwData({ newPassword: '', confirmPassword: '' });
-    setIsPwModalOpen(true);
+    setIsUserModalOpen(true);
   };
 
   const deactivateUser = async (u: UserItem) => {
@@ -359,7 +572,6 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   };
 
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [isPwModalOpen, setIsPwModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -374,11 +586,81 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
   const [pwData, setPwData] = useState({ newPassword: '', confirmPassword: '' });
 
+  const normalizeAccountToken = (value?: string | null) => {
+    if (!value) return '';
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toLowerCase();
+  };
+
+  const deriveDisplayedPassword = (user: UserItem) => {
+    if (user.initialPassword) return user.initialPassword;
+    if (user.username === 'multi') return 'Demo@2024';
+    if (user.username === 'stationadmin') return 'Station@123';
+    if (user.username === 'admin') return 'Admin@123';
+
+    if (user.role === 'admin_province' && user.province_ids?.length) {
+      const province = provincesList.find(p => p.id === user.province_ids?.[0]);
+      const code = (province?.code || normalizeAccountToken(province?.name)).toUpperCase();
+      return code ? `Tinh${code}@2026!` : null;
+    }
+
+    if (user.role === 'team_leader' && user.teamId) {
+      const team = teamsList.find(t => t.id === user.teamId);
+      const province = provincesList.find(p => p.id === team?.provinceId);
+      const teamToken = normalizeAccountToken(team?.name);
+      const provinceToken = normalizeAccountToken(province?.code || province?.name);
+      if (!teamToken) return null;
+
+      const shortTeamToken = teamToken.slice(0, 6);
+      const shortProvinceToken = provinceToken.slice(0, 3).toUpperCase();
+      const teamPart = shortTeamToken
+        ? `${shortTeamToken.charAt(0).toUpperCase()}${shortTeamToken.slice(1)}`
+        : '';
+      return `${teamPart}${shortProvinceToken}@26`;
+    }
+
+    if (user.role === 'admin_station' && user.station_ids?.length) {
+      const station = stationsList.find(s => s.id === user.station_ids?.[0]);
+      const stationToken = normalizeAccountToken(station?.code || station?.name);
+      if (!stationToken) return null;
+      const shortStationToken = stationToken.slice(0, 8).toUpperCase();
+      return `Tram${shortStationToken}@26`;
+    }
+
+    return null;
+  };
+
+  const editingUser = useMemo(
+    () => editingUserId ? users.find(u => u.id === editingUserId) || null : null,
+    [editingUserId, users]
+  );
+
+  const applyRoleToForm = (newRole: string) => {
+    const defaultPerms = newRole === 'admin'
+      ? availablePermissions.map(p => p.key)
+      : (DEFAULT_PERMISSIONS_BY_ROLE[newRole] || []);
+
+    setFormData(prev => ({
+      ...prev,
+      role: newRole,
+      permissions: defaultPerms,
+      province_ids: ['admin_province', 'operator_province'].includes(newRole)
+        ? (isProvinceAdmin ? callerProvinceIds : prev.province_ids)
+        : [],
+      station_ids: ['admin_province', 'operator_province'].includes(newRole) ? [] : prev.station_ids,
+      teamId: ['admin_province', 'operator_province'].includes(newRole) ? '' : prev.teamId
+    }));
+  };
+
   const saveUser = async () => {
     const { username, fullName, email, password, confirmPassword, role, isActive, station_ids, province_ids, permissions, teamId } = formData;
     const finalTeamId = teamId === '' ? null : teamId;
 
     if (editingUserId) {
+      if (pwData.newPassword && pwData.newPassword !== pwData.confirmPassword) { alert('Mật khẩu mới không khớp'); return; }
       if (!await confirmDialog({
         title: 'Cập nhật tài khoản',
         message: `Bạn có chắc chắn muốn lưu các thay đổi cho tài khoản "${username}" không?`,
@@ -387,6 +669,9 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
       })) return;
       try {
         await stationApi.updateUser(editingUserId, { fullName, email, role, isActive, station_ids: station_ids, province_ids: province_ids, permissions, teamId: finalTeamId });
+        if (pwData.newPassword) {
+          await stationApi.changePassword(editingUserId, { newPassword: pwData.newPassword });
+        }
         setIsUserModalOpen(false);
         loadData();
       } catch (e: any) { alert(`Lỗi: ${e.message}`); }
@@ -407,27 +692,18 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     }
   };
 
-  const changePassword = async () => {
-    if (!editingUserId) return;
-    if (pwData.newPassword !== pwData.confirmPassword) { alert('Mật khẩu không khớp'); return; }
-    try {
-      await stationApi.changePassword(editingUserId, { newPassword: pwData.newPassword });
-      setIsPwModalOpen(false);
-      alert('Đã đổi mật khẩu');
-    } catch (e: any) { alert(`Lỗi: ${e.message}`); }
-  };
-
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', minHeight: 0, width: '100%', overflow: 'hidden' }}>
       
       <div style={{
         padding: '12px 20px',
         borderBottom: '1px solid var(--admin-border)',
-        display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'nowrap',
         background: 'var(--admin-panel)',
         flexShrink: 0,
+        overflowX: 'auto',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap', minWidth: 0, flexShrink: 1 }}>
           {filterStationId && (
             <button 
               onClick={() => setFilterStationId('')}
@@ -480,36 +756,88 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           )}
           
           {filterStationId && (
-            <span style={{ fontSize: '.85rem', fontWeight: 900, color: 'var(--admin-text)', letterSpacing: '0.02em', textTransform: 'uppercase', marginLeft: 10 }}>
+            <span style={{ fontSize: '.85rem', fontWeight: 900, color: 'var(--admin-text)', letterSpacing: '0.02em', textTransform: 'uppercase', marginLeft: 10, whiteSpace: 'nowrap' }}>
               / {stationsList.find(s => s.id === filterStationId)?.name}
             </span>
           )}
         </div>
 
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1, minWidth: 20 }} />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
-          {(activeTab === 'users' || filterStationId || activeTab === 'stations') && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap', justifyContent: 'flex-end', minWidth: 0, flexShrink: 0 }}>
+          {(activeTab === 'users' || activeTab === 'teams' || filterStationId || activeTab === 'stations') && (
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, flex: '1 1 220px' }}>
               <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--admin-text-muted)' }} />
               <input 
                 className="form-input" 
-                placeholder="Tìm nhân sự..." 
+                placeholder={activeTab === 'teams' ? 'Tìm tổ...' : 'Tìm nhân sự...'} 
                 value={searchText}
                 onChange={e => setSearchText(e.target.value)}
-                style={{ width: '100%', minWidth: 0, maxWidth: isEmbeddedCentral ? 320 : 360, height: 32, paddingLeft: 30, fontSize: '.75rem', background: 'var(--admin-layer-2)' }} 
+                style={{ width: '100%', minWidth: 0, maxWidth: activeTab === 'teams' ? 200 : (isEmbeddedCentral ? 220 : 260), height: 32, paddingLeft: 30, fontSize: '.75rem', background: 'var(--admin-layer-2)' }} 
               />
             </div>
           )}
 
           {activeTab === 'teams' && (
-            <button onClick={openAddTeamModal} className="btn-industrial btn-primary" style={{ height: 32, padding: '0 15px', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.75rem' }}>
+            <FilterDropdown
+              value={teamProvinceFilter}
+              placeholder="Tất cả tỉnh"
+              onChange={setTeamProvinceFilter}
+              width={170}
+              options={[
+                { value: '', label: 'Tất cả tỉnh' },
+                ...provincesList.map(p => ({ value: p.id, label: p.name }))
+              ]}
+            />
+          )}
+
+          {activeTab === 'users' && (
+            <>
+              <FilterDropdown
+                value={provinceFilter}
+                placeholder="Tất cả tỉnh"
+                onChange={value => {
+                  setProvinceFilter(value);
+                  setTeamFilter('');
+                }}
+                options={[
+                  { value: '', label: 'Tất cả tỉnh' },
+                  ...provincesList.map(p => ({ value: p.id, label: p.name }))
+                ]}
+              />
+
+              <FilterDropdown
+                value={teamFilter}
+                placeholder="Tất cả tổ"
+                onChange={setTeamFilter}
+                options={[
+                  { value: '', label: 'Tất cả tổ' },
+                  ...teamsList
+                    .filter(t => !provinceFilter || t.provinceId === provinceFilter)
+                    .map(t => ({ value: t.id, label: t.name }))
+                ]}
+              />
+
+              <FilterDropdown
+                value={roleFilter}
+                placeholder="Tất cả vai trò"
+                onChange={setRoleFilter}
+                options={[
+                  { value: '', label: 'Tất cả vai trò' },
+                  ...Object.entries(ROLE_CFG).map(([key, cfg]) => ({ value: key, label: cfg.label }))
+                ]}
+              />
+            </>
+          )}
+
+          {activeTab === 'teams' && (
+            <button onClick={openAddTeamModal} className="btn-industrial btn-primary" style={{ height: 32, minWidth: 128, padding: '0 14px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '.72rem', whiteSpace: 'nowrap', lineHeight: 1 }}>
               <Plus size={14} /> THÊM TỔ MỚI
             </button>
           )}
 
           {(activeTab === 'users' || filterStationId) && (
-            <button onClick={openAddModal} className="btn-industrial btn-primary" style={{ height: 32, padding: '0 15px', display: 'flex', alignItems: 'center', gap: 6, fontSize: '.75rem' }}>
+            <button onClick={openAddModal} className="btn-industrial btn-primary" style={{ height: 32, minWidth: 136, padding: '0 14px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '.72rem', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>
               <UserPlus size={14} /> THÊM TÀI KHOẢN
             </button>
           )}
@@ -601,7 +929,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           </div>
         ) : activeTab === 'teams' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 20 }}>
-            {teamsList.map(t => {
+            {filteredTeamsView.map(t => {
               const teamProvince = provincesList.find(p => p.id === t.provinceId);
               const teamStations = t.stationIds?.map(id => stationsList.find(s => s.id === id)).filter(Boolean) || [];
               const teamMembers = users.filter(u => u.teamId === t.id);
@@ -660,11 +988,11 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                         {teamMembers.map(m => {
                           const role = ROLE_CFG[m.role as keyof typeof ROLE_CFG] ?? ROLE_CFG.operator;
                           return (
-                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,255,255,0.01)', padding: '4px 8px', borderRadius: 2, border: '1px solid rgba(255,255,255,0.02)' }}>
-                              <span style={{ fontSize: '.72rem', color: 'var(--admin-text)', fontWeight: 600 }}>
+                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'rgba(255,255,255,0.01)', padding: '4px 8px', borderRadius: 2, border: '1px solid rgba(255,255,255,0.02)' }}>
+                              <span style={{ flex: 1, minWidth: 0, fontSize: '.72rem', color: 'var(--admin-text)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {m.fullName || m.username} <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 'normal' }}>@{m.username}</span>
                               </span>
-                              <span style={{ fontSize: '.58rem', fontWeight: 900, padding: '1px 5px', background: role.bg, color: role.color, borderRadius: 2, border: `1px solid ${role.color}40` }}>
+                              <span style={{ flexShrink: 0, fontSize: '.58rem', fontWeight: 900, padding: '1px 8px', background: role.bg, color: role.color, borderRadius: 2, border: `1px solid ${role.color}40`, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', minHeight: 22 }}>
                                 {role.label}
                               </span>
                             </div>
@@ -682,13 +1010,13 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           </div>
         ) : (
           <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 4, overflowX: 'auto', overflowY: 'hidden' }}>
-            <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
-                  <th style={TH_STYLE}>NHÂN SỰ / TÀI KHOẢN</th>
-                  <th style={TH_STYLE}>VAI TRÒ</th>
-                  <th style={TH_STYLE}>TỔ CHỨC / TRẠM PHÂN CÔNG</th>
-                  <th style={TH_STYLE}>TRẠNG THÁI HĐ</th>
+	            <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', textAlign: 'left' }}>
+	              <thead>
+	                <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
+	                  <th style={TH_STYLE}>NHÂN SỰ</th>
+	                  <th style={TH_STYLE}>VAI TRÒ</th>
+	                  <th style={TH_STYLE}>TỔ CHỨC / TRẠM PHÂN CÔNG</th>
+	                  <th style={TH_STYLE}>TRẠNG THÁI HĐ</th>
                   <th style={TH_STYLE}>THỜI GIAN HĐ GẦN NHẤT</th>
                   <th style={{ ...TH_STYLE, textAlign: 'right' }}>THAO TÁC</th>
                 </tr>
@@ -703,20 +1031,19 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
                   return (
                     <tr key={u.id} className="table-row-hover" style={{ borderBottom: '1px solid var(--admin-border)', opacity: u.isActive ? 1 : 0.5 }}>
-                      <td style={TD_STYLE}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 32, height: 32, borderRadius: 4, background: 'var(--admin-layer-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-accent)', border: '1px solid var(--admin-border)' }}>
-                            {u.username.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '.78rem', fontWeight: 800, color: 'var(--admin-text)' }}>{u.fullName || u.username}</div>
-                            <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontFamily: 'monospace' }}>@{u.username}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td style={TD_STYLE}>
-                        <span style={{ fontSize: '.6rem', fontWeight: 900, padding: '2px 8px', background: role.bg, color: role.color, borderRadius: 2, border: `1px solid ${role.color}40` }}>
-                          {role.label}
+	                      <td style={TD_STYLE}>
+	                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+	                          <div style={{ width: 32, height: 32, borderRadius: 4, background: 'var(--admin-layer-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-accent)', border: '1px solid var(--admin-border)' }}>
+	                            {u.username.slice(0, 2).toUpperCase()}
+	                          </div>
+	                          <div>
+	                            <div style={{ fontSize: '.78rem', fontWeight: 800, color: 'var(--admin-text)' }}>{u.fullName || u.username}</div>
+	                          </div>
+	                        </div>
+	                      </td>
+	                      <td style={TD_STYLE}>
+	                        <span style={{ fontSize: '.6rem', fontWeight: 900, padding: '2px 8px', background: role.bg, color: role.color, borderRadius: 2, border: `1px solid ${role.color}40` }}>
+	                          {role.label}
                         </span>
                       </td>
                       <td style={TD_STYLE}>
@@ -736,7 +1063,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                           ) : (
                             <>
                               {u.teamId && (
-                                <span style={{ fontSize: '.6rem', background: 'rgba(236,72,153,0.1)', color: '#ec4899', padding: '1px 5px', border: '1px solid rgba(236,72,153,0.2)', borderRadius: 2, fontWeight: 700 }}>
+                                <span style={{ fontSize: '.6rem', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', padding: '1px 5px', border: '1px solid rgba(245,158,11,0.22)', borderRadius: 2, fontWeight: 700 }}>
                                   👥 {teamsList.find(t => t.id === u.teamId)?.name || 'Tổ thao tác'}
                                 </span>
                               )}
@@ -775,10 +1102,9 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                             </span>
                           ) : (
                             <>
-                              <ActionIcon icon={<Edit2 size={12} />} onClick={() => openEditModal(u)} title="Sửa thông tin" />
-                              <ActionIcon icon={<Key size={12} />} onClick={() => openPwModal(u.id)} title="Đổi mật khẩu" />
-                              {u.isActive && <ActionIcon icon={<Trash2 size={12} />} onClick={() => deactivateUser(u)} danger title="Vô hiệu hóa" />}
-                              <ActionIcon icon={<X size={12} />} onClick={() => permanentDeleteUser(u)} danger title="Xóa vĩnh viễn" />
+                              <ActionIcon icon={<Edit2 size={12} />} onClick={() => openEditModal(u)} title="Sửa thông tin / Đổi mật khẩu" />
+                              {u.isActive && <ActionIcon icon={<X size={12} />} onClick={() => deactivateUser(u)} danger title="Vô hiệu hóa" />}
+                              <ActionIcon icon={<Trash2 size={12} />} onClick={() => permanentDeleteUser(u)} danger title="Xóa vĩnh viễn" />
                             </>
                           )}
                         </div>
@@ -802,42 +1128,73 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
             <div className="modal-body" style={{ maxHeight: 'min(75vh, calc(100dvh - 180px))', overflowY: 'auto' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ fontSize: '.7rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', borderBottom: '1px solid var(--admin-border)', paddingBottom: 6 }}>
-                    Thông tin tài khoản
-                  </div>
-                  {!editingUserId && <div className="form-group"><label>Tên đăng nhập *</label><input className="form-input" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>}
-                  <div className="form-group"><label>Họ và tên</label><input className="form-input" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} /></div>
-                  <div className="form-group"><label>Email</label><input className="form-input" type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
-                  {!editingUserId && (
-                    <div className="form-grid-2">
-                      <div className="form-group"><label>Mật khẩu *</label><input className="form-input" type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
-                      <div className="form-group"><label>Xác nhận *</label><input className="form-input" type="password" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} /></div>
-                    </div>
-                  )}
-                  <div className="form-group">
+	                  <div style={{ fontSize: '.7rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', borderBottom: '1px solid var(--admin-border)', paddingBottom: 6 }}>
+	                    Thông tin tài khoản
+	                  </div>
+	                  {!editingUserId && <div className="form-group"><label>Tên đăng nhập *</label><input className="form-input" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} /></div>}
+	                  {editingUserId && (
+	                    <>
+	                      <div className="form-group">
+	                        <label>Tài khoản đăng nhập</label>
+	                        <input className="form-input" value={`@${formData.username}`} disabled style={{ opacity: 0.8, cursor: 'not-allowed' }} />
+	                      </div>
+	                      <div className="form-group">
+	                        <label>Mật khẩu khởi tạo hiện có</label>
+	                        <input
+	                          className="form-input"
+	                          value={editingUser ? (deriveDisplayedPassword(editingUser) || 'Không hiển thị') : 'Không hiển thị'}
+	                          disabled
+	                          style={{ opacity: 0.8, cursor: 'not-allowed', fontFamily: 'monospace' }}
+	                        />
+	                      </div>
+	                    </>
+	                  )}
+	                  <div className="form-group"><label>Họ và tên</label><input className="form-input" value={formData.fullName} onChange={e => setFormData({...formData, fullName: e.target.value})} /></div>
+	                  <div className="form-group"><label>Email</label><input className="form-input" type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
+	                  {!editingUserId && (
+	                    <div className="form-grid-2">
+	                      <div className="form-group"><label>Mật khẩu *</label><input className="form-input" type="password" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
+	                      <div className="form-group"><label>Xác nhận *</label><input className="form-input" type="password" value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} /></div>
+	                    </div>
+	                  )}
+	                  {editingUserId && (
+	                    <>
+	                      <div style={{ fontSize: '.7rem', fontWeight: 900, color: '#f59e0b', textTransform: 'uppercase', borderBottom: '1px solid var(--admin-border)', paddingBottom: 6, marginTop: 4 }}>
+	                        Đặt lại mật khẩu
+	                      </div>
+	                      <div className="form-grid-2">
+	                        <div className="form-group"><label>Mật khẩu mới</label><input className="form-input" type="password" value={pwData.newPassword} onChange={e => setPwData({...pwData, newPassword: e.target.value})} placeholder="Để trống nếu không đổi" /></div>
+	                        <div className="form-group"><label>Xác nhận lại</label><input className="form-input" type="password" value={pwData.confirmPassword} onChange={e => setPwData({...pwData, confirmPassword: e.target.value})} placeholder="Nhập lại mật khẩu mới" /></div>
+	                      </div>
+	                      <div style={{ fontSize: '.62rem', color: 'var(--admin-text-muted)' }}>
+	                        Nếu nhập mật khẩu mới và lưu, hệ thống sẽ cập nhật ngay trong cùng thao tác chỉnh sửa này.
+	                      </div>
+	                    </>
+	                  )}
+	                  <div className="form-group">
                     <label>Vai trò hệ thống</label>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px 12px', marginTop: 5 }}>
                       {Object.entries(ROLE_CFG)
                         .filter(([r]) => {
-                          const currentUser = authService.getUser();
                           if (!currentUser) return false;
                           if (currentUser.role === 'admin') return true;
                           if (currentUser.role === 'admin_province') {
+                            // Admin tỉnh không được tạo admin hoặc admin_province khác
                             return !['admin', 'admin_province'].includes(r);
                           }
                           if (currentUser.role === 'admin_station') {
                             return ['team_leader', 'team_member', 'operator'].includes(r);
+                          }
+                          if (currentUser.role === 'team_leader') {
+                            // Tổ trưởng chỉ tạo được nhân viên tổ và operator
+                            return ['team_member', 'operator'].includes(r);
                           }
                           return false;
                         })
                         .map(([r, cfg]) => (
                         <label key={r} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '.75rem', cursor: 'pointer' }}>
                           <input type="radio" name="role" value={r} checked={formData.role === r} onChange={e => {
-                            const newRole = e.target.value;
-                            const defaultPerms = newRole === 'admin'
-                              ? availablePermissions.map(p => p.key)
-                              : (DEFAULT_PERMISSIONS_BY_ROLE[newRole] || []);
-                            setFormData({...formData, role: newRole, permissions: defaultPerms});
+                            applyRoleToForm(e.target.value);
                           }} /> 
                           {cfg.label}
                         </label>
@@ -855,11 +1212,11 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                         className="form-input" 
                         value={formData.teamId} 
                         onChange={e => setFormData({...formData, teamId: e.target.value})}
-                        style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 4, width: '100%', height: 32 }}
+                        style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 4, width: '100%', height: 32, colorScheme: 'dark' }}
                       >
-                        <option value="">-- Không tham gia tổ nào --</option>
+                        <option value="" style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>-- Không tham gia tổ nào --</option>
                         {teamsList.map(t => (
-                          <option key={t.id} value={t.id}>{t.name} ({provincesList.find(p => p.id === t.provinceId)?.name || 'Tỉnh khác'})</option>
+                          <option key={t.id} value={t.id} style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>{t.name} ({provincesList.find(p => p.id === t.provinceId)?.name || 'Tỉnh khác'})</option>
                         ))}
                       </select>
                       {formData.teamId && (
@@ -876,13 +1233,18 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                       <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
                         {provincesList.map(p => (
                           <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={formData.province_ids.includes(p.id)} onChange={() => {
+                            <input type="checkbox" disabled={isProvinceAdmin} checked={formData.province_ids.includes(p.id)} onChange={() => {
                               const next = formData.province_ids.includes(p.id) ? formData.province_ids.filter(id => id !== p.id) : [...formData.province_ids, p.id];
                               setFormData({...formData, province_ids: next});
                             }} /> {p.name} {p.code ? `(${p.code})` : ''}
                           </label>
                         ))}
                       </div>
+                      {isProvinceAdmin && (
+                        <div style={{ fontSize: '.62rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>
+                          Tài khoản cấp tỉnh do admin tỉnh tạo sẽ bị khóa trong tỉnh được phân công.
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1029,11 +1391,11 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   onChange={e => {
                     setTeamFormData({ ...teamFormData, provinceId: e.target.value, stationIds: [] });
                   }}
-                  style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 4, width: '100%', height: 32 }}
+                  style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 4, width: '100%', height: 32, colorScheme: 'dark' }}
                 >
-                  <option value="">-- Chọn Tỉnh --</option>
+                  <option value="" style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>-- Chọn Tỉnh --</option>
                   {provincesList.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                    <option key={p.id} value={p.id} style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>{p.name}</option>
                   ))}
                 </select>
               </div>
@@ -1067,22 +1429,6 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
             <div className="modal-footer">
               <button className="btn-industrial" style={{ borderRadius: 4 }} onClick={() => setIsTeamModalOpen(false)}>Hủy</button>
               <button className="btn-industrial btn-primary" style={{ borderRadius: 4 }} onClick={saveTeam}>Lưu tổ</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isPwModalOpen && (
-        <div className="modal-overlay active">
-          <div className="modal-content" style={{ width: 'min(400px, 95vw)', maxWidth: '95vw' }}>
-            <div className="modal-header"><h3>ĐỔI MẬT KHẨU</h3><button className="modal-close-btn" onClick={() => setIsPwModalOpen(false)}>✕</button></div>
-            <div className="modal-body">
-              <div className="form-group"><label>Mật khẩu mới</label><input className="form-input" type="password" value={pwData.newPassword} onChange={e => setPwData({...pwData, newPassword: e.target.value})} /></div>
-              <div className="form-group"><label>Xác nhận lại</label><input className="form-input" type="password" value={pwData.confirmPassword} onChange={e => setPwData({...pwData, confirmPassword: e.target.value})} /></div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn-industrial" style={{ borderRadius: 4 }} onClick={() => setIsPwModalOpen(false)}>Hủy</button>
-              <button className="btn-industrial btn-primary" style={{ borderRadius: 4 }} onClick={changePassword}>Cập nhật</button>
             </div>
           </div>
         </div>

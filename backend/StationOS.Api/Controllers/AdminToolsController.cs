@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using StationOS.Api.Filters;
 using StationOS.Data;
+using StationOS.Services.Security;
 
 namespace StationOS.Api.Controllers;
 
@@ -13,7 +14,7 @@ namespace StationOS.Api.Controllers;
 public class AdminToolsController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private static readonly string[] PreservedUsernames = ["multi", "provinceadmin", "stationadmin", "teamleader"];
+    private static readonly string[] PreservedUsernames = ["multi", "stationadmin"];
 
     public AdminToolsController(AppDbContext db)
     {
@@ -76,8 +77,7 @@ public class AdminToolsController : ControllerBase
         foreach (var user in preservedUsers)
         {
             user.StationIds = null;
-            if (!string.Equals(user.Username, "teamleader", StringComparison.OrdinalIgnoreCase))
-                user.TeamId = null;
+            user.TeamId = null;
         }
 
         await _db.SaveChangesAsync();
@@ -87,6 +87,57 @@ public class AdminToolsController : ControllerBase
         {
             message = "Đã xóa toàn bộ dữ liệu, chỉ giữ lại 4 tài khoản chỉ định.",
             preservedUsers = PreservedUsernames
+        });
+    }
+
+    [HttpPost("normalize-usernames")]
+    [HasPermission("settings:manage")]
+    public async Task<IActionResult> NormalizeUsernames()
+    {
+        var currentRole = User.FindFirstValue(ClaimTypes.Role);
+        if (!string.Equals(currentRole, "admin", StringComparison.OrdinalIgnoreCase))
+            return Forbid();
+
+        var users = await _db.Users
+            .OrderBy(u => u.CreatedAt)
+            .ToListAsync();
+
+        var reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var changed = new List<object>();
+
+        foreach (var user in users)
+        {
+            var original = user.Username;
+            var normalized = UsernameNormalizer.Normalize(original);
+            if (string.IsNullOrWhiteSpace(normalized))
+                normalized = $"user{user.Id.ToString("N")[..8]}";
+
+            var candidate = normalized;
+            var suffix = 2;
+            while (reserved.Contains(candidate))
+            {
+                candidate = $"{normalized}{suffix}";
+                suffix++;
+            }
+
+            reserved.Add(candidate);
+
+            if (!string.Equals(original, candidate, StringComparison.Ordinal))
+            {
+                user.Username = candidate;
+                changed.Add(new { id = user.Id, from = original, to = candidate });
+            }
+        }
+
+        if (changed.Count > 0)
+            await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = changed.Count == 0
+                ? "Không có username nào cần chuẩn hóa."
+                : $"Đã chuẩn hóa {changed.Count} username.",
+            changed
         });
     }
 }

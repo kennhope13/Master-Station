@@ -107,6 +107,13 @@ public class ProvincesController : ControllerBase
         if (string.IsNullOrWhiteSpace(req.Name))
             return BadRequest(new { message = "Tên tỉnh không được để trống" });
 
+        var nameNorm = req.Name.Trim();
+        var codeNorm = req.Code?.Trim().ToUpper();
+        var exists = await _db.Provinces.AnyAsync(p =>
+            p.Name == nameNorm || (codeNorm != null && p.Code == codeNorm));
+        if (exists)
+            return Conflict(new { message = "Tỉnh với tên hoặc mã này đã tồn tại." });
+
         var province = new Province
         {
             Name        = req.Name.Trim(),

@@ -9,7 +9,7 @@
 }
 .license-hero {
   width: 100%;
-  max-width: 600px;
+  max-width: 680px;
 }
 .license-card {
   background: var(--admin-card-bg, var(--admin-panel));
@@ -85,6 +85,94 @@
 .status-badge.valid   { background: var(--admin-tag-success-bg); color: var(--admin-tag-success-text); border: 1px solid var(--admin-success); }
 .status-badge.expired { background: rgba(239,68,68,0.12);  color: #f87171; border: 1px solid rgba(239,68,68,0.25); }
 .status-badge.demo    { background: rgba(251,191,36,0.12);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
+
+/* Resource Limits Grid */
+.resource-limits-section {
+  margin-bottom: 20px;
+}
+.resource-limits-section h3 {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--admin-text);
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+.resource-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(0,0,0,0.25);
+  border: 1px solid var(--admin-border-light);
+  border-radius: 0px;
+  padding: 12px;
+  transition: border-color 0.2s;
+}
+.resource-card.exceeded {
+  border-color: rgba(239,68,68,0.4);
+  background: rgba(239,68,68,0.05);
+}
+.resource-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: 1px;
+}
+.resource-info {
+  flex: 1;
+  min-width: 0;
+}
+.resource-name {
+  font-size: 11px;
+  color: var(--admin-text-muted);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.resource-count {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--admin-text);
+  margin-bottom: 6px;
+}
+.resource-current {
+  color: var(--admin-accent, #38bdf8);
+}
+.resource-sep {
+  color: var(--admin-text-muted);
+  margin: 0 2px;
+  font-weight: 400;
+}
+.resource-max {
+  color: var(--admin-text-muted);
+  font-weight: 600;
+  font-size: 14px;
+}
+.resource-bar-bg {
+  height: 4px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.resource-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+.resource-bar-fill.normal  { background: var(--admin-success, #22c55e); }
+.resource-bar-fill.warning { background: #fbbf24; }
+.resource-bar-fill.exceeded { background: #ef4444; }
+.resource-unlimited {
+  font-size: 10px;
+  color: var(--admin-success, #22c55e);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
 
 /* Activate section */
 .license-activate-section h3 {

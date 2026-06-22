@@ -108,7 +108,7 @@ export default function AppShell() {
 
   // Nếu là tài khoản trạm tổng/cấp tỉnh nhưng đang ở route con mà không chọn trạm drill-down, tự động chuyển về /multisite
   useEffect(() => {
-    if (isCentralUser && !viewingStationId && location.pathname !== '/multisite' && location.pathname !== '/') {
+    if (isCentralUser && !viewingStationId && location.pathname !== '/multisite' && location.pathname !== '/' && location.pathname !== '/license') {
       navigate('/multisite', { replace: true });
     }
   }, [isCentralUser, viewingStationId, location.pathname, navigate]);

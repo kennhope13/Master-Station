@@ -66,15 +66,15 @@ public class AuditLogController : ControllerBase
             .Distinct()
             .ToList();
 
-        var userMap = new Dictionary<Guid, (string username, string? fullName, Guid[]? stationIds)>();
+        var userMap = new Dictionary<Guid, (string username, string? fullName, Guid[]? stationIds, Guid[]? provinceIds, Guid? teamId)>();
         if (userIds.Any())
         {
             var dbUsers = await _db.Users
                 .Where(u => userIds.Contains(u.Id))
-                .Select(u => new { u.Id, u.Username, u.FullName, u.StationIds })
+                .Select(u => new { u.Id, u.Username, u.FullName, u.StationIds, u.ProvinceIds, u.TeamId })
                 .ToListAsync();
             foreach (var u in dbUsers)
-                userMap[u.Id] = (u.Username, u.FullName, u.StationIds);
+                userMap[u.Id] = (u.Username, u.FullName, u.StationIds, u.ProvinceIds, u.TeamId);
         }
 
         // Entity IDs mapping to stations
@@ -177,8 +177,16 @@ public class AuditLogController : ControllerBase
                 resolvedStationId = bodyDeviceStationId;
 
             Guid? accountStationId = null;
-            if (l.UserId.HasValue && userMap.TryGetValue(l.UserId.Value, out var uInfo) && uInfo.stationIds != null && uInfo.stationIds.Length > 0)
-                accountStationId = uInfo.stationIds[0];
+            Guid? accountProvinceId = null;
+            Guid? accountTeamId = null;
+            if (l.UserId.HasValue && userMap.TryGetValue(l.UserId.Value, out var uInfo))
+            {
+                if (uInfo.stationIds != null && uInfo.stationIds.Length > 0)
+                    accountStationId = uInfo.stationIds[0];
+                if (uInfo.provinceIds != null && uInfo.provinceIds.Length > 0)
+                    accountProvinceId = uInfo.provinceIds[0];
+                accountTeamId = uInfo.teamId;
+            }
 
             return new {
                 l.Id, l.Action, l.EntityType, l.EntityId,
@@ -187,7 +195,9 @@ public class AuditLogController : ControllerBase
                 FullName = l.UserId.HasValue && userMap.TryGetValue(l.UserId.Value, out var u2) ? u2.fullName : null,
                 l.OldValue, l.NewValue,
                 StationId = resolvedStationId,
-                AccountStationId = accountStationId
+                AccountStationId = accountStationId,
+                AccountProvinceId = accountProvinceId,
+                AccountTeamId = accountTeamId,
             };
         }).ToList();
 
@@ -202,26 +212,59 @@ public class AuditLogController : ControllerBase
             mappedLogs = mappedLogs.Where(l => l.StationId == stationId.Value).ToList();
         }
 
-        // Fetch station names
+        // Fetch station names + provinceIds
         var uniqueStationIds = mappedLogs
             .SelectMany(l => new[] { l.StationId, l.AccountStationId })
             .Where(id => id.HasValue)
             .Select(id => id!.Value)
             .Distinct()
             .ToList();
-        var stationNames = uniqueStationIds.Any()
-            ? await _db.Stations.Where(s => uniqueStationIds.Contains(s.Id)).ToDictionaryAsync(s => s.Id, s => s.Name)
+        var stationInfoList = await _db.Stations
+            .Where(s => uniqueStationIds.Contains(s.Id))
+            .Select(s => new { s.Id, s.Name, s.ProvinceId })
+            .ToListAsync();
+        var stationInfos = stationInfoList.ToDictionary(s => s.Id);
+
+        // Collect all province IDs: from station.ProvinceId + user.ProvinceIds
+        var stationProvinceIds = stationInfos.Values.Where(s => s.ProvinceId.HasValue).Select(s => (Guid)s.ProvinceId!.Value).ToList();
+        var userProvinceIds = mappedLogs.Where(l => l.AccountProvinceId.HasValue).Select(l => l.AccountProvinceId!.Value).ToList();
+        var uniqueProvinceIds = stationProvinceIds.Concat(userProvinceIds).Distinct().ToList();
+        var provinceNames = uniqueProvinceIds.Any()
+            ? await _db.Provinces.Where(p => uniqueProvinceIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, p => p.Name)
             : new Dictionary<Guid, string>();
 
-        var result = mappedLogs.Select(l => new {
-            l.Id, l.Action, l.EntityType, l.EntityId,
-            l.IpAddress, l.Ts, l.UserId,
-            l.Username, l.FullName,
-            l.OldValue, l.NewValue,
-            l.StationId,
-            StationName = l.StationId.HasValue && stationNames.TryGetValue(l.StationId.Value, out var sn) ? sn : null,
-            l.AccountStationId,
-            AccountStationName = l.AccountStationId.HasValue && stationNames.TryGetValue(l.AccountStationId.Value, out var asn) ? asn : null
+        // Fetch team names
+        var uniqueTeamIds = mappedLogs.Where(l => l.AccountTeamId.HasValue).Select(l => l.AccountTeamId!.Value).Distinct().ToList();
+        var teamNames = uniqueTeamIds.Any()
+            ? await _db.Teams.Where(t => uniqueTeamIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name)
+            : new Dictionary<Guid, string>();
+
+        var result = mappedLogs.Select(l => {
+            Guid? stationProvinceId = l.StationId.HasValue && stationInfos.TryGetValue(l.StationId.Value, out var si) && si.ProvinceId.HasValue
+                ? si.ProvinceId : null;
+            Guid? acctStProvinceId = l.AccountStationId.HasValue && stationInfos.TryGetValue(l.AccountStationId.Value, out var asi) && asi.ProvinceId.HasValue
+                ? asi.ProvinceId : null;
+
+            string? stationName = l.StationId.HasValue && stationInfos.TryGetValue(l.StationId.Value, out var siName) ? siName.Name : null;
+            string? acctStationName = l.AccountStationId.HasValue && stationInfos.TryGetValue(l.AccountStationId.Value, out var asiName) ? asiName.Name : null;
+
+            // Province: từ stationId → station.provinceId, fallback từ account's station, fallback từ user.provinceIds
+            Guid? resolvedProvinceId = stationProvinceId ?? acctStProvinceId ?? l.AccountProvinceId;
+
+            return new {
+                l.Id, l.Action, l.EntityType, l.EntityId,
+                l.IpAddress, l.Ts, l.UserId,
+                l.Username, l.FullName,
+                l.OldValue, l.NewValue,
+                l.StationId,
+                StationName = stationName,
+                l.AccountStationId,
+                AccountStationName = acctStationName,
+                ProvinceId = resolvedProvinceId,
+                ProvinceName = resolvedProvinceId.HasValue && provinceNames.TryGetValue(resolvedProvinceId.Value, out var pn) ? pn : null,
+                TeamId = l.AccountTeamId,
+                TeamName = l.AccountTeamId.HasValue && teamNames.TryGetValue(l.AccountTeamId.Value, out var tn) ? tn : null,
+            };
         });
 
         return Ok(result);

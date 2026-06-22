@@ -129,7 +129,9 @@ public class SecurityTests
     {
         using var db = CreateInMemoryDb();
         var authConfig = new Mock<IConfiguration>();
-        var authService = new AuthService(db, authConfig.Object);
+        var cryptoLogger = new Mock<ILogger<CredentialEncryptionService>>();
+        var crypto = new CredentialEncryptionService(authConfig.Object, cryptoLogger.Object);
+        var authService = new AuthService(db, authConfig.Object, crypto);
 
         // Tạo user mẫu
         var userId = Guid.NewGuid();

@@ -31,6 +31,7 @@ class AuthService {
             is_restricted: payload['isRestricted'] === 'true' || !!payload['stationIds'],
             station_ids: payload['stationIds'] ? payload['stationIds'].split(',') : undefined,
             province_ids: payload['provinceIds'] ? payload['provinceIds'].split(',') : undefined,
+            team_id: payload['teamId'] ?? undefined,
             permissions: payload['permissions'] ? payload['permissions'].split(',') : []
         };
     }

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Map as MapIcon, AlertTriangle, Activity, Server, CheckCircle, Video, Radio, ShieldCheck, Clock, Search } from 'lucide-react';
+import { Map as MapIcon, AlertTriangle, Activity, Server, CheckCircle, Video, Radio, ShieldCheck, Clock, Search, ChevronLeft, ChevronRight, Grid, ChevronDown } from 'lucide-react';
 import ToolbarSelect from '@/components/ui/ToolbarSelect';
 import { stationApi, CameraDevice, RoiPoint, Boundary } from '@/services/StationApiService';
 import { GO2RTC_URL, AI_ENGINE_URL, API_BASE_URL } from '@/utils/env';
@@ -20,7 +20,29 @@ import { ALERT_STATUS } from '@/types/enums';
 import { Device } from '@/types/api.types';
 import './RealtimeMonitorPage.css';
 
-type Layout = 'l1' | 'l4' | 'l9';
+type Layout = { cols: number; rows: number };
+
+const PREDEFINED_GRID_SIZES = [1, 2, 3, 4, 6, 8, 9, 12, 16, 20, 24, 25, 36, 49, 64];
+
+function getGridDimensions(count: number): { cols: number, rows: number } {
+  if (count <= 1) return { cols: 1, rows: 1 };
+  if (count === 2) return { cols: 2, rows: 1 };
+  if (count === 3) return { cols: 3, rows: 1 };
+  if (count === 4) return { cols: 2, rows: 2 };
+  if (count <= 6) return { cols: 3, rows: 2 };
+  if (count <= 8) return { cols: 4, rows: 2 };
+  if (count === 9) return { cols: 3, rows: 3 };
+  if (count <= 12) return { cols: 4, rows: 3 };
+  if (count <= 16) return { cols: 4, rows: 4 };
+  if (count <= 20) return { cols: 5, rows: 4 };
+  if (count <= 25) return { cols: 5, rows: 5 };
+  if (count <= 36) return { cols: 6, rows: 6 };
+  if (count <= 49) return { cols: 7, rows: 7 };
+  if (count <= 64) return { cols: 8, rows: 8 };
+  const cols = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / cols);
+  return { cols, rows };
+}
 
 interface RealtimeMonitorPageProps {
   embeddedMode?: 'default' | 'central';
@@ -43,7 +65,9 @@ export default function RealtimeMonitorPage({
 }: RealtimeMonitorPageProps) {
   const [searchParams] = useSearchParams();
   const [cameras, setCameras] = useState<CameraDevice[]>([]);
-  const [layout, setLayout] = useState<Layout>('l4');
+  const [layout, setLayout] = useState<Layout>({ cols: 2, rows: 2 });
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [hoverGrid, setHoverGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [selectedCamFilter, setSelectedCamFilter] = useState('');
   
   const [expandedCamId, setExpandedCamId] = useState<string | null>(null);
@@ -68,6 +92,48 @@ export default function RealtimeMonitorPage({
   const [stationMenuOpen, setStationMenuOpen] = useState(false);
   const [stationMenuPos, setStationMenuPos] = useState({ top: 0, left: 0, width: 260 });
   const stationBtnRef = useRef<HTMLButtonElement>(null);
+
+  const [savedLayouts, setSavedLayouts] = useState<{
+    id: string;
+    name: string;
+    cols: number;
+    rows: number;
+    selectedCamFilter: string;
+  }[]>([]);
+  const [newLayoutName, setNewLayoutName] = useState('');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('stationos_saved_layouts');
+      if (stored) {
+        setSavedLayouts(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const handleSaveLayout = () => {
+    if (!newLayoutName.trim()) return;
+    const item = {
+      id: Date.now().toString(),
+      name: newLayoutName.trim(),
+      cols: layout.cols,
+      rows: layout.rows,
+      selectedCamFilter: selectedCamFilter
+    };
+    const updated = [...savedLayouts, item];
+    setSavedLayouts(updated);
+    localStorage.setItem('stationos_saved_layouts', JSON.stringify(updated));
+    setNewLayoutName('');
+  };
+
+  const handleDeleteLayout = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = savedLayouts.filter(l => l.id !== id);
+    setSavedLayouts(updated);
+    localStorage.setItem('stationos_saved_layouts', JSON.stringify(updated));
+  };
 
   // Device, Alert and Station stores
   const fetchDevices = useDeviceStore(s => s.fetch);
@@ -121,17 +187,20 @@ export default function RealtimeMonitorPage({
 
   // 1. Initial Load: Fetch cameras once on mount
   useEffect(() => {
-    const loadAllStationsCams = async () => {
+    let active = true;
+
+    const loadAllStationsCams = async (stationsList: any[]) => {
       try {
-        console.log(`[RealtimeMonitor] Fetching cameras for ${stations.length} stations:`, stations.map(s => s.name));
+        console.log(`[RealtimeMonitor] Fetching cameras for ${stationsList.length} stations:`, stationsList.map(s => s.name));
         const cameraResults = await Promise.all(
-          stations.map(async station => {
+          stationsList.map(async station => {
             const cams = await stationApi.getCameras(station.id).catch(() => [] as CameraDevice[]);
             console.log(`[RealtimeMonitor] Station: ${station.name} (id: ${station.id}) fetched ${cams.length} cameras`);
             return { station, cams };
           })
         );
         
+        if (!active) return;
         console.log(`[RealtimeMonitor] Total camera results count: ${cameraResults.length}`);
 
         const mergedStatus: Record<string, string> = {};
@@ -146,6 +215,7 @@ export default function RealtimeMonitorPage({
           thermalIds.push(...cams.filter(c => c.type === 'camera_thermal' || c.type === 'camera_dual').map(c => c.id));
         });
 
+        if (!active) return;
         console.log(`[RealtimeMonitor] Final merged camera count: ${mergedCams.length}`);
 
         setDeviceStatus(mergedStatus);
@@ -153,26 +223,7 @@ export default function RealtimeMonitorPage({
 
         thermalIds.forEach(cid => {
           stationApi.getThermalMapping(cid).then(m => {
-            if (m) setVvrCache(prev => ({ ...prev, [cid.toLowerCase()]: m }));
-          }).catch(() => {});
-        });
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    const loadCams = async (stationId: string) => {
-      try {
-        const cams = await stationApi.getCameras(stationId);
-        const stationName = stations.find(s => s.id === stationId)?.name;
-        const { expandedCams, initialStatus } = expandCameraVariants(cams, stationName);
-        setDeviceStatus(initialStatus);
-        setCameras(expandedCams);
-
-        const thermalIds = cams.filter(c => c.type === 'camera_thermal' || c.type === 'camera_dual').map(c => c.id);
-        thermalIds.forEach(cid => {
-          stationApi.getThermalMapping(cid).then(m => {
-            if (m) setVvrCache(prev => ({ ...prev, [cid.toLowerCase()]: m }));
+            if (m && active) setVvrCache(prev => ({ ...prev, [cid.toLowerCase()]: m }));
           }).catch(() => {});
         });
       } catch (err) {
@@ -181,26 +232,43 @@ export default function RealtimeMonitorPage({
     };
 
     const savedStationId = effectiveStationId || localStorage.getItem('selected_station_id');
-    if (embeddedMode === 'central' && !effectiveStationId) {
-      stations.forEach(s => fetchDevices(s.id));
-      fetchAlerts(ALERT_STATUS.OPEN);
-      loadAllStationsCams();
-    } else if (savedStationId) {
-      fetchDevices(savedStationId);
-      fetchAlerts(ALERT_STATUS.OPEN);
-      loadCams(savedStationId);
-    } else {
-      getFirstStationId().then((id: string | null) => {
-        if (id) {
-          onStationIdChange?.(id);
-          fetchDevices(id);
-          fetchAlerts(ALERT_STATUS.OPEN);
-          loadCams(id);
+
+    const init = async () => {
+      let currentStations = stations;
+      if (currentStations.length === 0) {
+        try {
+          currentStations = await useStationStore.getState().fetch();
+        } catch (e) {
+          console.error('[RealtimeMonitor] Failed to fetch stations:', e);
         }
-      }).catch(() => {});
-    }
+      }
+      if (!active) return;
+
+      await loadAllStationsCams(currentStations);
+      if (!active) return;
+
+      if (embeddedMode === 'central' && !effectiveStationId) {
+        currentStations.forEach(s => fetchDevices(s.id));
+        fetchAlerts(ALERT_STATUS.OPEN);
+      } else if (savedStationId) {
+        fetchDevices(savedStationId);
+        fetchAlerts(ALERT_STATUS.OPEN);
+      } else {
+        getFirstStationId().then((id: string | null) => {
+          if (id && active) {
+            onStationIdChange?.(id);
+            fetchDevices(id);
+            fetchAlerts(ALERT_STATUS.OPEN);
+          }
+        }).catch(() => {});
+      }
+    };
+
+    init();
+
     // Initial latest points
     stationApi.getLatestPoints().then(readings => {
+      if (!active) return;
       setRoiReadings(prev => {
         const next = { ...prev };
         readings.forEach(r => {
@@ -212,6 +280,10 @@ export default function RealtimeMonitorPage({
         return next;
       });
     }).catch(console.error);
+
+    return () => {
+      active = false;
+    };
   }, [embeddedMode, stationIdOverride, effectiveStationId, stations, fetchDevices, fetchAlerts, getFirstStationId, onStationIdChange]);
 
   // 2. Periodic ROI/PD Boundary Refresh
@@ -302,8 +374,46 @@ export default function RealtimeMonitorPage({
   }, []);
 
   // Helpers
-  const cellCount = layout === 'l1' ? 1 : layout === 'l4' ? 4 : 9;
-  const displayCams = selectedCamFilter ? cameras.filter(c => c.id === selectedCamFilter) : cameras;
+  const cellCount = layout.cols * layout.rows;
+  
+  const displayCams = useMemo(() => {
+    if (selectedCamFilter) {
+      return cameras.filter(c => c.id === selectedCamFilter);
+    }
+    if (effectiveStationId) {
+      const station = stations.find(s => s.id === effectiveStationId);
+      if (station) {
+        return cameras.filter(c => (c as any).stationName === station.name);
+      }
+    }
+    return cameras;
+  }, [cameras, selectedCamFilter, effectiveStationId, stations]);
+
+  const sortedCamOptions = useMemo(() => {
+    const optionsWithMeta = cameras.map(c => {
+      const stationLabel = (c as any).stationName ? `${(c as any).stationName} · ` : '';
+      return {
+        value: c.id,
+        label: `${stationLabel}${c.name}`,
+        stationName: (c as any).stationName || ''
+      };
+    });
+    
+    optionsWithMeta.sort((a, b) => {
+      const stationCompare = a.stationName.localeCompare(b.stationName, 'vi');
+      if (stationCompare !== 0) return stationCompare;
+      return a.label.localeCompare(b.label, 'vi');
+    });
+
+    return optionsWithMeta.map(o => ({ value: o.value, label: o.label }));
+  }, [cameras]);
+
+  const stationCams = useMemo(() => {
+    if (!effectiveStationId) return [];
+    const station = stations.find(s => s.id === effectiveStationId);
+    if (!station) return [];
+    return cameras.filter(c => (c as any).stationName === station.name);
+  }, [cameras, effectiveStationId, stations]);
   const isCentralFleetView = embeddedMode === 'central' && !effectiveStationId;
   const stationCameraStats = useMemo(() => {
     const grouped = new Map<string, {
@@ -1128,28 +1238,273 @@ export default function RealtimeMonitorPage({
           <div className="page-toolbar-group">
             {!isCentralFleetView && (
               <>
-            <button className={`nvr-lb ${layout === 'l1' ? 'active' : ''}`} onClick={() => setLayout('l1')} title="1×1">
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor"><rect width="13" height="13" rx="1.5"/></svg>
-            </button>
-            <button className={`nvr-lb ${layout === 'l4' ? 'active' : ''}`} onClick={() => setLayout('l4')} title="2×2">
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
-                <rect x="0" y="0" width="5.5" height="5.5" rx=".8"/><rect x="7.5" y="0" width="5.5" height="5.5" rx=".8"/>
-                <rect x="0" y="7.5" width="5.5" height="5.5" rx=".8"/><rect x="7.5" y="7.5" width="5.5" height="5.5" rx=".8"/>
-              </svg>
-            </button>
-            <button className={`nvr-lb ${layout === 'l9' ? 'active' : ''}`} onClick={() => setLayout('l9')} title="3×3">
-              <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor">
-                <rect x="0" y="0" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="0" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="0" width="3.2" height="3.2" rx=".5"/>
-                <rect x="0" y="4.9" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="4.9" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="4.9" width="3.2" height="3.2" rx=".5"/>
-                <rect x="0" y="9.8" width="3.2" height="3.2" rx=".5"/><rect x="4.9" y="9.8" width="3.2" height="3.2" rx=".5"/><rect x="9.8" y="9.8" width="3.2" height="3.2" rx=".5"/>
-              </svg>
-            </button>
+            {/* Grid Layout Selector Dropdown */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="btn-industrial"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  height: 28,
+                  padding: '0 10px',
+                  background: dropdownOpen ? 'var(--admin-hover)' : 'var(--admin-layer-2)',
+                  border: '1px solid var(--admin-border)',
+                  color: 'var(--admin-text)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  borderRadius: 0,
+                }}
+              >
+                <Grid size={14} style={{ color: 'var(--admin-accent)' }} />
+                <span>Bố cục: {layout.cols} × {layout.rows}</span>
+                <ChevronDown size={12} style={{ opacity: 0.6 }} />
+              </button>
+
+              {dropdownOpen && (
+                <>
+                  {/* Click overlay to close */}
+                  <div
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      setHoverGrid(null);
+                    }}
+                    style={{
+                      position: 'fixed',
+                      inset: 0,
+                      zIndex: 998,
+                    }}
+                  />
+                  
+                  {/* Dropdown panel */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      right: 0,
+                      marginTop: 4,
+                      background: 'var(--admin-layer-2)',
+                      border: '1px solid var(--admin-border)',
+                      padding: 12,
+                      zIndex: 999,
+                      boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
+                      borderRadius: 0,
+                      width: 'max-content',
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--admin-text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      Chọn bố cục nhanh
+                    </div>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 12 }}>
+                      {[
+                        { cols: 1, rows: 1, label: 'Lưới 1×1' },
+                        { cols: 2, rows: 2, label: 'Lưới 2×2' },
+                        { cols: 3, rows: 3, label: 'Lưới 3×3' },
+                        { cols: 4, rows: 4, label: 'Lưới 4×4' },
+                        { cols: 6, rows: 4, label: 'Lưới 6×4' },
+                        { cols: 6, rows: 5, label: 'Lưới 6×5' },
+                        { cols: 6, rows: 6, label: 'Lưới 6×6' },
+                        { cols: 8, rows: 8, label: 'Lưới 8×8' },
+                      ].map((preset) => (
+                        <button
+                          key={`${preset.cols}-${preset.rows}`}
+                          onClick={() => {
+                            setLayout(preset);
+                            setExpandedCamId(null);
+                            setDropdownOpen(false);
+                          }}
+                          style={{
+                            background: (layout.cols === preset.cols && layout.rows === preset.rows) ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                            border: (layout.cols === preset.cols && layout.rows === preset.rows) ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid rgba(255, 255, 255, 0.1)',
+                            color: (layout.cols === preset.cols && layout.rows === preset.rows) ? '#f59e0b' : 'var(--admin-text)',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            padding: '4px 2px',
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                            borderRadius: 0,
+                            transition: 'all 0.15s ease',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                          }}
+                          onMouseLeave={(e) => {
+                            const isSel = layout.cols === preset.cols && layout.rows === preset.rows;
+                            e.currentTarget.style.background = isSel ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.03)';
+                            e.currentTarget.style.borderColor = isSel ? 'rgba(245, 158, 11, 0.5)' : 'rgba(255, 255, 255, 0.1)';
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          Lưới tự chọn
+                        </span>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: '#f59e0b' }}>
+                          {hoverGrid ? `${hoverGrid.cols} × ${hoverGrid.rows} (${hoverGrid.cols * hoverGrid.rows} ô)` : `${layout.cols} × ${layout.rows} (${layout.cols * layout.rows} ô)`}
+                        </span>
+                      </div>
+
+                      <div 
+                        onMouseLeave={() => setHoverGrid(null)}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(10, 18px)',
+                          gap: 3,
+                          background: 'rgba(0, 0, 0, 0.15)',
+                          padding: 6,
+                          border: '1px solid rgba(255, 255, 255, 0.05)'
+                        }}
+                      >
+                        {Array.from({ length: 10 }).map((_, r) =>
+                          Array.from({ length: 10 }).map((_, c) => {
+                            const isHighlighted = hoverGrid
+                              ? (r < hoverGrid.rows && c < hoverGrid.cols)
+                              : (r < layout.rows && c < layout.cols);
+                            return (
+                              <div
+                                key={`${r}-${c}`}
+                                onMouseEnter={() => setHoverGrid({ rows: r + 1, cols: c + 1 })}
+                                onClick={() => {
+                                  setLayout({ cols: c + 1, rows: r + 1 });
+                                  setExpandedCamId(null);
+                                  setDropdownOpen(false);
+                                  setHoverGrid(null);
+                                }}
+                                style={{
+                                  width: 18,
+                                  height: 18,
+                                  background: isHighlighted ? 'rgba(245, 158, 11, 0.45)' : 'rgba(255, 255, 255, 0.04)',
+                                  border: isHighlighted ? '1px solid rgba(245, 158, 11, 0.8)' : '1px solid rgba(255, 255, 255, 0.08)',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.1s ease',
+                                }}
+                              />
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: 10, marginTop: 10 }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--admin-text-muted)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Lưu bố cục hiện tại
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                        <input
+                          type="text"
+                          value={newLayoutName}
+                          onChange={(e) => setNewLayoutName(e.target.value)}
+                          placeholder="Tên bố cục..."
+                          style={{
+                            flex: 1,
+                            background: 'rgba(0, 0, 0, 0.2)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            color: '#fff',
+                            fontSize: '11px',
+                            padding: '4px 8px',
+                            outline: 'none',
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleSaveLayout();
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={handleSaveLayout}
+                          style={{
+                            background: '#f59e0b',
+                            color: '#000',
+                            border: 'none',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '4px 10px',
+                            cursor: 'pointer',
+                            borderRadius: 0,
+                          }}
+                        >
+                          Lưu
+                        </button>
+                      </div>
+
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--admin-text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Bố cục đã lưu
+                      </div>
+                      {savedLayouts.length === 0 ? (
+                        <div style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.3)', fontStyle: 'italic', padding: '2px 0' }}>
+                          Chưa có bố cục nào được lưu
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 120, overflowY: 'auto' }}>
+                          {savedLayouts.map((l) => (
+                            <div
+                              key={l.id}
+                              onClick={() => {
+                                setLayout({ cols: l.cols, rows: l.rows });
+                                setSelectedCamFilter(l.selectedCamFilter);
+                                setDropdownOpen(false);
+                              }}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '4px 6px',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                border: '1px solid rgba(255, 255, 255, 0.05)',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                              }}
+                            >
+                              <span style={{ fontSize: '11px', color: 'var(--admin-text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 150 }}>
+                                {l.name} ({l.cols}x{l.rows})
+                              </span>
+                              <button
+                                onClick={(e) => handleDeleteLayout(l.id, e)}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'rgba(255, 255, 255, 0.4)',
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  padding: '0 4px',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.color = '#ef4444'}
+                                onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.4)'}
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
 
             <div className="rtm-sep" />
             <ToolbarSelect
               value={selectedCamFilter}
-              onChange={v => { setSelectedCamFilter(v); if (v) setLayout('l1'); else setLayout('l4'); }}
-              options={[{ value: '', label: 'Tất cả camera' }, ...cameras.map(c => ({ value: c.id, label: (c as any).stationName ? `${(c as any).stationName} · ${c.name}` : c.name }))]}
+              onChange={v => { setSelectedCamFilter(v); if (v) setLayout({ cols: 1, rows: 1 }); else setLayout({ cols: 2, rows: 2 }); }}
+              options={[{ value: '', label: 'Tất cả camera' }, ...sortedCamOptions]}
               width={180}
             />
 
@@ -1244,9 +1599,79 @@ export default function RealtimeMonitorPage({
 
           </div>
         ) : (
-          <div className="nvr-wrap">
-            <div className={`nvr-grid ${layout}`}>
-              {Array.from({ length: cellCount }).map((_, i) => renderCell(displayCams[i], i))}
+          <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+            {/* Camera Sidebar */}
+            <div className="admin-card rtm-sidebar" style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', borderRight: '1px solid var(--admin-border)', borderRadius: 0, background: 'var(--admin-layer-2)' }}>
+              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--admin-border)', fontSize: '.72rem', fontWeight: 800, color: 'var(--admin-text-muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>DANH SÁCH CAMERA</span>
+                {selectedCamFilter && (
+                  <button 
+                    onClick={() => { setSelectedCamFilter(''); setExpandedCamId(null); setLayout({ cols: 2, rows: 2 }); }}
+                    style={{ background: 'none', border: 'none', color: 'var(--admin-accent)', fontSize: '10px', cursor: 'pointer', fontWeight: 700, padding: 0 }}
+                  >
+                    Hiện tất cả
+                  </button>
+                )}
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                <div 
+                  onClick={() => { setSelectedCamFilter(''); setExpandedCamId(null); setLayout({ cols: 2, rows: 2 }); }} 
+                  style={{
+                    padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid var(--admin-border)',
+                    background: !selectedCamFilter ? 'rgba(59,130,246,.08)' : 'transparent',
+                    borderLeft: !selectedCamFilter ? '3px solid var(--admin-accent)' : '3px solid transparent',
+                    display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s'
+                  }}
+                >
+                  <Grid size={14} style={{ color: !selectedCamFilter ? 'var(--admin-accent)' : 'var(--admin-text-muted)' }} />
+                  <span style={{ fontWeight: !selectedCamFilter ? 800 : 600, fontSize: '.75rem', color: !selectedCamFilter ? 'var(--admin-text)' : 'var(--admin-text-muted)' }}>Tất cả camera</span>
+                </div>
+                {stationCams.map(c => {
+                  const active = selectedCamFilter === c.id;
+                  const baseId = c.id.replace(/_(optical|thermal)$/, '').toLowerCase();
+                  const status = deviceStatus[baseId] || 'unknown';
+                  return (
+                    <div 
+                      key={c.id} 
+                      onClick={() => {
+                        setSelectedCamFilter(c.id);
+                        setExpandedCamId(c.id);
+                        setLayout({ cols: 1, rows: 1 });
+                      }} 
+                      style={{
+                        padding: '12px 14px', cursor: 'pointer', borderBottom: '1px solid var(--admin-border)',
+                        background: active ? 'rgba(59,130,246,.08)' : 'transparent',
+                        borderLeft: active ? '3px solid var(--admin-accent)' : '3px solid transparent',
+                        display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.15s'
+                      }}
+                    >
+                      <span className={`nvr-dot ${status}`} style={{ width: 6, height: 6 }} />
+                      <span style={{ fontWeight: active ? 800 : 500, fontSize: '.75rem', color: active ? 'var(--admin-text)' : 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        {c.name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* NVR Wrap Grid */}
+            <div className="nvr-wrap">
+              {(() => {
+                const { cols, rows } = selectedCamFilter ? { cols: 1, rows: 1 } : layout;
+                const displayCellCount = selectedCamFilter ? 1 : cellCount;
+                return (
+                  <div 
+                    className="nvr-grid"
+                    style={{
+                      gridTemplateColumns: `repeat(${cols}, 1fr)`,
+                      gridTemplateRows: `repeat(${rows}, 1fr)`,
+                    }}
+                  >
+                    {Array.from({ length: displayCellCount }).map((_, i) => renderCell(displayCams[i], i))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

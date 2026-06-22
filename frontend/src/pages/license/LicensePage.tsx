@@ -8,6 +8,11 @@ interface LicenseStatus {
   activated: boolean;
   tier?: string;
   maxUsers?: number;
+  maxStations?: number;
+  maxCameras?: number;
+  maxRoiPoints?: number;
+  maxRoiRegions?: number;
+  maxPdRegions?: number;
   expiresAt?: string;
   activatedAt?: string;
   activeSessions?: number;
@@ -15,16 +20,32 @@ interface LicenseStatus {
   daysRemaining?: number;
 }
 
+interface ResourceLimit {
+  resource: string;
+  current: number;
+  max: number;       // -1 = unlimited
+  exceeded: boolean;
+}
+
+const RESOURCE_LABELS: Record<string, { label: string; icon: string }> = {
+  stations:    { label: 'Trạm biến áp',      icon: '🏭' },
+  cameras:     { label: 'Camera',             icon: '📷' },
+  roi_points:  { label: 'Điểm giám sát nhiệt', icon: '🌡️' },
+  roi_regions: { label: 'Vùng nhiệt (ROI)',   icon: '🔥' },
+  pd_regions:  { label: 'Vùng phóng điện (PD)', icon: '⚡' },
+};
+
 export default function LicensePage() {
   const navigate = useNavigate();
   
   const [status, setStatus] = useState<LicenseStatus | null>(null);
+  const [limits, setLimits] = useState<ResourceLimit[]>([]);
   const [key, setKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  const isAdmin = authService.getUser()?.role === 'admin';
+  const canManageLicense = authService.hasPermission('license:manage');
 
   const loadStatus = async () => {
     try {
@@ -35,8 +56,18 @@ export default function LicensePage() {
     }
   };
 
+  const loadLimits = async () => {
+    try {
+      const data = await stationApi.getLicenseLimits();
+      setLimits(data);
+    } catch {
+      setLimits([]);
+    }
+  };
+
   useEffect(() => {
     loadStatus();
+    loadLimits();
   }, []);
 
   const handleActivate = async (e: React.FormEvent) => {
@@ -58,6 +89,7 @@ export default function LicensePage() {
         setSuccessMsg('Kích hoạt thành công! Đang tải lại...');
         setKey('');
         await loadStatus();
+        await loadLimits();
         setTimeout(() => navigate('/dashboard'), 1500);
       }
     } catch (err: any) {
@@ -71,6 +103,11 @@ export default function LicensePage() {
     if (tier === 'solo') return 'solo';
     if (tier === 'team') return 'team';
     return 'ent';
+  };
+
+  const formatLimit = (val?: number) => {
+    if (val === undefined || val === null) return '—';
+    return val >= 999 ? '∞' : String(val);
   };
 
   const renderStatusBox = () => {
@@ -93,7 +130,7 @@ export default function LicensePage() {
       );
     }
 
-    const tierLabel = status.tier === 'solo' ? 'Solo' : status.tier === 'team' ? 'Team' : status.tier === 'enterprise' ? 'Enterprise' : status.tier;
+    const tierLabel = status.tier === 'solo' ? 'Solo' : status.tier === 'team' ? 'Team' : status.tier === 'ent' ? 'Enterprise' : status.tier;
     const expDate = status.expiresAt ? new Date(status.expiresAt).toLocaleDateString('vi-VN') : '—';
     const actDate = status.activatedAt ? new Date(status.activatedAt).toLocaleDateString('vi-VN') : '—';
     const statusCls = status.isValid ? 'valid' : 'expired';
@@ -114,12 +151,8 @@ export default function LicensePage() {
           </span>
         </div>
         <div className="status-row">
-          <span>Số người dùng tối đa</span>
-          <span>{status.maxUsers && status.maxUsers >= 999 ? 'Không giới hạn' : status.maxUsers}</span>
-        </div>
-        <div className="status-row">
-          <span>Phiên đang hoạt động</span>
-          <span>{status.activeSessions ?? 0} / {status.maxUsers && status.maxUsers >= 999 ? '∞' : status.maxUsers}</span>
+          <span>Người dùng đồng thời</span>
+          <span>{status.activeSessions ?? 0} / {formatLimit(status.maxUsers)}</span>
         </div>
         <div className="status-row">
           <span>Ngày hết hạn</span>
@@ -128,6 +161,55 @@ export default function LicensePage() {
         <div className="status-row">
           <span>Ngày kích hoạt</span>
           <span>{actDate}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderResourceLimits = () => {
+    if (!status?.activated) return null;
+
+    // Use limits from API if available, otherwise fall back to status fields
+    const resourceData = limits.length > 0 ? limits : [
+      { resource: 'stations',    current: 0, max: status.maxStations   && status.maxStations >= 999   ? -1 : (status.maxStations ?? 0),   exceeded: false },
+      { resource: 'cameras',     current: 0, max: status.maxCameras    && status.maxCameras >= 999    ? -1 : (status.maxCameras ?? 0),    exceeded: false },
+      { resource: 'roi_points',  current: 0, max: status.maxRoiPoints  && status.maxRoiPoints >= 999  ? -1 : (status.maxRoiPoints ?? 0),  exceeded: false },
+      { resource: 'roi_regions', current: 0, max: status.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status.maxRoiRegions ?? 0), exceeded: false },
+      { resource: 'pd_regions',  current: 0, max: status.maxPdRegions  && status.maxPdRegions >= 999  ? -1 : (status.maxPdRegions ?? 0),  exceeded: false },
+    ];
+
+    return (
+      <div className="resource-limits-section">
+        <h3>Giới hạn tài nguyên</h3>
+        <div className="resource-grid">
+          {resourceData.map((item) => {
+            const info = RESOURCE_LABELS[item.resource] ?? { label: item.resource, icon: '📦' };
+            const isUnlimited = item.max === -1 || (item.max !== undefined && item.max >= 999);
+            const pct = isUnlimited ? 0 : (item.max > 0 ? Math.min(100, (item.current / item.max) * 100) : 0);
+            const barClass = item.exceeded ? 'exceeded' : pct >= 80 ? 'warning' : 'normal';
+
+            return (
+              <div key={item.resource} className={`resource-card ${item.exceeded ? 'exceeded' : ''}`}>
+                <div className="resource-icon">{info.icon}</div>
+                <div className="resource-info">
+                  <div className="resource-name">{info.label}</div>
+                  <div className="resource-count">
+                    <span className="resource-current">{item.current}</span>
+                    <span className="resource-sep">/</span>
+                    <span className="resource-max">{isUnlimited ? '∞' : item.max}</span>
+                  </div>
+                  {!isUnlimited && (
+                    <div className="resource-bar-bg">
+                      <div className={`resource-bar-fill ${barClass}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  )}
+                  {isUnlimited && (
+                    <div className="resource-unlimited">Không giới hạn</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -147,12 +229,13 @@ export default function LicensePage() {
           </div>
 
           {renderStatusBox()}
+          {renderResourceLimits()}
 
-          {isAdmin && (
+          {canManageLicense && (
             <div className="license-activate-section" id="activateSection">
               <h3>Kích hoạt License Key</h3>
               <p className="license-hint">
-                Nhập license key do nhà cung cấp cấp. Định dạng: <code>SOLO-YYMMDD-XXXX-XXXXXXXX</code>
+                Nhập license key do nhà cung cấp cấp. Hỗ trợ nhiều định dạng (4 đến 10 phần).
               </p>
 
               {errorMsg && <div className="license-error">️ {errorMsg}</div>}
@@ -162,7 +245,7 @@ export default function LicensePage() {
                 <input 
                   type="text" 
                   className="license-input"
-                  placeholder="VD: SOLO-270101-A3F7-1B2C3D4E"
+                  placeholder="VD: TEAM-270101-A3F7-1B2C3D4E"
                   spellCheck="false" 
                   autoComplete="off"
                   value={key}
@@ -177,11 +260,11 @@ export default function LicensePage() {
               <div className="license-tiers">
                 <div className="tier-card">
                   <span className="tier-badge solo">SOLO</span>
-                  <span>1 người dùng đồng thời</span>
+                  <span>1 user • 1 trạm</span>
                 </div>
                 <div className="tier-card">
                   <span className="tier-badge team">TEAM</span>
-                  <span>5 người dùng đồng thời</span>
+                  <span>5 users • 10 trạm</span>
                 </div>
                 <div className="tier-card">
                   <span className="tier-badge ent">ENTERPRISE</span>
@@ -192,8 +275,8 @@ export default function LicensePage() {
           )}
 
           <div className="license-actions">
-            <button className="btn-license-skip" onClick={() => navigate('/dashboard')}>
-              Vào hệ thống (Chế độ demo)
+            <button className="btn-license-skip" onClick={() => navigate(-1)}>
+              Quay lại
             </button>
           </div>
         </div>

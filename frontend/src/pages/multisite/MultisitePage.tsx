@@ -1,14 +1,14 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore, useAuthStore } from '@/store';
-import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask } from '@/types/api.types';
+import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team } from '@/types/api.types';
 import type { StationView, StationLocation, StationKpi } from './types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
   Search, Map as MapIcon, AlertTriangle,
   X, ShieldCheck, Wifi,
-  ChevronLeft, ChevronRight, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video, Settings,
-  ArrowLeft,
+  ChevronLeft, ChevronRight, ChevronDown, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video, Settings,
+  ArrowLeft, Key,
   Download, RefreshCw, Calendar, Clock, Loader2, Filter, Bell, Zap
 } from 'lucide-react';
 import { stationApi } from '@/services/StationApiService';
@@ -26,7 +26,7 @@ const UserManagementPage = lazy(() => import('@/pages/user-management/UserManage
 type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'alerts_history' | 'maintenance' | 'audit_log' | 'reports' | 'users';
 
 const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
-  overview: 'GIÁM SÁT TỔNG QUAN',
+  overview: 'TỔNG QUAN',
   truc_tiep: 'TRỰC TIẾP',
   analytics: 'PHÂN TÍCH',
   devices: 'THIẾT BỊ',
@@ -36,6 +36,106 @@ const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
   reports: 'BÁO CÁO',
   users: 'NGƯỜI DÙNG',
 };
+
+function InlineDarkDropdown({
+  value,
+  options,
+  onChange,
+  minWidth = 180,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+  minWidth?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const activeLabel = options.find(option => option.value === value)?.label || options[0]?.label || '';
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} style={{ position: 'relative', minWidth }}>
+      <button
+        type="button"
+        onClick={() => setOpen(prev => !prev)}
+        style={{
+          height: 28,
+          minWidth,
+          padding: '0 8px',
+          borderRadius: 3,
+          border: '1px solid var(--admin-border)',
+          background: 'var(--admin-layer-2)',
+          color: 'var(--admin-text)',
+          fontSize: '.62rem',
+          fontWeight: 600,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeLabel}</span>
+        <span style={{ color: 'var(--admin-text-muted)' }}>{open ? '▴' : '▾'}</span>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            minWidth: '100%',
+            background: 'var(--admin-panel)',
+            border: '1px solid var(--admin-border)',
+            boxShadow: '0 8px 24px rgba(0,0,0,.45)',
+            zIndex: 1000,
+            maxHeight: 260,
+            overflowY: 'auto',
+          }}
+        >
+          {options.map(option => {
+            const active = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  border: 'none',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  background: active ? 'var(--admin-layer-3)' : 'transparent',
+                  color: active ? 'var(--admin-accent)' : 'var(--admin-text)',
+                  textAlign: 'left',
+                  fontSize: '.62rem',
+                  fontWeight: active ? 700 : 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 
@@ -66,6 +166,17 @@ function extractProvinceName(location?: StationLocation): string {
 function compactStationTitle(name?: string): string {
   if (!name) return '';
   return name.replace(/^trạm biến áp\s*/i, 'TBA ');
+}
+
+function normalizeProvinceToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^tỉnh\s+/i, '')
+    .replace(/^thành phố\s+/i, '')
+    .replace(/^tp\.\s*/i, '')
+    .replace(/^tp\s+/i, '')
+    .trim();
 }
 
 function parseIsoDate(value: string): Date {
@@ -136,8 +247,24 @@ const STATION_TOWER_ICON = `
   </svg>
 `;
 
+const ROLE_DISPLAY: Record<string, { label: string; color: string; bg: string }> = {
+  admin:             { label: 'ADMIN',          color: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+  admin_province:    { label: 'ADMIN TỈNH',     color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
+  operator_province: { label: 'OPERATOR TỈNH',  color: '#0d9488', bg: 'rgba(13,148,136,0.1)' },
+  team_leader:       { label: 'TỔ TRƯỞNG',      color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+  team_member:       { label: 'NHÂN VIÊN TỔ',  color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
+  admin_station:     { label: 'ADMIN TRẠM',     color: '#06b6d4', bg: 'rgba(6,182,212,0.1)' },
+  manager:           { label: 'MANAGER',        color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+  operator:          { label: 'OPERATOR',       color: '#10b981', bg: 'rgba(16,185,129,0.1)' },
+};
+
 export default function MultisitePage() {
   const navigate = useNavigate();
+  const currentUser = authService.getUser();
+  const _roleFallback = { label: 'USER', color: 'var(--admin-accent)', bg: 'rgba(0,0,0,0)' };
+  const currentRoleCfg = (currentUser?.role ? (ROLE_DISPLAY[currentUser.role] ?? _roleFallback) : _roleFallback);
+  const isProvinceAdmin = currentUser?.role === 'admin_province';
+  const callerProvinceIds = currentUser?.province_ids || [];
   const location = useLocation();
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<any>(null);
@@ -270,12 +397,48 @@ export default function MultisitePage() {
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [remoteKpis, setRemoteKpis] = useState<Record<string, { devicesOnline: number; devicesTotal: number; alertsCount: number }>>({});
   const [isAuthReady, setIsAuthReady] = useState(() => !!authService.getToken());
+  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [userDropdownPos, setUserDropdownPos] = useState({ top: 0, left: 0 });
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserDropdown(false);
+      }
+    };
+    if (showUserDropdown) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showUserDropdown]);
   const token = useAuthStore(s => s.token);
   const [provinces, setProvinces] = useState<Province[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const visibleProvinces = useMemo(() => {
+    if (!isProvinceAdmin || callerProvinceIds.length === 0) return provinces;
+    const allowed = new Set(callerProvinceIds.map(id => id.toLowerCase()));
+    return provinces.filter(p => allowed.has(p.id.toLowerCase()));
+  }, [callerProvinceIds, isProvinceAdmin, provinces]);
+
+  const openAddStationModal = () => {
+    if (isProvinceAdmin && visibleProvinces.length > 0) {
+      setNewStationProvinceId(visibleProvinces[0]!.id);
+    }
+    setIsAddModalOpen(true);
+  };
 
   useEffect(() => {
     stationApi.getProvinces().then(setProvinces).catch(() => {});
+    stationApi.getTeams().then(setTeams).catch(() => {});
   }, [token]);
+
+  useEffect(() => {
+    if (!isAddModalOpen) return;
+    if (!newStationProvinceId && visibleProvinces.length === 1) {
+      setNewStationProvinceId(visibleProvinces[0]!.id);
+    }
+  }, [isAddModalOpen, newStationProvinceId, visibleProvinces]);
   const stationStatusRef = useRef<Record<string, string>>({});
   const stationNameRef = useRef<Record<string, string>>({});
   const kpiRefreshAtRef = useRef<Record<string, number>>({});
@@ -1126,7 +1289,7 @@ export default function MultisitePage() {
       `}</style>
 
       {activeTab === 'overview' && (
-        <div key={mapHostKey} ref={mapRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }} />
+        <div key={mapHostKey} ref={mapRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, background: '#1a1a2e' }} />
       )}
 
       {activeTab === 'overview' && selectedProvince && (
@@ -1170,7 +1333,7 @@ export default function MultisitePage() {
         position: 'absolute', top: 0, left: 0, height: 40,
         borderRadius: '0 0 4px 0', width: '100%', zIndex: 1010,
         padding: '0 12px', display: 'flex', alignItems: 'center',
-        overflow: 'hidden'
+        overflow: 'visible'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderRight: '1px solid var(--admin-border)', paddingRight: 12, flexShrink: 0 }}>
           {/* Accent Bar */}
@@ -1183,12 +1346,16 @@ export default function MultisitePage() {
           />
 
           <span style={{ fontSize: '0.9rem', fontWeight: 900, color: 'var(--admin-accent)', letterSpacing: 0.5, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-            {selectedView ? compactStationTitle(selectedView.station.name) : MULTISITE_TAB_TITLES[activeTab]}
+            {selectedView && showRightPanel
+              ? compactStationTitle(selectedView.station.name)
+              : selectedProvince && activeTab === 'overview'
+                ? selectedProvince
+                : MULTISITE_TAB_TITLES[activeTab]}
           </span>
 
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, overflow: 'hidden', marginLeft: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0, overflow: 'visible', marginLeft: 'auto' }}>
           <div className="hud-nav-group" style={{
             display: 'flex',
             gap: 4,
@@ -1425,25 +1592,108 @@ export default function MultisitePage() {
                 background: 'var(--admin-success)',
                 display: 'inline-block'
               }} />
-              <span style={{ color: 'var(--admin-accent)', marginRight: 4 }}>{authService.getUser()?.username}</span>
               
-              <div style={{ width: 1, height: 12, background: 'var(--admin-border)' }} />
-              
-              <button 
-                onClick={() => setShowLogoutConfirm(true)} 
-                style={{ 
-                  background: 'none', 
-                  border: 'none', 
-                  padding: '0 2px',
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  color: 'var(--admin-danger)', 
-                  cursor: 'pointer',
-                }}
-                title="Đăng xuất"
-              >
-                <LogOut size={11} />
-              </button>
+              <div ref={userMenuRef} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!showUserDropdown && userMenuRef.current) {
+                      const r = userMenuRef.current.getBoundingClientRect();
+                      setUserDropdownPos({ top: r.bottom + 6, left: r.left + r.width / 2 });
+                    }
+                    setShowUserDropdown(v => !v);
+                  }}
+                  title={authService.getUser()?.username}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    color: 'var(--admin-accent)',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    fontSize: '0.68rem',
+                  }}
+                >
+                  <span>{authService.getUser()?.username}</span>
+                  <ChevronDown size={9} style={{ opacity: 0.8, transform: showUserDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                </button>
+                
+                {showUserDropdown && (
+                  <div style={{
+                    position: 'fixed',
+                    top: userDropdownPos.top,
+                    left: userDropdownPos.left,
+                    transform: 'translateX(-50%)',
+                    background: 'var(--admin-layer-2, #1e293b)',
+                    border: '1px solid var(--admin-border, #334155)',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
+                    padding: '4px 0',
+                    minWidth: '130px',
+                    zIndex: 9999,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}>
+                    {authService.hasPermission('license:manage') && (
+                      <button
+                        onClick={() => {
+                          setShowUserDropdown(false);
+                          navigate('/license');
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--admin-text)',
+                          padding: '6px 12px',
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          width: '100%',
+                          transition: 'background 0.15s',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--admin-hover)')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                      >
+                        <Key size={11} style={{ color: 'var(--admin-accent)' }} />
+                        <span>Bản quyền</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setShowUserDropdown(false);
+                        setShowLogoutConfirm(true);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--admin-danger)',
+                        padding: '6px 12px',
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        width: '100%',
+                        transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--admin-hover)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                    >
+                      <LogOut size={11} />
+                      <span>Đăng xuất</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1609,7 +1859,7 @@ export default function MultisitePage() {
             padding: 0
           }}
         >
-          <CentralLogView stations={stations} provinces={provinces} />
+          <CentralLogView stations={stations} provinces={provinces} teams={teams} />
         </div>
       )}
 
@@ -1627,7 +1877,7 @@ export default function MultisitePage() {
             padding: 0
           }}
         >
-          <CentralReportsView stations={stations} views={views} globalStats={globalStats} selectedStationId={selectedStationId} />
+          <CentralReportsView stations={stations} views={views} provinces={provinces} teams={teams} globalStats={globalStats} selectedStationId={selectedStationId} />
         </div>
       )}
 
@@ -1722,7 +1972,7 @@ export default function MultisitePage() {
                     color: 'var(--admin-accent)',
                     borderColor: 'var(--admin-accent)'
                   }}
-                  onClick={() => setIsAddModalOpen(true)}
+                  onClick={openAddStationModal}
                 >
                   <Plus size={11} /> THÊM TRẠM MỚI
                 </button>
@@ -2291,6 +2541,7 @@ export default function MultisitePage() {
                 <select
                   value={newStationProvinceId}
                   onChange={e => setNewStationProvinceId(e.target.value)}
+                  disabled={isProvinceAdmin && visibleProvinces.length <= 1}
                   style={{
                     background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
                     padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none',
@@ -2300,10 +2551,15 @@ export default function MultisitePage() {
                   }}
                 >
                   <option value="" style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>-- Chọn tỉnh --</option>
-                  {provinces.map(p => (
+                  {visibleProvinces.map(p => (
                     <option key={p.id} value={p.id} style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>{p.name}</option>
                   ))}
                 </select>
+                {isProvinceAdmin && (
+                  <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
+                    Tài khoản quản lý tỉnh chỉ được tạo trạm trong tỉnh được phân quyền.
+                  </span>
+                )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>TÊN TRẠM BIẾN ÁP *</label>
@@ -2701,10 +2957,12 @@ export default function MultisitePage() {
    Chỉ hiển thị: nút tạo nhanh + dropdown trạm + bảng lịch sử
    ───────────────────────────────────────────────────────────── */
 function CentralReportsView({
-  stations, views, globalStats, selectedStationId,
+  stations, views, provinces, teams, globalStats, selectedStationId,
 }: {
   stations: Station[];
   views: StationView[];
+  provinces: Province[];
+  teams: Team[];
   globalStats: { totalStations: number; totalDevices: number; onlineDevices: number; totalAlerts: number; totalCameras?: number };
   selectedStationId: string | null;
 }) {
@@ -2718,10 +2976,6 @@ function CentralReportsView({
     btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
     btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
     btnPrimary: { height: 26, padding: '0 10px', borderRadius: 3, border: 'none', background: 'var(--admin-accent)', color: '#fff', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
-    // dropdown
-    dropdown: { height: 28, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 180 } as React.CSSProperties,
-    dropdownMenu: { position: 'fixed', zIndex: 9999, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, maxHeight: 240, overflow: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,.45)', minWidth: 180 } as React.CSSProperties,
-    dropdownItem: (active: boolean) => ({ padding: '5px 10px', fontSize: '.65rem', cursor: 'pointer', color: active ? 'var(--admin-accent)' : 'var(--admin-text)', background: active ? 'var(--admin-layer-3)' : 'transparent', fontWeight: active ? 700 : 400 } as React.CSSProperties),
     // table
     th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
@@ -2736,38 +2990,114 @@ function CentralReportsView({
     spin: { animation: 'crv-spin 1s linear infinite' } as React.CSSProperties,
   };
 
-  const [scopeStationId, setScopeStationId] = useState(selectedStationId || '');
+  const [scopeType, setScopeType] = useState<'fleet' | 'province' | 'team' | 'station'>(selectedStationId ? 'station' : 'fleet');
+  const [scopeId, setScopeId] = useState(selectedStationId || '');
   const [history, setHistory] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
-  const btnRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => { if (selectedStationId) setScopeStationId(selectedStationId); }, [selectedStationId]);
+  useEffect(() => {
+    if (selectedStationId) {
+      setScopeType('station');
+      setScopeId(selectedStationId);
+    }
+  }, [selectedStationId]);
+
+  const scopeTypeOptions = useMemo(() => ([
+    { value: 'fleet', label: `Toàn bộ hệ thống (${views.length} trạm)` },
+    { value: 'province', label: 'Theo tỉnh' },
+    { value: 'team', label: 'Theo tổ' },
+    { value: 'station', label: 'Theo trạm' },
+  ]), [views.length]);
+
+  const scopeEntityOptions = useMemo(() => {
+    if (scopeType === 'province') {
+      return provinces.map(province => ({ value: province.id, label: province.name }));
+    }
+    if (scopeType === 'team') {
+      return teams.map(team => ({ value: team.id, label: team.name }));
+    }
+    if (scopeType === 'station') {
+      return views.map(view => ({
+        value: view.station.id,
+        label: `${view.station.code ? `${view.station.code} · ` : ''}${view.station.name}`,
+      }));
+    }
+    return [];
+  }, [provinces, scopeType, teams, views]);
+
+  useEffect(() => {
+    if (scopeType === 'fleet') {
+      if (scopeId) setScopeId('');
+      return;
+    }
+    if (!scopeEntityOptions.some(option => option.value === scopeId)) {
+      setScopeId(scopeEntityOptions[0]?.value || '');
+    }
+  }, [scopeEntityOptions, scopeId, scopeType]);
 
   const scopeLabel = useMemo(() => {
-    const v = views.find(x => x.station.id === scopeStationId);
-    return v ? v.station.name : `Toàn bộ hệ thống (${views.length} trạm)`;
-  }, [views, scopeStationId]);
+    if (scopeType === 'fleet') return `Toàn bộ hệ thống (${views.length} trạm)`;
+    if (scopeType === 'province') {
+      return provinces.find(province => province.id === scopeId)?.name || 'Chưa chọn tỉnh';
+    }
+    if (scopeType === 'team') {
+      return teams.find(team => team.id === scopeId)?.name || 'Chưa chọn tổ';
+    }
+    return views.find(view => view.station.id === scopeId)?.station.name || 'Chưa chọn trạm';
+  }, [provinces, scopeId, scopeType, teams, views]);
+
+  const scopeStationIds = useMemo(() => {
+    if (scopeType === 'fleet') return stations.map(station => station.id);
+    if (scopeType === 'province') return stations.filter(station => station.provinceId === scopeId).map(station => station.id);
+    if (scopeType === 'team') return teams.find(team => team.id === scopeId)?.stationIds || [];
+    return scopeId ? [scopeId] : [];
+  }, [scopeId, scopeType, stations, teams]);
+
+  const reportFilters = useMemo(() => {
+    if (scopeType === 'province') return { scopeType, provinceId: scopeId || undefined };
+    if (scopeType === 'team') return { scopeType, teamId: scopeId || undefined };
+    if (scopeType === 'station') return { scopeType, stationId: scopeId || undefined };
+    return { scopeType: 'fleet' as const };
+  }, [scopeId, scopeType]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const items = await stationApi.getReports(scopeStationId || undefined);
+      const items = await stationApi.getReports(reportFilters);
       setHistory(items.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()));
     } catch { setHistory([]); } finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, [scopeStationId]);
+  useEffect(() => { load(); }, [reportFilters]);
 
   const gen = async (type: 'daily' | 'monthly' | 'event') => {
+    if (scopeType !== 'fleet' && !scopeId) {
+      alert('Vui lòng chọn phạm vi báo cáo.');
+      return;
+    }
+    if (scopeStationIds.length === 0) {
+      alert('Phạm vi hiện tại chưa có trạm để tạo báo cáo.');
+      return;
+    }
     const now = new Date(), from = new Date(now);
     if (type === 'daily') from.setDate(now.getDate() - 1);
     if (type === 'monthly') from.setDate(now.getDate() - 30);
     if (type === 'event') from.setDate(now.getDate() - 7);
     setGenerating(type);
-    try { await stationApi.generateReport({ stationId: scopeStationId || undefined, type, from: from.toISOString(), to: now.toISOString() }); await load(); }
+    try {
+      await stationApi.generateReport({
+        stationId: scopeType === 'station' ? scopeId || undefined : undefined,
+        provinceId: scopeType === 'province' ? scopeId || undefined : undefined,
+        teamId: scopeType === 'team' ? scopeId || undefined : undefined,
+        scopeType,
+        scopeLabel,
+        type,
+        from: from.toISOString(),
+        to: now.toISOString()
+      });
+      await load();
+    }
     catch { alert('Không thể tạo báo cáo.'); }
     finally { setGenerating(null); }
   };
@@ -2812,30 +3142,20 @@ function CentralReportsView({
 
       {/* ── Scope + filters ───────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ position: 'relative' }}>
-          {menuOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onClick={() => setMenuOpen(false)} />}
-          <button ref={btnRef} style={S.dropdown} onClick={() => {
-            const r = btnRef.current?.getBoundingClientRect();
-            if (r) setMenuPos({ top: r.bottom + 2, left: r.left, width: r.width });
-            setMenuOpen(o => !o);
-          }}>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{scopeLabel}</span>
-            <span style={{ fontSize: '.55rem', opacity: .4 }}>▾</span>
-          </button>
-          {menuOpen && (
-            <div style={{ ...S.dropdownMenu, top: menuPos.top, left: menuPos.left, width: Math.max(menuPos.width, 200) }}>
-              <div style={S.dropdownItem(!scopeStationId)} onClick={() => { setScopeStationId(''); setMenuOpen(false); }}>
-                Toàn bộ hệ thống ({views.length} trạm)
-              </div>
-              {views.map(v => (
-                <div key={v.station.id} style={S.dropdownItem(scopeStationId === v.station.id)}
-                  onClick={() => { setScopeStationId(v.station.id); setMenuOpen(false); }}>
-                  {(v.station.code ? v.station.code + ' · ' : '') + v.station.name}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <InlineDarkDropdown
+          value={scopeType}
+          options={scopeTypeOptions}
+          onChange={value => setScopeType(value as 'fleet' | 'province' | 'team' | 'station')}
+          minWidth={190}
+        />
+        {scopeType !== 'fleet' && (
+          <InlineDarkDropdown
+            value={scopeId}
+            options={scopeEntityOptions}
+            onChange={setScopeId}
+            minWidth={240}
+          />
+        )}
         <div style={S.flex1} />
         <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{filtered.length} báo cáo</span>
         {(['all','daily','monthly','event'] as const).map(f => (
@@ -2855,16 +3175,17 @@ function CentralReportsView({
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              <th style={S.th}>Loại</th><th style={S.th}>Trạm</th><th style={S.th}>Kỳ báo cáo</th><th style={S.th}>Ngày tạo</th><th style={{ ...S.th, textAlign: 'right', width: 80 }}></th>
+              <th style={S.th}>Loại</th><th style={S.th}>Phạm vi</th><th style={S.th}>Kỳ báo cáo</th><th style={S.th}>Ngày tạo</th><th style={{ ...S.th, textAlign: 'right', width: 80 }}></th>
             </tr></thead>
             <tbody>
               {filtered.map(r => {
                 const sname = stations.find(s => s.id === r.stationId)?.name;
                 const c = tc(r.type);
+                const resolvedScopeLabel = r.scopeLabel || sname || 'Toàn hệ thống';
                 return (
                   <tr key={r.id} style={{ cursor: 'default' }}>
                     <td style={S.td}><div style={S.pill(c)}><span style={S.pillBar(c)} /><span style={S.pillLbl}>{tl(r.type)}</span></div></td>
-                    <td style={S.td}>{sname || <span style={{ ...S.muted, fontStyle: 'italic' }}>Toàn hệ thống</span>}</td>
+                    <td style={S.td}>{resolvedScopeLabel || <span style={{ ...S.muted, fontStyle: 'italic' }}>Toàn hệ thống</span>}</td>
                     <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.65rem', ...S.muted }}>
                       {r.periodFrom ? new Date(r.periodFrom).toLocaleDateString('vi-VN') : '--'}
                       {' → '}{r.periodTo ? new Date(r.periodTo).toLocaleDateString('vi-VN') : '--'}
@@ -2906,6 +3227,10 @@ interface MergedLogItem {
   stationName?: string;
   accountStationId?: string;
   accountStationName?: string;
+  provinceId?: string;
+  provinceName?: string;
+  teamId?: string;
+  teamName?: string;
   action: string;
   detail: string;
   user: string;
@@ -3060,7 +3385,7 @@ function buildChangeRows(item: MergedLogItem, stations: Station[], provinces: Pr
   }));
 }
 
-function CentralLogView({ stations, provinces }: { stations: Station[]; provinces: Province[] }) {
+function CentralLogView({ stations, provinces, teams }: { stations: Station[]; provinces: Province[]; teams: Team[] }) {
   const [logType, setLogType] = useState<LogType>('all');
   const [selectedDate, setSelectedDate] = useState(() => formatIsoDate(new Date()));
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -3093,6 +3418,8 @@ function CentralLogView({ stations, provinces }: { stations: Station[]; province
           id: l.id, ts: l.ts, type: 'audit' as LogType,
           stationId: l.stationId, stationName: l.stationName,
           accountStationId: l.accountStationId, accountStationName: l.accountStationName,
+          provinceId: l.provinceId, provinceName: l.provinceName,
+          teamId: l.teamId, teamName: l.teamName,
           action: l.action, detail: l.entityType || 'SYS',
           user: l.fullName || l.username || 'system',
           entityType: l.entityType, ipAddress: l.ipAddress,
@@ -3301,12 +3628,15 @@ function CentralLogView({ stations, provinces }: { stations: Station[]; province
         <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
 
         <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TRẠM</span>
-        <select style={S.dropdown} value={scopeStationId} onChange={e => setScopeStationId(e.target.value)}>
-          <option value="">TẤT CẢ TRẠM ({stations.length})</option>
-          {stations.map(s => (
-            <option key={s.id} value={s.id}>{(s.code ? s.code + ' · ' : '') + s.name}</option>
-          ))}
-        </select>
+        <InlineDarkDropdown
+          value={scopeStationId}
+          onChange={setScopeStationId}
+          minWidth={180}
+          options={[
+            { value: '', label: `TẤT CẢ TRẠM (${stations.length})` },
+            ...stations.map(s => ({ value: s.id, label: `${s.code ? `${s.code} · ` : ''}${s.name}` }))
+          ]}
+        />
 
         <div style={{ flex: 1 }} />
 
@@ -3378,15 +3708,19 @@ function CentralLogView({ stations, provinces }: { stations: Station[]; province
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <thead><tr>
                 <th style={{ ...S.th, width: 140 }}>THỜI GIAN</th>
-                <th style={{ ...S.th, width: 180 }}>TRẠM</th>
-                <th style={{ ...S.th, width: 120 }}>LOẠI</th>
+                <th style={{ ...S.th, width: 120 }}>TỈNH</th>
+                <th style={{ ...S.th, width: 120 }}>TỔ</th>
+                <th style={{ ...S.th, width: 150 }}>TRẠM</th>
+                <th style={{ ...S.th, width: 110 }}>LOẠI</th>
                 <th style={S.th}>NỘI DUNG</th>
-                <th style={{ ...S.th, width: 180 }}>NGƯỜI DÙNG</th>
+                <th style={{ ...S.th, width: 150 }}>NGƯỜI DÙNG</th>
               </tr></thead>
               <tbody>
                 {filtered.map(l => {
                   const c = LOG_TYPE_COLORS[l.type];
                   const isSelected = selectedLog?.id === l.id;
+                  const provinceName = l.provinceName ?? '—';
+                  const teamName = l.teamName ?? '—';
                   return (
                     <tr key={l.id}
                       onClick={() => setSelectedLog(isSelected ? null : l)}
@@ -3396,6 +3730,16 @@ function CentralLogView({ stations, provinces }: { stations: Station[]; province
                       }}>
                       <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'monospace', fontSize: '.62rem', ...S.muted }} title={fmtDateTime(l.ts)}>
                         {fmtDateTime(l.ts)}
+                      </td>
+                      <td style={{ ...S.td, ...S.tdNoWrap }} title={provinceName}>
+                        <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: provinceName === '—' ? undefined : 'var(--admin-accent)' }}>
+                          {provinceName === '—' ? <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span> : provinceName}
+                        </span>
+                      </td>
+                      <td style={{ ...S.td, ...S.tdNoWrap }} title={teamName}>
+                        <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: teamName === '—' ? undefined : '#f59e0b' }}>
+                          {teamName === '—' ? <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span> : teamName}
+                        </span>
                       </td>
                       <td style={{ ...S.td, ...S.tdNoWrap }} title={l.stationName || '—'}>
                         <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -3567,20 +3911,20 @@ function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <select value={provinceId} onChange={e => setProvinceId(e.target.value)} style={{ height: 28, minWidth: 180, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
-          <option value="">TẤT CẢ TỈNH</option>
-          {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <select value={stationId} onChange={e => setStationId(e.target.value)} style={{ height: 28, minWidth: 220, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
-          <option value="">TẤT CẢ TRẠM CON</option>
-          {stationsByProvince.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-        <select value={status} onChange={e => setStatus(e.target.value)} style={{ height: 28, minWidth: 160, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
-          <option value="">TẤT CẢ TRẠNG THÁI</option>
-          <option value="open">CHƯA XỬ LÝ</option>
-          <option value="acked">ĐANG XỬ LÝ</option>
-          <option value="closed">ĐÃ ĐÓNG</option>
-        </select>
+        <InlineDarkDropdown value={provinceId} onChange={setProvinceId} minWidth={180} options={[
+          { value: '', label: 'TẤT CẢ TỈNH' },
+          ...provinces.map(p => ({ value: p.id, label: p.name }))
+        ]} />
+        <InlineDarkDropdown value={stationId} onChange={setStationId} minWidth={220} options={[
+          { value: '', label: 'TẤT CẢ TRẠM CON' },
+          ...stationsByProvince.map(s => ({ value: s.id, label: s.name }))
+        ]} />
+        <InlineDarkDropdown value={status} onChange={setStatus} minWidth={160} options={[
+          { value: '', label: 'TẤT CẢ TRẠNG THÁI' },
+          { value: 'open', label: 'CHƯA XỬ LÝ' },
+          { value: 'acked', label: 'ĐANG XỬ LÝ' },
+          { value: 'closed', label: 'ĐÃ ĐÓNG' }
+        ]} />
         <div style={{ flex: 1 }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', padding: '0 8px', height: 28 }}>
           <Search size={12} color="var(--admin-text-muted)" />
@@ -3675,21 +4019,21 @@ function CentralMaintenanceView({ stations, provinces }: { stations: Station[]; 
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <select value={provinceId} onChange={e => setProvinceId(e.target.value)} style={{ height: 28, minWidth: 180, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
-          <option value="">TẤT CẢ TỈNH</option>
-          {provinces.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <select value={stationId} onChange={e => setStationId(e.target.value)} style={{ height: 28, minWidth: 220, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
-          <option value="">TẤT CẢ TRẠM CON</option>
-          {stationsByProvince.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-        <select value={status} onChange={e => setStatus(e.target.value)} style={{ height: 28, minWidth: 180, background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)' }}>
-          <option value="all">TẤT CẢ TRẠNG THÁI</option>
-          <option value="pending">ĐANG CHỜ</option>
-          <option value="in_progress">ĐANG LÀM</option>
-          <option value="overdue">QUÁ HẠN</option>
-          <option value="completed">HOÀN THÀNH</option>
-        </select>
+        <InlineDarkDropdown value={provinceId} onChange={setProvinceId} minWidth={180} options={[
+          { value: '', label: 'TẤT CẢ TỈNH' },
+          ...provinces.map(p => ({ value: p.id, label: p.name }))
+        ]} />
+        <InlineDarkDropdown value={stationId} onChange={setStationId} minWidth={220} options={[
+          { value: '', label: 'TẤT CẢ TRẠM CON' },
+          ...stationsByProvince.map(s => ({ value: s.id, label: s.name }))
+        ]} />
+        <InlineDarkDropdown value={status} onChange={setStatus} minWidth={180} options={[
+          { value: 'all', label: 'TẤT CẢ TRẠNG THÁI' },
+          { value: 'pending', label: 'ĐANG CHỜ' },
+          { value: 'in_progress', label: 'ĐANG LÀM' },
+          { value: 'overdue', label: 'QUÁ HẠN' },
+          { value: 'completed', label: 'HOÀN THÀNH' }
+        ]} />
         <button onClick={load} className="btn-industrial" style={{ height: 28, padding: '0 10px' }}>
           <RefreshCw size={12} className={loading ? 'spin' : ''} />
         </button>

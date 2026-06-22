@@ -23,6 +23,7 @@ using StationOS.Api.Filters;
 using Microsoft.AspNetCore.SignalR;
 using StationOS.Api.Hubs;
 using StationOS.Services;
+using StationOS.Services.Security;
 
 namespace StationOS.Api.Controllers;
 
@@ -34,13 +35,23 @@ public class UsersController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IHubContext<RealtimeHub> _hubContext;
     private readonly PermissionService _permissions;
+    private readonly CredentialEncryptionService _crypto;
 
-    public UsersController(AppDbContext db, IHubContext<RealtimeHub> hubContext, PermissionService permissions)
+    public UsersController(AppDbContext db, IHubContext<RealtimeHub> hubContext, PermissionService permissions, CredentialEncryptionService crypto)
     {
         _db = db;
         _hubContext = hubContext;
         _permissions = permissions;
+        _crypto = crypto;
     }
+
+    private object ToUserResponse(User user) => new
+    {
+        user.Id, user.Username, user.FullName,
+        user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds,
+        user.TeamId, user.Permissions, user.CreatedAt,
+        initialPassword = string.IsNullOrWhiteSpace(user.ProvisionedPassword) ? null : _crypto.Decrypt(user.ProvisionedPassword)
+    };
 
     // Lấy danh sách StationId và ProvinceId mà caller được phép quản lý. null = không giới hạn.
     private async Task<(bool isRestricted, Guid[]? stationIds, Guid[]? provinceIds)> GetCallerScopeAsync()
@@ -92,6 +103,128 @@ public class UsersController : ControllerBase
         return false;
     }
 
+    private static Guid[]? NormalizeGuidArray(Guid[]? values)
+    {
+        if (values == null) return null;
+        var normalized = values
+            .Where(v => v != Guid.Empty)
+            .Distinct()
+            .ToArray();
+        return normalized.Length == 0 ? null : normalized;
+    }
+
+    private async Task<(bool ok, IActionResult? error, Guid[]? stationIds, Guid[]? provinceIds, Guid? teamId)> ValidateAndNormalizeAssignmentsAsync(
+        string role,
+        Guid[]? stationIds,
+        Guid[]? provinceIds,
+        Guid? teamId,
+        bool isRestricted,
+        Guid[]? callerStationIds,
+        Guid[]? callerProvinceIds)
+    {
+        stationIds = NormalizeGuidArray(stationIds);
+        provinceIds = NormalizeGuidArray(provinceIds);
+        teamId = teamId == Guid.Empty ? null : teamId;
+
+        if (role == "admin")
+        {
+            return (true, null, null, null, null);
+        }
+
+        if (isRestricted)
+        {
+            if (callerProvinceIds != null && callerProvinceIds.Length > 0)
+            {
+                if (provinceIds != null)
+                {
+                    var unauthorizedProvinces = provinceIds.Where(pid => !callerProvinceIds.Contains(pid)).ToArray();
+                    if (unauthorizedProvinces.Length > 0)
+                    {
+                        return (false, StatusCode(403, new { message = "Bạn không có quyền gán một số Tỉnh đã chọn." }), null, null, null);
+                    }
+                }
+
+                if (stationIds != null)
+                {
+                    var stationsInProvinces = await _db.Stations
+                        .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
+                        .Select(s => s.Id)
+                        .ToListAsync();
+                    var unauthorizedStations = stationIds.Where(sid => !stationsInProvinces.Contains(sid)).ToArray();
+                    if (unauthorizedStations.Length > 0)
+                    {
+                        return (false, StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát ngoài tỉnh được quản lý." }), null, null, null);
+                    }
+                }
+            }
+            else if (callerStationIds != null && callerStationIds.Length > 0)
+            {
+                if (provinceIds != null)
+                {
+                    return (false, BadRequest(new { message = "Tài khoản quản lý trạm không được gán Tỉnh quản lý." }), null, null, null);
+                }
+
+                if (stationIds != null)
+                {
+                    var unauthorizedStations = stationIds.Where(sid => !callerStationIds.Contains(sid)).ToArray();
+                    if (unauthorizedStations.Length > 0)
+                    {
+                        return (false, StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát đã chọn." }), null, null, null);
+                    }
+                }
+            }
+        }
+
+        if (teamId != null)
+        {
+            var team = await _db.Teams.FindAsync(teamId.Value);
+            if (team == null)
+            {
+                return (false, BadRequest(new { message = "Không tìm thấy tổ thao tác đã chọn." }), null, null, null);
+            }
+
+            if (isRestricted)
+            {
+                if (callerProvinceIds != null && callerProvinceIds.Length > 0)
+                {
+                    if (team.ProvinceId == null || !callerProvinceIds.Contains(team.ProvinceId.Value))
+                    {
+                        return (false, StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc tỉnh khác." }), null, null, null);
+                    }
+                }
+                else if (callerStationIds != null && callerStationIds.Length > 0)
+                {
+                    if (team.StationIds == null || !team.StationIds.Any(sid => callerStationIds.Contains(sid)))
+                    {
+                        return (false, StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc trạm khác." }), null, null, null);
+                    }
+                }
+            }
+        }
+
+        if (role is "admin_province" or "operator_province")
+        {
+            if (provinceIds == null || provinceIds.Length == 0)
+            {
+                return (false, BadRequest(new { message = "Tài khoản cấp tỉnh phải được gán ít nhất một Tỉnh quản lý." }), null, null, null);
+            }
+
+            stationIds = null;
+            teamId = null;
+        }
+        else if (role is "admin_station" or "manager" or "operator" or "team_leader" or "team_member")
+        {
+            if ((stationIds == null || stationIds.Length == 0) && teamId == null)
+            {
+                return (false, BadRequest(new { message = "Tài khoản cấp trạm hoặc tổ thao tác phải được gán ít nhất một trạm hoặc một tổ thao tác." }), null, null, null);
+            }
+
+            provinceIds = null;
+        }
+
+        return (true, null, stationIds, provinceIds, teamId);
+    }
+
     /// <summary>Danh sách users. Restricted admin chỉ thấy user thuộc trạm hoặc tỉnh của mình.</summary>
     [HttpGet]
     [HasPermission("user:view")]
@@ -99,27 +232,24 @@ public class UsersController : ControllerBase
     {
         var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
 
-        var query = _db.Users.OrderByDescending(u => u.CreatedAt);
-        System.Collections.IEnumerable all = await query.Select(u => new
-        {
-            u.Id, u.Username, u.FullName, u.Email,
-            u.Role, u.IsActive, u.StationIds, u.ProvinceIds, u.TeamId, u.Permissions, u.CreatedAt
-        }).ToListAsync();
+        var allUsers = await _db.Users
+            .OrderByDescending(u => u.CreatedAt)
+            .ToListAsync();
 
         if (isRestricted)
         {
-            var filtered = new List<dynamic>();
-            foreach (dynamic u in all)
+            var filtered = new List<User>();
+            foreach (var u in allUsers)
             {
                 if (await UserInScopeAsync(u.StationIds, u.ProvinceIds, u.TeamId, callerStationIds, callerProvinceIds))
                 {
                     filtered.Add(u);
                 }
             }
-            all = filtered;
+            return Ok(filtered.Select(ToUserResponse));
         }
 
-        return Ok(all);
+        return Ok(allUsers.Select(ToUserResponse));
     }
 
     /// <summary>Lấy danh sách các Permission Keys khả dụng cho bảng chọn phân quyền (checklist).</summary>
@@ -151,8 +281,12 @@ public class UsersController : ControllerBase
     {
         var (isRestricted, callerStationIds, callerProvinceIds) = await GetCallerScopeAsync();
 
-        if (await _db.Users.AnyAsync(u => u.Username == req.Username))
-            return BadRequest(new { message = $"Tên đăng nhập '{req.Username}' đã tồn tại" });
+        var normalizedUsername = UsernameNormalizer.Normalize(req.Username);
+        if (string.IsNullOrWhiteSpace(normalizedUsername))
+            return BadRequest(new { message = "Tên đăng nhập chỉ được gồm chữ và số, không dùng ký tự đặc biệt." });
+
+        if (await _db.Users.AnyAsync(u => u.Username == normalizedUsername))
+            return BadRequest(new { message = $"Tên đăng nhập '{normalizedUsername}' đã tồn tại" });
 
         if (string.IsNullOrWhiteSpace(req.Password) || req.Password.Length < 6)
             return BadRequest(new { message = "Mật khẩu phải ít nhất 6 ký tự" });
@@ -165,105 +299,54 @@ public class UsersController : ControllerBase
         var stationIds = req.StationIds;
         var provinceIds = req.ProvinceIds;
 
+        var callerRole = User.FindFirstValue(ClaimTypes.Role);
+
         if (isRestricted)
         {
             // Restricted admin không được tạo global admin
             if (role == "admin")
                 return Forbid();
 
-            // Nếu caller giới hạn theo tỉnh
+            // Nếu caller giới hạn theo tỉnh (admin_province)
             if (callerProvinceIds != null && callerProvinceIds.Length > 0)
             {
                 // Không được tạo admin_province
                 if (role == "admin_province")
                     return Forbid();
-
-                // Buộc ProvinceIds phải thuộc tỉnh của caller
-                if (provinceIds != null && provinceIds.Length > 0)
-                {
-                    var unauthorizedProvinces = provinceIds.Where(pid => !callerProvinceIds.Contains(pid)).ToList();
-                    if (unauthorizedProvinces.Count > 0)
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán một số Tỉnh đã chọn." });
-                    }
-                }
-
-                // Buộc StationIds phải thuộc tỉnh của caller
-                if (stationIds != null && stationIds.Length > 0)
-                {
-                    var stationsInProvinces = await _db.Stations
-                        .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
-                        .Select(s => s.Id)
-                        .ToListAsync();
-                    var unauthorizedStations = stationIds.Where(sid => !stationsInProvinces.Contains(sid)).ToList();
-                    if (unauthorizedStations.Count > 0)
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát ngoài tỉnh được quản lý." });
-                    }
-                }
             }
             // Nếu caller giới hạn theo trạm
             else if (callerStationIds != null && callerStationIds.Length > 0)
             {
-                // Không được tạo các vai trò cao hơn admin_station
-                if (new[] { "admin_province", "operator_province", "manager" }.Contains(role))
-                    return Forbid();
-
-                if (stationIds != null && stationIds.Length > 0)
+                if (callerRole == "team_leader")
                 {
-                    var unauthorizedStations = stationIds.Where(sid => !callerStationIds.Contains(sid)).ToList();
-                    if (unauthorizedStations.Count > 0)
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát đã chọn." });
-                    }
+                    // Tổ trưởng chỉ được tạo nhân viên tổ và operator
+                    if (!new[] { "team_member", "operator" }.Contains(role))
+                        return Forbid();
                 }
-                
-                // Trạm admin không được gán tỉnh
-                if (provinceIds != null && provinceIds.Length > 0)
+                else
                 {
-                    return BadRequest(new { message = "Tài khoản quản lý trạm không được gán Tỉnh quản lý." });
+                    // admin_station: không được tạo vai trò cấp tỉnh
+                    if (new[] { "admin_province", "operator_province" }.Contains(role))
+                        return Forbid();
                 }
             }
         }
 
-        // Kiểm tra tổ thao tác
-        if (req.TeamId != null)
-        {
-            var team = await _db.Teams.FindAsync(req.TeamId.Value);
-            if (team == null)
-            {
-                return BadRequest(new { message = "Không tìm thấy tổ thao tác đã chọn." });
-            }
-            if (isRestricted)
-            {
-                if (callerProvinceIds != null && callerProvinceIds.Length > 0)
-                {
-                    if (team.ProvinceId == null || !callerProvinceIds.Contains(team.ProvinceId.Value))
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc tỉnh khác." });
-                    }
-                }
-                else if (callerStationIds != null && callerStationIds.Length > 0)
-                {
-                    if (team.StationIds == null || !team.StationIds.Any(sid => callerStationIds.Contains(sid)))
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc trạm khác." });
-                    }
-                }
-            }
-        }
+        var normalized = await ValidateAndNormalizeAssignmentsAsync(role, stationIds, provinceIds, req.TeamId, isRestricted, callerStationIds, callerProvinceIds);
+        if (!normalized.ok) return normalized.error!;
 
         var user = new User
         {
-            Username     = req.Username.Trim(),
+            Username     = normalizedUsername,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
+            ProvisionedPassword = _crypto.Encrypt(req.Password),
             FullName     = req.FullName?.Trim(),
             Email        = req.Email?.Trim(),
             Role         = role,
             IsActive     = true,
-            StationIds   = stationIds,
-            ProvinceIds  = provinceIds,
-            TeamId       = req.TeamId,
+            StationIds   = normalized.stationIds,
+            ProvinceIds  = normalized.provinceIds,
+            TeamId       = normalized.teamId,
             Permissions  = req.Permissions
         };
 
@@ -272,11 +355,7 @@ public class UsersController : ControllerBase
 
         await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "updated", ts = DateTime.UtcNow });
 
-        return Ok(new
-        {
-            user.Id, user.Username, user.FullName,
-            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.TeamId, user.Permissions, user.CreatedAt
-        });
+        return Ok(ToUserResponse(user));
     }
 
     /// <summary>Sửa thông tin user. Restricted admin chỉ sửa user trong scope trạm/tỉnh.</summary>
@@ -297,120 +376,49 @@ public class UsersController : ControllerBase
         if (req.Role     != null)
         {
             var validRoles = new[] { "operator", "manager", "admin_station", "admin_province", "operator_province", "team_leader", "team_member", "admin" };
-            if (!validRoles.Contains(req.Role.ToLower()))
+            var nextRole = req.Role.ToLower();
+            if (!validRoles.Contains(nextRole))
                 return BadRequest(new { message = "Vai trò không hợp lệ" });
 
+            var callerRoleForUpdate = User.FindFirstValue(ClaimTypes.Role);
             if (isRestricted)
             {
                 // Không được nâng thành admin
-                if (req.Role.ToLower() == "admin")
+                if (nextRole == "admin")
                     return Forbid();
 
                 // Nếu caller là admin tỉnh, không được nâng thành admin tỉnh khác hoặc admin toàn cục
-                if (callerProvinceIds != null && callerProvinceIds.Length > 0 && req.Role.ToLower() == "admin_province")
+                if (callerProvinceIds != null && callerProvinceIds.Length > 0 && nextRole == "admin_province")
                 {
-                    // Cho phép giữ nguyên hoặc check tỉnh
                     if (user.Role != "admin_province")
                         return Forbid();
                 }
+
+                // Tổ trưởng chỉ được đặt vai trò team_member hoặc operator cho người trong tổ
+                if (callerRoleForUpdate == "team_leader" && !new[] { "team_member", "operator" }.Contains(nextRole))
+                    return Forbid();
             }
 
-            user.Role = req.Role.ToLower();
+            user.Role = nextRole;
         }
         if (req.IsActive.HasValue) user.IsActive = req.IsActive.Value;
-        
-        if (req.StationIds != null) {
-            var newIds = req.StationIds;
-            if (isRestricted)
-            {
-                if (callerProvinceIds != null && callerProvinceIds.Length > 0)
-                {
-                    var stationsInProvinces = await _db.Stations
-                        .Where(s => s.ProvinceId != null && callerProvinceIds.Contains(s.ProvinceId.Value))
-                        .Select(s => s.Id)
-                        .ToListAsync();
-                    var unauthorizedStations = newIds.Where(sid => !stationsInProvinces.Contains(sid)).ToList();
-                    if (unauthorizedStations.Count > 0)
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát ngoài tỉnh được quản lý." });
-                    }
-                }
-                else if (callerStationIds != null)
-                {
-                    var unauthorizedStations = newIds.Where(sid => !callerStationIds.Contains(sid)).ToList();
-                    if (unauthorizedStations.Count > 0)
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán một số trạm giám sát đã chọn." });
-                    }
-                }
-            }
-            user.StationIds = newIds;
-        }
 
-        if (req.ProvinceIds != null) {
-            var newProvIds = req.ProvinceIds;
-            if (isRestricted)
-            {
-                if (callerProvinceIds != null)
-                {
-                    var unauthorizedProvinces = newProvIds.Where(pid => !callerProvinceIds.Contains(pid)).ToList();
-                    if (unauthorizedProvinces.Count > 0)
-                    {
-                        return StatusCode(403, new { message = "Bạn không có quyền gán một số Tỉnh đã chọn." });
-                    }
-                }
-                else if (callerStationIds != null)
-                {
-                    if (newProvIds.Length > 0)
-                    {
-                        return BadRequest(new { message = "Tài khoản quản lý trạm không được gán Tỉnh quản lý." });
-                    }
-                }
-            }
-            user.ProvinceIds = newProvIds;
-        }
+        var nextStationIds = req.StationIds ?? user.StationIds;
+        var nextProvinceIds = req.ProvinceIds ?? user.ProvinceIds;
+        var nextTeamId = req.TeamId.HasValue ? req.TeamId : user.TeamId;
+        var normalizedUpdate = await ValidateAndNormalizeAssignmentsAsync(user.Role, nextStationIds, nextProvinceIds, nextTeamId, isRestricted, callerStationIds, callerProvinceIds);
+        if (!normalizedUpdate.ok) return normalizedUpdate.error!;
 
-        if (req.TeamId != null)
-        {
-            var targetTeamId = req.TeamId == Guid.Empty ? null : req.TeamId;
-            if (targetTeamId != null)
-            {
-                var team = await _db.Teams.FindAsync(targetTeamId.Value);
-                if (team == null)
-                {
-                    return BadRequest(new { message = "Không tìm thấy tổ thao tác đã chọn." });
-                }
-                if (isRestricted)
-                {
-                    if (callerProvinceIds != null && callerProvinceIds.Length > 0)
-                    {
-                        if (team.ProvinceId == null || !callerProvinceIds.Contains(team.ProvinceId.Value))
-                        {
-                            return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc tỉnh khác." });
-                        }
-                    }
-                    else if (callerStationIds != null && callerStationIds.Length > 0)
-                    {
-                        if (team.StationIds == null || !team.StationIds.Any(sid => callerStationIds.Contains(sid)))
-                        {
-                            return StatusCode(403, new { message = "Bạn không có quyền gán tổ thao tác thuộc trạm khác." });
-                        }
-                    }
-                }
-            }
-            user.TeamId = targetTeamId;
-        }
+        user.StationIds = normalizedUpdate.stationIds;
+        user.ProvinceIds = normalizedUpdate.provinceIds;
+        user.TeamId = normalizedUpdate.teamId;
 
         if (req.Permissions != null) user.Permissions = req.Permissions;
 
         await _db.SaveChangesAsync();
         await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "updated", ts = DateTime.UtcNow });
 
-        return Ok(new
-        {
-            user.Id, user.Username, user.FullName,
-            user.Email, user.Role, user.IsActive, user.StationIds, user.ProvinceIds, user.TeamId, user.Permissions, user.CreatedAt
-        });
+        return Ok(ToUserResponse(user));
     }
 
     /// <summary>
@@ -458,6 +466,17 @@ public class UsersController : ControllerBase
             return BadRequest(new { message = "Mật khẩu mới phải ít nhất 6 ký tự" });
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+        user.LastPasswordChangedAt = DateTime.UtcNow;
+        if (currentUserId == id.ToString())
+        {
+            user.ProvisionedPassword = null;
+            user.MustChangePassword = false;
+        }
+        else
+        {
+            user.ProvisionedPassword = _crypto.Encrypt(req.NewPassword);
+            user.MustChangePassword = true;
+        }
         await _db.SaveChangesAsync();
 
         await _hubContext.Clients.All.SendAsync("UserStatusChange", new { username = user.Username, status = "updated", ts = DateTime.UtcNow });
