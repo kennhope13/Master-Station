@@ -63,98 +63,110 @@ public class LicenseService
 
         var parts = normalizedKey.Split('-');
         
-        // Kiểm tra số phần hợp lệ
-        if (parts.Length is not (4 or 5 or 7 or 9 or 10))
-            return LicenseKeyInfo.Error("Định dạng key không hợp lệ (cần 4/5/7/9/10 phần, phân tách bởi dấu -)");
-
-        var tier = parts[0];
-        var expire = parts[1];
-        
-        // Lấy giá trị mặc định theo tier
-        var defaults = GetTierDefaults(tier);
-        if (defaults.maxUsers < 0)
-            return LicenseKeyInfo.Error("Tier không hợp lệ (SOLO / TEAM / ENT)");
-
-        // Parse ngày hết hạn
-        if (expire.Length != 6 ||
-            !DateTime.TryParseExact("20" + expire, "yyyyMMdd",
-                null, System.Globalization.DateTimeStyles.None, out var expiresAt))
-            return LicenseKeyInfo.Error("Ngày hết hạn không đúng định dạng YYMMDD");
-
-        // Parse resource limits dựa trên số phần
-        int maxUsers      = defaults.maxUsers;
-        int maxStations   = defaults.maxStations;
-        int maxCameras    = defaults.maxCameras;
-        int maxRoiPoints  = defaults.maxRoiPoints;
-        int maxRoiRegions = defaults.maxRoiRegions;
-        int maxPdRegions  = defaults.maxPdRegions;
+        string tier;
+        DateTime expiresAt;
+        int maxUsers;
+        int maxStations;
+        int maxCameras;
+        int maxRoiPoints;
+        int maxRoiRegions;
+        int maxPdRegions;
         string nonce;
         string hmacIn;
 
-        switch (parts.Length)
+        if (parts.Length >= 10)
         {
-            case 4:
-                // TIER-EXPIRE-NONCE-HMAC8 (mặc định theo tier)
-                nonce  = parts[2];
-                hmacIn = parts[3];
-                break;
+            // Parse custom commercial packages (e.g. CML-SDL500-CAM8-SEL2-291231-3-12-8-500-50-50-A1B2-C3D4E5F6)
+            var tierParts = new string[parts.Length - 9];
+            Array.Copy(parts, tierParts, parts.Length - 9);
+            tier = string.Join("-", tierParts);
 
-            case 5:
-                // TIER-EXPIRE-MAXUSERS-NONCE-HMAC8
-                if (!int.TryParse(parts[2], out maxUsers) || maxUsers < 1)
-                    return LicenseKeyInfo.Error("MaxUsers phải là số nguyên dương");
-                nonce  = parts[3];
-                hmacIn = parts[4];
-                break;
+            var expire = parts[parts.Length - 9];
+            if (expire.Length != 6 ||
+                !DateTime.TryParseExact("20" + expire, "yyyyMMdd",
+                    null, System.Globalization.DateTimeStyles.None, out expiresAt))
+                return LicenseKeyInfo.Error("Ngày hết hạn không đúng định dạng YYMMDD");
 
-            case 7:
-                // TIER-EXPIRE-MAXDEVICES-MAXCAMERAS-MAXROIPOINTS-NONCE-HMAC8
-                if (!int.TryParse(parts[2], out maxStations) || maxStations < 1)
-                    return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
-                if (!int.TryParse(parts[3], out maxCameras) || maxCameras < 1)
-                    return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
-                if (!int.TryParse(parts[4], out maxRoiPoints) || maxRoiPoints < 1)
-                    return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
-                nonce  = parts[5];
-                hmacIn = parts[6];
-                break;
+            if (!int.TryParse(parts[parts.Length - 8], out maxUsers) || maxUsers < 1)
+                return LicenseKeyInfo.Error("MaxUsers phải là số nguyên dương");
+            if (!int.TryParse(parts[parts.Length - 7], out maxStations) || maxStations < 1)
+                return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
+            if (!int.TryParse(parts[parts.Length - 6], out maxCameras) || maxCameras < 1)
+                return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
+            if (!int.TryParse(parts[parts.Length - 5], out maxRoiPoints) || maxRoiPoints < 1)
+                return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
+            if (!int.TryParse(parts[parts.Length - 4], out maxRoiRegions) || maxRoiRegions < 1)
+                return LicenseKeyInfo.Error("MaxRoiRegions phải là số nguyên dương");
+            if (!int.TryParse(parts[parts.Length - 3], out maxPdRegions) || maxPdRegions < 1)
+                return LicenseKeyInfo.Error("MaxPdRegions phải là số nguyên dương");
 
-            case 9:
-                // TIER-EXPIRE-MAXDEVICES-MAXCAMERAS-MAXROIPOINTS-MAXROIREGIONS-MAXPDREGIONS-NONCE-HMAC8
-                if (!int.TryParse(parts[2], out maxStations) || maxStations < 1)
-                    return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
-                if (!int.TryParse(parts[3], out maxCameras) || maxCameras < 1)
-                    return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
-                if (!int.TryParse(parts[4], out maxRoiPoints) || maxRoiPoints < 1)
-                    return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
-                if (!int.TryParse(parts[5], out maxRoiRegions) || maxRoiRegions < 1)
-                    return LicenseKeyInfo.Error("MaxRoiRegions phải là số nguyên dương");
-                if (!int.TryParse(parts[6], out maxPdRegions) || maxPdRegions < 1)
-                    return LicenseKeyInfo.Error("MaxPdRegions phải là số nguyên dương");
-                nonce  = parts[7];
-                hmacIn = parts[8];
-                break;
+            nonce  = parts[parts.Length - 2];
+            hmacIn = parts[parts.Length - 1];
+        }
+        else
+        {
+            // Legacy keys parsing (parts.Length < 10)
+            if (parts.Length is not (4 or 5 or 7 or 9))
+                return LicenseKeyInfo.Error("Định dạng key không hợp lệ (cần 4/5/7/9 phần, phân tách bởi dấu -)");
 
-            case 10:
-                // TIER-EXPIRE-MAXUSERS-MAXDEVICES-MAXCAMERAS-MAXROIPOINTS-MAXROIREGIONS-MAXPDREGIONS-NONCE-HMAC8
-                if (!int.TryParse(parts[2], out maxUsers) || maxUsers < 1)
-                    return LicenseKeyInfo.Error("MaxUsers phải là số nguyên dương");
-                if (!int.TryParse(parts[3], out maxStations) || maxStations < 1)
-                    return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
-                if (!int.TryParse(parts[4], out maxCameras) || maxCameras < 1)
-                    return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
-                if (!int.TryParse(parts[5], out maxRoiPoints) || maxRoiPoints < 1)
-                    return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
-                if (!int.TryParse(parts[6], out maxRoiRegions) || maxRoiRegions < 1)
-                    return LicenseKeyInfo.Error("MaxRoiRegions phải là số nguyên dương");
-                if (!int.TryParse(parts[7], out maxPdRegions) || maxPdRegions < 1)
-                    return LicenseKeyInfo.Error("MaxPdRegions phải là số nguyên dương");
-                nonce  = parts[8];
-                hmacIn = parts[9];
-                break;
+            tier = parts[0];
+            var expire = parts[1];
+            
+            var defaults = GetTierDefaults(tier);
+            if (defaults.maxUsers < 0)
+                return LicenseKeyInfo.Error("Tier không hợp lệ (SOLO / TEAM / ENT)");
 
-            default:
-                return LicenseKeyInfo.Error("Định dạng key không hợp lệ");
+            if (expire.Length != 6 ||
+                !DateTime.TryParseExact("20" + expire, "yyyyMMdd",
+                    null, System.Globalization.DateTimeStyles.None, out expiresAt))
+                return LicenseKeyInfo.Error("Ngày hết hạn không đúng định dạng YYMMDD");
+
+            maxUsers      = defaults.maxUsers;
+            maxStations   = defaults.maxStations;
+            maxCameras    = defaults.maxCameras;
+            maxRoiPoints  = defaults.maxRoiPoints;
+            maxRoiRegions = defaults.maxRoiRegions;
+            maxPdRegions  = defaults.maxPdRegions;
+
+            switch (parts.Length)
+            {
+                case 4:
+                    nonce  = parts[2];
+                    hmacIn = parts[3];
+                    break;
+                case 5:
+                    if (!int.TryParse(parts[2], out maxUsers) || maxUsers < 1)
+                        return LicenseKeyInfo.Error("MaxUsers phải là số nguyên dương");
+                    nonce  = parts[3];
+                    hmacIn = parts[4];
+                    break;
+                case 7:
+                    if (!int.TryParse(parts[2], out maxStations) || maxStations < 1)
+                        return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
+                    if (!int.TryParse(parts[3], out maxCameras) || maxCameras < 1)
+                        return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
+                    if (!int.TryParse(parts[4], out maxRoiPoints) || maxRoiPoints < 1)
+                        return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
+                    nonce  = parts[5];
+                    hmacIn = parts[6];
+                    break;
+                case 9:
+                    if (!int.TryParse(parts[2], out maxStations) || maxStations < 1)
+                        return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
+                    if (!int.TryParse(parts[3], out maxCameras) || maxCameras < 1)
+                        return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
+                    if (!int.TryParse(parts[4], out maxRoiPoints) || maxRoiPoints < 1)
+                        return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
+                    if (!int.TryParse(parts[5], out maxRoiRegions) || maxRoiRegions < 1)
+                        return LicenseKeyInfo.Error("MaxRoiRegions phải là số nguyên dương");
+                    if (!int.TryParse(parts[6], out maxPdRegions) || maxPdRegions < 1)
+                        return LicenseKeyInfo.Error("MaxPdRegions phải là số nguyên dương");
+                    nonce  = parts[7];
+                    hmacIn = parts[8];
+                    break;
+                default:
+                    return LicenseKeyInfo.Error("Định dạng key không hợp lệ");
+            }
         }
 
         // Validate nonce (4 ký tự hex)

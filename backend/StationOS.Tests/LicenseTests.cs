@@ -275,4 +275,24 @@ public class LicenseTests : IDisposable
         Assert.Equal(10, limitPdRegions.Max);
         Assert.False(limitPdRegions.Exceeded);
     }
+
+    [Fact]
+    public void ValidateKey_CommercialPackageKey_ShouldParseCorrectly()
+    {
+        // Format: [Commercial_Tier]-EXPIRE-MAXUSERS-MAXDEVS-MAXCAMS-MAXROI-MAXROIREG-MAXPDREG-NONCE
+        var payload = "CML-SDL500-CAM8-SEL2-291231-3-12-8-500-50-50-A1B2";
+        var key = GenerateTestKey(payload);
+
+        var result = _licenseService.ValidateKey(key);
+
+        Assert.True(result.Valid);
+        Assert.Equal("cml-sdl500-cam8-sel2", result.Tier);
+        Assert.Equal(3, result.MaxUsers);
+        Assert.Equal(12, result.MaxStations);
+        Assert.Equal(8, result.MaxCameras);
+        Assert.Equal(500, result.MaxRoiPoints);
+        Assert.Equal(50, result.MaxRoiRegions);
+        Assert.Equal(50, result.MaxPdRegions);
+        Assert.Equal(new DateTime(2029, 12, 31, 0, 0, 0, DateTimeKind.Utc), result.ExpiresAt);
+    }
 }
