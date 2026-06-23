@@ -31,13 +31,15 @@ public class BoundariesController : ControllerBase
     private readonly PermissionService _permissions;
     private readonly IRealtimeNotifier _notifier;
     private readonly DeviceService _deviceService;
+    private readonly LicenseService _license;
 
-    public BoundariesController(AppDbContext db, PermissionService permissions, IRealtimeNotifier notifier, DeviceService deviceService)
+    public BoundariesController(AppDbContext db, PermissionService permissions, IRealtimeNotifier notifier, DeviceService deviceService, LicenseService license)
     {
         _db = db;
         _permissions = permissions;
         _notifier = notifier;
         _deviceService = deviceService;
+        _license = license;
     }
 
     /// <summary>Lấy danh sách vùng polygon đã định nghĩa trên camera.</summary>
@@ -84,6 +86,13 @@ public class BoundariesController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Create(Guid deviceId, [FromBody] BoundaryRequest req)
     {
+        var type = string.IsNullOrEmpty(req.Type) ? "pd" : req.Type;
+        var limitInfo = await _license.CheckResourceLimitAsync(type == "roi" ? "roi_regions" : "pd_regions");
+        if (limitInfo.Exceeded)
+        {
+            var label = type == "roi" ? "vùng đo nhiệt độ (ROI)" : "vùng phóng điện (PD)";
+            return BadRequest(new { error = $"Đã đạt giới hạn số lượng {label} của bản quyền ({limitInfo.Max} vùng). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
+        }
         var device = await _db.Devices.FindAsync(deviceId);
         if (device == null) return NotFound(new { error = "Không tìm thấy thiết bị" });
 

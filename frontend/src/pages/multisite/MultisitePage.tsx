@@ -1841,7 +1841,7 @@ export default function MultisitePage() {
             padding: 0
           }}
         >
-          <CentralMaintenanceView stations={stations} provinces={provinces} />
+          <CentralMaintenanceView stations={stations} provinces={provinces} teams={teams} />
         </div>
       )}
 
@@ -3004,28 +3004,58 @@ function CentralReportsView({
     }
   }, [selectedStationId]);
 
-  const scopeTypeOptions = useMemo(() => ([
-    { value: 'fleet', label: `Toàn bộ hệ thống (${views.length} trạm)` },
-    { value: 'province', label: 'Theo tỉnh' },
-    { value: 'team', label: 'Theo tổ' },
-    { value: 'station', label: 'Theo trạm' },
-  ]), [views.length]);
+  // Phạm vi hiển thị theo role
+  const currentUser = authService.getUser();
+  const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
+    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    if (currentUser.role === 'admin' && !currentUser.station_ids?.length)
+      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    if (currentUser.role === 'admin_province' || currentUser.role === 'operator_province') {
+      const pIds = new Set(currentUser.province_ids || []);
+      const vProvinces = provinces.filter(p => pIds.has(p.id));
+      const vStations = stations.filter(s => s.provinceId && pIds.has(s.provinceId));
+      const vSIds = new Set(vStations.map(s => s.id));
+      return { visibleProvinces: vProvinces, visibleTeams: teams.filter(t => t.stationIds?.some(id => vSIds.has(id))), visibleStations: vStations };
+    }
+    if (currentUser.role === 'team_leader' || currentUser.role === 'team_member') {
+      const userTeam = teams.find(t => t.id === currentUser.team_id);
+      const tSIds = new Set(userTeam?.stationIds || []);
+      const vStations = stations.filter(s => tSIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return { visibleProvinces: provinces.filter(p => pIds.has(p.id)), visibleTeams: userTeam ? [userTeam] : [], visibleStations: vStations };
+    }
+    if (currentUser.station_ids?.length) {
+      const sIds = new Set(currentUser.station_ids);
+      const vStations = stations.filter(s => sIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return { visibleProvinces: provinces.filter(p => pIds.has(p.id)), visibleTeams: teams.filter(t => t.stationIds?.some(id => sIds.has(id))), visibleStations: vStations };
+    }
+    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+  }, [currentUser, provinces, teams, stations]);
+
+  const scopeTypeOptions = useMemo(() => {
+    const opts = [{ value: 'fleet', label: `Toàn bộ hệ thống (${visibleStations.length} trạm)` }];
+    if (visibleProvinces.length > 0) opts.push({ value: 'province', label: 'Theo tỉnh' });
+    if (visibleTeams.length > 0) opts.push({ value: 'team', label: 'Theo tổ' });
+    opts.push({ value: 'station', label: 'Theo trạm' });
+    return opts;
+  }, [visibleStations.length, visibleProvinces.length, visibleTeams.length]);
 
   const scopeEntityOptions = useMemo(() => {
     if (scopeType === 'province') {
-      return provinces.map(province => ({ value: province.id, label: province.name }));
+      return visibleProvinces.map(p => ({ value: p.id, label: p.name }));
     }
     if (scopeType === 'team') {
-      return teams.map(team => ({ value: team.id, label: team.name }));
+      return visibleTeams.map(t => ({ value: t.id, label: t.name }));
     }
     if (scopeType === 'station') {
-      return views.map(view => ({
-        value: view.station.id,
-        label: `${view.station.code ? `${view.station.code} · ` : ''}${view.station.name}`,
+      return visibleStations.map(s => ({
+        value: s.id,
+        label: `${s.code ? `${s.code} · ` : ''}${s.name}`,
       }));
     }
     return [];
-  }, [provinces, scopeType, teams, views]);
+  }, [visibleProvinces, visibleTeams, visibleStations, scopeType]);
 
   useEffect(() => {
     if (scopeType === 'fleet') {
@@ -3038,22 +3068,18 @@ function CentralReportsView({
   }, [scopeEntityOptions, scopeId, scopeType]);
 
   const scopeLabel = useMemo(() => {
-    if (scopeType === 'fleet') return `Toàn bộ hệ thống (${views.length} trạm)`;
-    if (scopeType === 'province') {
-      return provinces.find(province => province.id === scopeId)?.name || 'Chưa chọn tỉnh';
-    }
-    if (scopeType === 'team') {
-      return teams.find(team => team.id === scopeId)?.name || 'Chưa chọn tổ';
-    }
-    return views.find(view => view.station.id === scopeId)?.station.name || 'Chưa chọn trạm';
-  }, [provinces, scopeId, scopeType, teams, views]);
+    if (scopeType === 'fleet') return `Toàn bộ hệ thống (${visibleStations.length} trạm)`;
+    if (scopeType === 'province') return visibleProvinces.find(p => p.id === scopeId)?.name || 'Chưa chọn tỉnh';
+    if (scopeType === 'team') return visibleTeams.find(t => t.id === scopeId)?.name || 'Chưa chọn tổ';
+    return visibleStations.find(s => s.id === scopeId)?.name || 'Chưa chọn trạm';
+  }, [visibleProvinces, visibleTeams, visibleStations, scopeId, scopeType]);
 
   const scopeStationIds = useMemo(() => {
-    if (scopeType === 'fleet') return stations.map(station => station.id);
-    if (scopeType === 'province') return stations.filter(station => station.provinceId === scopeId).map(station => station.id);
-    if (scopeType === 'team') return teams.find(team => team.id === scopeId)?.stationIds || [];
+    if (scopeType === 'fleet') return visibleStations.map(s => s.id);
+    if (scopeType === 'province') return visibleStations.filter(s => s.provinceId === scopeId).map(s => s.id);
+    if (scopeType === 'team') return visibleTeams.find(t => t.id === scopeId)?.stationIds || [];
     return scopeId ? [scopeId] : [];
-  }, [scopeId, scopeType, stations, teams]);
+  }, [scopeId, scopeType, visibleStations, visibleTeams]);
 
   const reportFilters = useMemo(() => {
     if (scopeType === 'province') return { scopeType, provinceId: scopeId || undefined };
@@ -3122,15 +3148,14 @@ function CentralReportsView({
   const filtered = useMemo(() => {
     let src = filter === 'all' ? history : history.filter(r => r.type === filter);
     if (histFilterProvince) {
-      // lọc theo tỉnh: report có provinceId trực tiếp, hoặc station của report thuộc tỉnh này
-      const stationIdsInProvince = new Set(stations.filter(s => s.provinceId === histFilterProvince).map(s => s.id));
+      const stationIdsInProvince = new Set(visibleStations.filter(s => s.provinceId === histFilterProvince).map(s => s.id));
       src = src.filter(r =>
         r.provinceId === histFilterProvince ||
         (r.scopeType === 'station' && stationIdsInProvince.has(r.stationId))
       );
     }
     if (histFilterTeam) {
-      const team = teams.find(t => t.id === histFilterTeam);
+      const team = visibleTeams.find(t => t.id === histFilterTeam);
       const teamStationIds = new Set(team?.stationIds || []);
       src = src.filter(r =>
         r.teamId === histFilterTeam ||
@@ -3138,7 +3163,7 @@ function CentralReportsView({
       );
     }
     return src;
-  }, [history, filter, histFilterProvince, histFilterTeam, stations, teams]);
+  }, [history, filter, histFilterProvince, histFilterTeam, visibleStations, visibleTeams]);
 
   const types: Array<{ t: 'daily'|'monthly'|'event'; title: string; icon: React.ReactNode; c: string }> = [
     { t: 'daily', title: 'Báo cáo ngày', icon: <Clock size={12} />, c: 'var(--admin-accent)' },
@@ -3149,9 +3174,28 @@ function CentralReportsView({
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
 
-      {/* ── Generate bar ──────────────────────────────────── */}
-      <div style={{ ...S.card, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={S.label}>Tạo báo cáo nhanh</span>
+      {/* ── Generate bar (scope + buttons cùng hàng) ─────── */}
+      <div style={{ ...S.card, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+        <span style={S.label}>Tạo báo cáo</span>
+
+        {/* Chọn cấp: Trạm tổng / Tỉnh / Tổ / Trạm */}
+        <InlineDarkDropdown
+          value={scopeType}
+          options={scopeTypeOptions}
+          onChange={value => { setScopeType(value as 'fleet' | 'province' | 'team' | 'station'); setScopeId(''); }}
+          minWidth={200}
+        />
+        {scopeType !== 'fleet' && (
+          <InlineDarkDropdown
+            value={scopeId}
+            options={scopeEntityOptions}
+            onChange={setScopeId}
+            minWidth={220}
+          />
+        )}
+
+        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
+
         {types.map(x => (
           <button key={x.t} style={generating === x.t ? S.btnActive(x.c) : S.btn}
             disabled={!!generating}
@@ -3162,28 +3206,12 @@ function CentralReportsView({
         ))}
       </div>
 
-      {/* ── Scope + filters ───────────────────────────────── */}
+      {/* ── History filter row ───────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
-        {/* Phạm vi tạo báo cáo */}
-        <InlineDarkDropdown
-          value={scopeType}
-          options={scopeTypeOptions}
-          onChange={value => setScopeType(value as 'fleet' | 'province' | 'team' | 'station')}
-          minWidth={190}
-        />
-        {scopeType !== 'fleet' && (
-          <InlineDarkDropdown
-            value={scopeId}
-            options={scopeEntityOptions}
-            onChange={setScopeId}
-            minWidth={240}
-          />
-        )}
-
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
+        <div style={{ width: 1, height: 20, background: 'transparent' }} />
 
         {/* Bộ lọc lịch sử hiển thị */}
-        {provinces.length > 0 && (
+        {visibleProvinces.length > 0 && (
           <>
             <span style={S.label}>Tỉnh</span>
             <InlineDarkDropdown
@@ -3192,12 +3220,12 @@ function CentralReportsView({
               minWidth={140}
               options={[
                 { value: '', label: 'Tất cả tỉnh' },
-                ...provinces.map(p => ({ value: p.id, label: p.name }))
+                ...visibleProvinces.map(p => ({ value: p.id, label: p.name }))
               ]}
             />
           </>
         )}
-        {teams.length > 0 && (
+        {visibleTeams.length > 0 && (
           <>
             <span style={S.label}>Tổ</span>
             <InlineDarkDropdown
@@ -3207,8 +3235,8 @@ function CentralReportsView({
               options={[
                 { value: '', label: 'Tất cả tổ' },
                 ...(histFilterProvince
-                  ? teams.filter(t => t.provinceId === histFilterProvince)
-                  : teams
+                  ? visibleTeams.filter(t => t.provinceId === histFilterProvince)
+                  : visibleTeams
                 ).map(t => ({ value: t.id, label: t.name }))
               ]}
             />
@@ -4174,36 +4202,83 @@ function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]
   );
 }
 
-function CentralMaintenanceView({ stations, provinces }: { stations: Station[]; provinces: Province[] }) {
+function CentralMaintenanceView({ stations, provinces, teams }: { stations: Station[]; provinces: Province[]; teams: Team[] }) {
   const [provinceId, setProvinceId] = useState('');
+  const [teamId, setTeamId] = useState('');
   const [stationId, setStationId] = useState('');
   const [status, setStatus] = useState('all');
   const [loading, setLoading] = useState(false);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
 
-  const stationsByProvince = useMemo(
-    () => provinceId ? stations.filter(s => s.provinceId === provinceId) : stations,
-    [stations, provinceId]
+  // Phạm vi theo role
+  const currentUser = authService.getUser();
+  const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
+    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    if (currentUser.role === 'admin' && !currentUser.station_ids?.length)
+      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    if (currentUser.role === 'admin_province' || currentUser.role === 'operator_province') {
+      const pIds = new Set(currentUser.province_ids || []);
+      const vProvinces = provinces.filter(p => pIds.has(p.id));
+      const vStations = stations.filter(s => s.provinceId && pIds.has(s.provinceId));
+      const vSIds = new Set(vStations.map(s => s.id));
+      return { visibleProvinces: vProvinces, visibleTeams: teams.filter(t => t.stationIds?.some(id => vSIds.has(id))), visibleStations: vStations };
+    }
+    if (currentUser.role === 'team_leader' || currentUser.role === 'team_member') {
+      const userTeam = teams.find(t => t.id === currentUser.team_id);
+      const tSIds = new Set(userTeam?.stationIds || []);
+      const vStations = stations.filter(s => tSIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return { visibleProvinces: provinces.filter(p => pIds.has(p.id)), visibleTeams: userTeam ? [userTeam] : [], visibleStations: vStations };
+    }
+    if (currentUser.station_ids?.length) {
+      const sIds = new Set(currentUser.station_ids);
+      const vStations = stations.filter(s => sIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return { visibleProvinces: provinces.filter(p => pIds.has(p.id)), visibleTeams: teams.filter(t => t.stationIds?.some(id => sIds.has(id))), visibleStations: vStations };
+    }
+    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+  }, [currentUser, provinces, teams, stations]);
+
+  // Cascade: tỉnh → tổ → trạm
+  const teamsByProvince = useMemo(
+    () => provinceId ? visibleTeams.filter(t => t.provinceId === provinceId) : visibleTeams,
+    [visibleTeams, provinceId]
   );
 
+  const stationsFiltered = useMemo(() => {
+    let src = visibleStations;
+    if (provinceId) src = src.filter(s => s.provinceId === provinceId);
+    if (teamId) {
+      const team = visibleTeams.find(t => t.id === teamId);
+      if (team?.stationIds?.length) src = src.filter(s => team.stationIds!.includes(s.id));
+    }
+    return src;
+  }, [visibleStations, visibleTeams, provinceId, teamId]);
+
   useEffect(() => {
-    if (stationId && !stationsByProvince.some(s => s.id === stationId)) setStationId('');
-  }, [stationId, stationsByProvince]);
+    if (stationId && !stationsFiltered.some(s => s.id === stationId)) setStationId('');
+  }, [stationId, stationsFiltered]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await stationApi.getMaintenance(stationId || undefined, status === 'all' ? undefined : status);
-      const filteredByProvince = provinceId
-        ? data.filter(t => stations.find(s => s.id === t.stationId)?.provinceId === provinceId)
-        : data;
-      setTasks(filteredByProvince);
+      let filtered = data;
+      // client-side scope filter
+      const allowedIds = new Set(stationsFiltered.map(s => s.id));
+      if (provinceId || teamId) {
+        filtered = filtered.filter(t => t.stationId && allowedIds.has(t.stationId));
+      } else {
+        const vIds = new Set(visibleStations.map(s => s.id));
+        filtered = filtered.filter(t => !t.stationId || vIds.has(t.stationId));
+      }
+      setTasks(filtered);
     } catch {
       setTasks([]);
     } finally {
       setLoading(false);
     }
-  }, [stationId, status, provinceId, stations]);
+  }, [stationId, status, provinceId, teamId, stationsFiltered, visibleStations]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -4212,64 +4287,111 @@ function CentralMaintenanceView({ stations, provinces }: { stations: Station[]; 
     return () => window.removeEventListener('maintenance:changed', load);
   }, [load]);
 
+  const MS = {
+    label: { fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' as const, whiteSpace: 'nowrap' as const },
+    sep: { width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' } as React.CSSProperties,
+    th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
+    td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
+    pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 3, background: `${c}18`, border: `1px solid ${c}40`, color: c, fontSize: '.6rem', fontWeight: 700 } as React.CSSProperties),
+  };
+
+  const statusColor = (s: string) => s === 'overdue' ? 'var(--admin-danger)' : s === 'in_progress' ? 'var(--admin-warning)' : s === 'completed' ? 'var(--admin-success)' : 'var(--admin-text-muted)';
+  const statusLabel = (s: string) => s === 'overdue' ? 'Quá hạn' : s === 'in_progress' ? 'Đang làm' : s === 'completed' ? 'Hoàn thành' : 'Đang chờ';
+
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <InlineDarkDropdown value={provinceId} onChange={setProvinceId} minWidth={180} options={[
-          { value: '', label: 'TẤT CẢ TỈNH' },
-          ...provinces.map(p => ({ value: p.id, label: p.name }))
+
+      {/* ── Filter bar ───────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+        {visibleProvinces.length > 0 && (
+          <>
+            <span style={MS.label}>Tỉnh</span>
+            <InlineDarkDropdown value={provinceId} onChange={v => { setProvinceId(v); setTeamId(''); setStationId(''); }} minWidth={160} options={[
+              { value: '', label: 'Tất cả tỉnh' },
+              ...visibleProvinces.map(p => ({ value: p.id, label: p.name }))
+            ]} />
+          </>
+        )}
+        {visibleTeams.length > 0 && (
+          <>
+            <span style={MS.label}>Tổ</span>
+            <InlineDarkDropdown value={teamId} onChange={v => { setTeamId(v); setStationId(''); }} minWidth={140} options={[
+              { value: '', label: 'Tất cả tổ' },
+              ...teamsByProvince.map(t => ({ value: t.id, label: t.name }))
+            ]} />
+          </>
+        )}
+        <span style={MS.label}>Trạm</span>
+        <InlineDarkDropdown value={stationId} onChange={setStationId} minWidth={200} options={[
+          { value: '', label: 'Tất cả trạm' },
+          ...stationsFiltered.map(s => ({ value: s.id, label: s.name }))
         ]} />
-        <InlineDarkDropdown value={stationId} onChange={setStationId} minWidth={220} options={[
-          { value: '', label: 'TẤT CẢ TRẠM CON' },
-          ...stationsByProvince.map(s => ({ value: s.id, label: s.name }))
+
+        <div style={MS.sep} />
+
+        <span style={MS.label}>Trạng thái</span>
+        <InlineDarkDropdown value={status} onChange={setStatus} minWidth={150} options={[
+          { value: 'all',        label: 'Tất cả'     },
+          { value: 'pending',    label: 'Đang chờ'   },
+          { value: 'in_progress',label: 'Đang làm'   },
+          { value: 'overdue',    label: 'Quá hạn'    },
+          { value: 'completed',  label: 'Hoàn thành' },
         ]} />
-        <InlineDarkDropdown value={status} onChange={setStatus} minWidth={180} options={[
-          { value: 'all', label: 'TẤT CẢ TRẠNG THÁI' },
-          { value: 'pending', label: 'ĐANG CHỜ' },
-          { value: 'in_progress', label: 'ĐANG LÀM' },
-          { value: 'overdue', label: 'QUÁ HẠN' },
-          { value: 'completed', label: 'HOÀN THÀNH' }
-        ]} />
-        <button onClick={load} className="btn-industrial" style={{ height: 28, padding: '0 10px' }}>
-          <RefreshCw size={12} className={loading ? 'spin' : ''} />
+
+        <button onClick={load} style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          <RefreshCw size={12} style={loading ? { animation: 'crv-spin 1s linear infinite' } : {}} />
         </button>
+
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{tasks.length} công việc</span>
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>TỔNG CÔNG VIỆC: <b>{tasks.length}</b></div>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>QUÁ HẠN: <b style={{ color: 'var(--admin-danger)' }}>{tasks.filter(t => t.status === 'overdue').length}</b></div>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>ĐANG LÀM: <b style={{ color: 'var(--admin-warning)' }}>{tasks.filter(t => t.status === 'in_progress').length}</b></div>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>HOÀN THÀNH: <b style={{ color: 'var(--admin-success)' }}>{tasks.filter(t => t.status === 'completed').length}</b></div>
+      {/* ── Stats strip ──────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+        {[
+          { label: 'Tổng', value: tasks.length, color: 'var(--admin-text)' },
+          { label: 'Quá hạn', value: tasks.filter(t => t.status === 'overdue').length, color: 'var(--admin-danger)' },
+          { label: 'Đang làm', value: tasks.filter(t => t.status === 'in_progress').length, color: 'var(--admin-warning)' },
+          { label: 'Hoàn thành', value: tasks.filter(t => t.status === 'completed').length, color: 'var(--admin-success)' },
+        ].map(s => (
+          <div key={s.label} style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: '.58rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '.08em', textTransform: 'uppercase' as const }}>{s.label}</span>
+            <b style={{ fontSize: '.85rem', color: s.color }}>{s.value}</b>
+          </div>
+        ))}
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)' }}>
+      {/* ── Table ────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TỈNH</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠM CON</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TIÊU ĐỀ</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>THIẾT BỊ</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>NGÀY DỰ KIẾN</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠNG THÁI</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>PHỤ TRÁCH</th>
+              <th style={MS.th}>Tỉnh</th>
+              <th style={MS.th}>Trạm con</th>
+              <th style={MS.th}>Tiêu đề</th>
+              <th style={MS.th}>Thiết bị</th>
+              <th style={MS.th}>Ngày dự kiến</th>
+              <th style={MS.th}>Trạng thái</th>
+              <th style={MS.th}>Phụ trách</th>
             </tr>
           </thead>
           <tbody>
-            {tasks.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--admin-text-muted)' }}>{loading ? 'Đang tải...' : 'Không có dữ liệu'}</td></tr>
+            {loading ? (
+              <tr><td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Đang tải...</td></tr>
+            ) : tasks.length === 0 ? (
+              <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--admin-text-muted)', opacity: .5 }}>Chưa có công việc bảo trì nào</td></tr>
             ) : tasks.map(task => {
               const station = stations.find(s => s.id === task.stationId);
-              const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || 'Chưa phân tỉnh';
+              const provinceName = visibleProvinces.find(p => p.id === station?.provinceId)?.name || '—';
               return (
                 <tr key={task.id}>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{provinceName}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{station?.name || '—'}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)', fontWeight: 700 }}>{task.title}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.deviceName || '—'}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.scheduledDate?.slice(0, 10)}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.status}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{task.assignedTo || '—'}</td>
+                  <td style={{ ...MS.td, fontSize: '.65rem', color: 'var(--admin-accent)', fontWeight: 600 }}>{provinceName}</td>
+                  <td style={MS.td}>{station?.name || '—'}</td>
+                  <td style={{ ...MS.td, fontWeight: 700 }}>{task.title}</td>
+                  <td style={{ ...MS.td, color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{task.deviceName || '—'}</td>
+                  <td style={{ ...MS.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)' }}>{task.scheduledDate?.slice(0, 10) || '—'}</td>
+                  <td style={MS.td}><span style={MS.pill(statusColor(task.status))}>{statusLabel(task.status)}</span></td>
+                  <td style={{ ...MS.td, color: 'var(--admin-text-muted)' }}>{task.assignedTo || '—'}</td>
                 </tr>
               );
             })}

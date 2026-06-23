@@ -275,12 +275,35 @@ public class LicenseService
             .OrderByDescending(l => l.ActivatedAt)
             .FirstOrDefaultAsync();
 
-        // Chưa có license → không giới hạn (demo mode)
-        if (license == null)
-            return new ResourceLimitInfo(resource, 0, 999, false);
-
         int current = 0;
         int max = 999;
+
+        // Chưa có license → mặc định giới hạn 10 cho mỗi loại tài nguyên (Trial/Demo)
+        if (license == null)
+        {
+            switch (resource.ToLower())
+            {
+                case "stations":
+                    current = await db.Stations.CountAsync();
+                    break;
+                case "cameras":
+                case "devices":
+                    current = await db.Devices.CountAsync();
+                    break;
+                case "roi_points":
+                    current = await db.RoiPoints.CountAsync();
+                    break;
+                case "roi_regions":
+                    current = await db.Boundaries.CountAsync(b => b.Type == "roi");
+                    break;
+                case "pd_regions":
+                    current = await db.Boundaries.CountAsync(b => b.Type == "pd");
+                    break;
+            }
+            max = 10;
+            var exceededTrial = current >= max;
+            return new ResourceLimitInfo(resource, current, max, exceededTrial);
+        }
 
         switch (resource.ToLower())
         {

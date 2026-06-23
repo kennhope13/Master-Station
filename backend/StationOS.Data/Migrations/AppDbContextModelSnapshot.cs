@@ -50,7 +50,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AiModelVersions");
+                    b.ToTable("AiModelVersions", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Alert", b =>
@@ -121,7 +121,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Alerts");
+                    b.ToTable("Alerts", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.AlertHistory", b =>
@@ -150,7 +150,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("AlertId");
 
-                    b.ToTable("AlertHistories");
+                    b.ToTable("AlertHistories", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.AuditLog", b =>
@@ -184,9 +184,12 @@ namespace StationOS.Data.Migrations
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("StationId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
-                    b.ToTable("AuditLogs");
+                    b.ToTable("AuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Boundary", b =>
@@ -230,7 +233,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("DeviceId", "Type");
 
-                    b.ToTable("Boundaries");
+                    b.ToTable("Boundaries", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.DetectionEvent", b =>
@@ -314,7 +317,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("StationId");
 
-                    b.ToTable("DetectionEvents");
+                    b.ToTable("DetectionEvents", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Device", b =>
@@ -354,7 +357,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("StationId");
 
-                    b.ToTable("Devices");
+                    b.ToTable("Devices", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.License", b =>
@@ -400,7 +403,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Licenses");
+                    b.ToTable("Licenses", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.LoginLog", b =>
@@ -430,7 +433,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("LoginLogs");
+                    b.ToTable("LoginLogs", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.MaintenanceTask", b =>
@@ -480,7 +483,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("MaintenanceTasks");
+                    b.ToTable("MaintenanceTasks", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.MediaFile", b =>
@@ -508,7 +511,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("MediaFiles");
+                    b.ToTable("MediaFiles", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.NotifyLog", b =>
@@ -539,7 +542,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("NotifyLogs");
+                    b.ToTable("NotifyLogs", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Province", b =>
@@ -564,7 +567,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Provinces");
+                    b.ToTable("Provinces", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Report", b =>
@@ -597,7 +600,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Reports");
+                    b.ToTable("Reports", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.RoiPoint", b =>
@@ -651,7 +654,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("DeviceId");
 
-                    b.ToTable("RoiPoints");
+                    b.ToTable("RoiPoints", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Rule", b =>
@@ -696,7 +699,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("StationId");
 
-                    b.ToTable("Rules");
+                    b.ToTable("Rules", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.RuleTriggerLog", b =>
@@ -728,7 +731,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("RuleTriggerLogs");
+                    b.ToTable("RuleTriggerLogs", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.SensorReading", b =>
@@ -765,7 +768,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("DeviceId", "PointId", "Time");
 
-                    b.ToTable("SensorReadings");
+                    b.ToTable("SensorReadings", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.SldFile", b =>
@@ -799,7 +802,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("StationId");
 
-                    b.ToTable("SldFiles");
+                    b.ToTable("SldFiles", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.SldPoint", b =>
@@ -836,7 +839,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("SldFileId");
 
-                    b.ToTable("SldPoints");
+                    b.ToTable("SldPoints", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Station", b =>
@@ -889,7 +892,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("ProvinceId1");
 
-                    b.ToTable("Stations");
+                    b.ToTable("Stations", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.SyncQueue", b =>
@@ -924,7 +927,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("SyncQueues");
+                    b.ToTable("SyncQueues", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.SystemSettings", b =>
@@ -955,7 +958,7 @@ namespace StationOS.Data.Migrations
                     b.HasIndex("StationId", "Key")
                         .IsUnique();
 
-                    b.ToTable("SystemSettings");
+                    b.ToTable("SystemSettings", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.Team", b =>
@@ -978,7 +981,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("ProvinceId");
 
-                    b.ToTable("Teams");
+                    b.ToTable("Teams", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.ThermalFrame", b =>
@@ -1028,7 +1031,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("ThermalFrames");
+                    b.ToTable("ThermalFrames", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.User", b =>
@@ -1089,7 +1092,7 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("TeamId");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("StationOS.Data.Entities.AlertHistory", b =>

@@ -13,4 +13,6 @@ public class AuditLog
     public string? NewValue { get; set; } // JSONB
     public string? IpAddress { get; set; }
     public DateTime Ts { get; set; } = DateTime.UtcNow;
+    // Trạm con nguồn (null = hành động trực tiếp tại trạm tổng)
+    public Guid? StationId { get; set; }
 }

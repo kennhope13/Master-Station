@@ -246,4 +246,33 @@ public class LicenseTests : IDisposable
         var (allow6, _) = await _licenseService.TryAcquireSessionAsync("token3", expiry, "user3", "operator");
         Assert.True(allow6);
     }
+
+    [Fact]
+    public async Task CheckResourceLimitAsync_NoLicense_DefaultsToLimitOfTen()
+    {
+        // Ensure no active licenses are in DB
+        var activeLicenses = await _db.Licenses.Where(l => l.IsActive).ToListAsync();
+        _db.Licenses.RemoveRange(activeLicenses);
+        await _db.SaveChangesAsync();
+
+        var limitStations = await _licenseService.CheckResourceLimitAsync("stations");
+        Assert.Equal(10, limitStations.Max);
+        Assert.False(limitStations.Exceeded);
+
+        var limitCameras = await _licenseService.CheckResourceLimitAsync("cameras");
+        Assert.Equal(10, limitCameras.Max);
+        Assert.False(limitCameras.Exceeded);
+
+        var limitRoiPoints = await _licenseService.CheckResourceLimitAsync("roi_points");
+        Assert.Equal(10, limitRoiPoints.Max);
+        Assert.False(limitRoiPoints.Exceeded);
+
+        var limitRoiRegions = await _licenseService.CheckResourceLimitAsync("roi_regions");
+        Assert.Equal(10, limitRoiRegions.Max);
+        Assert.False(limitRoiRegions.Exceeded);
+
+        var limitPdRegions = await _licenseService.CheckResourceLimitAsync("pd_regions");
+        Assert.Equal(10, limitPdRegions.Max);
+        Assert.False(limitPdRegions.Exceeded);
+    }
 }

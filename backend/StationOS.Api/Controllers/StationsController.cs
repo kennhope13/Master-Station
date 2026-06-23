@@ -24,6 +24,7 @@ public class StationsController : ControllerBase
     private readonly InternalAuthService _internalAuth;
     private readonly IRealtimeNotifier _notifier;
     private readonly ILogger<StationsController> _logger;
+    private readonly LicenseService _license;
     private const string DefaultApiUsername = "stationadmin";
     private const string DefaultApiPassword = "Station@123";
     private const string DefaultProvinceAdminPasswordSuffix = "@2026!";
@@ -74,7 +75,7 @@ public class StationsController : ControllerBase
         return true;
     }
 
-    public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory, CredentialEncryptionService crypto, InternalAuthService internalAuth, IRealtimeNotifier notifier, ILogger<StationsController> logger)
+    public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory, CredentialEncryptionService crypto, InternalAuthService internalAuth, IRealtimeNotifier notifier, ILogger<StationsController> logger, LicenseService license)
     {
         _db = db;
         _permissions = permissions;
@@ -83,6 +84,7 @@ public class StationsController : ControllerBase
         _internalAuth = internalAuth;
         _notifier = notifier;
         _logger = logger;
+        _license = license;
     }
 
     private static string NormalizeProvinceAccountToken(string? value)
@@ -301,6 +303,11 @@ public class StationsController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> Create([FromBody] StationRequest req)
     {
+        var limitInfo = await _license.CheckResourceLimitAsync("stations");
+        if (limitInfo.Exceeded)
+        {
+            return BadRequest(new { message = $"Đã đạt giới hạn số lượng trạm biến áp của bản quyền ({limitInfo.Max} trạm). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
+        }
         var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
         Guid? provinceId = req.ProvinceId;
 

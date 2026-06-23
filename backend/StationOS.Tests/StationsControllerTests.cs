@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using StationOS.Api.Controllers;
@@ -50,6 +51,18 @@ public class StationsControllerTests
         var crypto = new CredentialEncryptionService(mockConfig.Object, mockCryptoLogger.Object);
         var internalAuth = new InternalAuthService(mockConfig.Object);
 
+        var serviceProvider = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+            .AddSingleton(db)
+            .BuildServiceProvider();
+
+        var mockScope = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScope>();
+        mockScope.Setup(s => s.ServiceProvider).Returns(serviceProvider);
+
+        var mockScopeFactory = new Mock<Microsoft.Extensions.DependencyInjection.IServiceScopeFactory>();
+        mockScopeFactory.Setup(f => f.CreateScope()).Returns(mockScope.Object);
+
+        var licenseService = new LicenseService(mockScopeFactory.Object, mockConfig.Object);
+
         return new StationsController(
             db,
             permissionService,
@@ -57,7 +70,8 @@ public class StationsControllerTests
             crypto,
             internalAuth,
             mockNotifier.Object,
-            mockControllerLogger.Object);
+            mockControllerLogger.Object,
+            licenseService);
     }
 
     [Fact]

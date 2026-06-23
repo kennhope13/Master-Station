@@ -124,7 +124,7 @@ export default function LicensePage() {
           </div>
           <div className="status-row">
             <span>Giới hạn</span>
-            <span>Không giới hạn (chế độ thử nghiệm)</span>
+            <span style={{ color: '#ff8787', fontWeight: 'bold' }}>Mặc định 10 đơn vị/tài nguyên (Liên hệ dev để nâng cấp)</span>
           </div>
         </div>
       );
@@ -167,20 +167,35 @@ export default function LicensePage() {
   };
 
   const renderResourceLimits = () => {
-    if (!status?.activated) return null;
-
     // Use limits from API if available, otherwise fall back to status fields
     const resourceData = limits.length > 0 ? limits : [
-      { resource: 'stations',    current: 0, max: status.maxStations   && status.maxStations >= 999   ? -1 : (status.maxStations ?? 0),   exceeded: false },
-      { resource: 'cameras',     current: 0, max: status.maxCameras    && status.maxCameras >= 999    ? -1 : (status.maxCameras ?? 0),    exceeded: false },
-      { resource: 'roi_points',  current: 0, max: status.maxRoiPoints  && status.maxRoiPoints >= 999  ? -1 : (status.maxRoiPoints ?? 0),  exceeded: false },
-      { resource: 'roi_regions', current: 0, max: status.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status.maxRoiRegions ?? 0), exceeded: false },
-      { resource: 'pd_regions',  current: 0, max: status.maxPdRegions  && status.maxPdRegions >= 999  ? -1 : (status.maxPdRegions ?? 0),  exceeded: false },
+      { resource: 'stations',    current: 0, max: status?.maxStations   && status.maxStations >= 999   ? -1 : (status?.maxStations ?? 10),   exceeded: false },
+      { resource: 'cameras',     current: 0, max: status?.maxCameras    && status.maxCameras >= 999    ? -1 : (status?.maxCameras ?? 10),    exceeded: false },
+      { resource: 'roi_points',  current: 0, max: status?.maxRoiPoints  && status.maxRoiPoints >= 999  ? -1 : (status?.maxRoiPoints ?? 10),  exceeded: false },
+      { resource: 'roi_regions', current: 0, max: status?.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status?.maxRoiRegions ?? 10), exceeded: false },
+      { resource: 'pd_regions',  current: 0, max: status?.maxPdRegions  && status.maxPdRegions >= 999  ? -1 : (status?.maxPdRegions ?? 10),  exceeded: false },
     ];
 
     return (
       <div className="resource-limits-section">
         <h3>Giới hạn tài nguyên</h3>
+        {!status?.activated && (
+          <div className="demo-limit-warning" style={{ 
+            backgroundColor: 'rgba(255, 107, 107, 0.1)', 
+            border: '1px solid rgba(255, 107, 107, 0.3)',
+            borderRadius: '6px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            fontSize: '14px',
+            color: '#ff8787',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span>⚠️</span>
+            <span>Hệ thống đang chạy ở chế độ Demo/Thử nghiệm. Giới hạn mặc định tối đa 10 đơn vị cho mỗi loại tài nguyên. Vui lòng liên hệ nhà phát triển (dev) để nâng cấp bản quyền.</span>
+          </div>
+        )}
         <div className="resource-grid">
           {resourceData.map((item) => {
             const info = RESOURCE_LABELS[item.resource] ?? { label: item.resource, icon: '📦' };

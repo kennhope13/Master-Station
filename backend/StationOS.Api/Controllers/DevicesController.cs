@@ -41,11 +41,12 @@ public class DevicesController : ControllerBase
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly InternalAuthService _internalAuth;
     private readonly IRealtimeNotifier _notifier;
+    private readonly LicenseService _license;
 
     public DevicesController(AppDbContext db, DeviceService deviceService, PermissionService permissions,
                              IConfiguration config, HikvisionIsapiService isapi, CredentialEncryptionService crypto,
                              AutoDiscoveryService autoDiscovery, IHttpClientFactory http, IServiceScopeFactory scopeFactory,
-                             InternalAuthService internalAuth, IRealtimeNotifier notifier)
+                             InternalAuthService internalAuth, IRealtimeNotifier notifier, LicenseService license)
     {
         _db = db;
         _deviceService = deviceService;
@@ -58,6 +59,7 @@ public class DevicesController : ControllerBase
         _scopeFactory = scopeFactory;
         _internalAuth = internalAuth;
         _notifier = notifier;
+        _license = license;
     }
 
     /// <summary>
@@ -372,6 +374,11 @@ public class DevicesController : ControllerBase
     [HttpPost("devices/auto-configure")]
     public async Task<IActionResult> AutoConfigure([FromBody] AutoConfigureRequest req)
     {
+        var limitInfo = await _license.CheckResourceLimitAsync("cameras");
+        if (limitInfo.Exceeded)
+        {
+            return BadRequest(new { message = $"Đã đạt giới hạn số lượng thiết bị/camera của bản quyền ({limitInfo.Max} thiết bị). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
+        }
         var station = await _db.Stations.FindAsync(req.StationId);
         if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
         {
@@ -500,6 +507,11 @@ public class DevicesController : ControllerBase
     [HasPermission("device:manage")]
     public async Task<IActionResult> Create([FromBody] CreateDeviceRequest req)
     {
+        var limitInfo = await _license.CheckResourceLimitAsync("cameras");
+        if (limitInfo.Exceeded)
+        {
+            return BadRequest(new { message = $"Đã đạt giới hạn số lượng thiết bị/camera của bản quyền ({limitInfo.Max} thiết bị). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
+        }
         var station = await _db.Stations.FindAsync(req.StationId);
         if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
         {
@@ -914,6 +926,11 @@ public class DevicesController : ControllerBase
     [HttpPost("devices/{deviceId}/roi-points")]
     public async Task<IActionResult> CreateRoiPoint(Guid deviceId, [FromBody] RoiPointRequest req)
     {
+        var limitInfo = await _license.CheckResourceLimitAsync("roi_points");
+        if (limitInfo.Exceeded)
+        {
+            return BadRequest(new { message = $"Đã đạt giới hạn số lượng điểm đo nhiệt độ của bản quyền ({limitInfo.Max} điểm). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
+        }
         string? assignedPointId = req.PointId;
         if (string.IsNullOrEmpty(assignedPointId))
         {

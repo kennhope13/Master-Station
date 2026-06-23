@@ -219,6 +219,107 @@ public class IngestController : ControllerBase
         return Ok(new { received = items.Count, saved });
     }
 
+    // ── POST /api/v1/ingest/reports ─────────────────────────
+    /// <summary>Nhận danh sách báo cáo từ trạm con.</summary>
+    [HttpPost("reports")]
+    public async Task<IActionResult> IngestReports([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
+    {
+        var station = await AuthenticateStationAsync();
+        if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
+
+        int saved = 0;
+        foreach (var elem in items)
+        {
+            if (!elem.TryGetProperty("id", out var idProp) || !idProp.TryGetGuid(out var id)) continue;
+            if (await _db.Reports.AnyAsync(r => r.Id == id, ct)) continue;
+
+            var report = new Report { Id = id, StationId = station.Id, ScopeType = "station" };
+            if (elem.TryGetProperty("type", out var tProp) && tProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                report.Type = tProp.GetString() ?? "daily";
+            if (elem.TryGetProperty("periodFrom", out var pfProp) && pfProp.TryGetDateTime(out var pf)) report.PeriodFrom = pf;
+            if (elem.TryGetProperty("periodTo",   out var ptProp) && ptProp.TryGetDateTime(out var pt)) report.PeriodTo   = pt;
+            if (elem.TryGetProperty("fileUrl",    out var fuProp) && fuProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                report.FileUrl = fuProp.GetString();
+            if (elem.TryGetProperty("generatedAt", out var gaProp) && gaProp.TryGetDateTime(out var ga)) report.GeneratedAt = ga;
+            if (elem.TryGetProperty("generatedBy", out var gbProp) && gbProp.TryGetGuid(out var gb)) report.GeneratedBy = gb;
+
+            _db.Reports.Add(report);
+            saved++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        await MarkStationOnlineAsync(station, "reports_ingest");
+        _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Saved}/{Total} reports", station.Name, saved, items.Count);
+        return Ok(new { received = items.Count, saved });
+    }
+
+    // ── POST /api/v1/ingest/audit-logs ──────────────────────
+    /// <summary>Nhận audit log từ trạm con.</summary>
+    [HttpPost("audit-logs")]
+    public async Task<IActionResult> IngestAuditLogs([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
+    {
+        var station = await AuthenticateStationAsync();
+        if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
+
+        int saved = 0;
+        foreach (var elem in items)
+        {
+            if (!elem.TryGetProperty("id", out var idProp) || !idProp.TryGetGuid(out var id)) continue;
+            if (await _db.AuditLogs.AnyAsync(a => a.Id == id, ct)) continue;
+
+            var log = new AuditLog { Id = id, StationId = station.Id };
+            if (elem.TryGetProperty("action",     out var ap) && ap.ValueKind == System.Text.Json.JsonValueKind.String) log.Action     = ap.GetString() ?? "";
+            if (elem.TryGetProperty("entityType", out var ep) && ep.ValueKind == System.Text.Json.JsonValueKind.String) log.EntityType = ep.GetString();
+            if (elem.TryGetProperty("entityId",   out var eid) && eid.TryGetGuid(out var eidv))  log.EntityId   = eidv;
+            if (elem.TryGetProperty("userId",     out var uid) && uid.TryGetGuid(out var uidv))   log.UserId     = uidv;
+            if (elem.TryGetProperty("ipAddress",  out var ip)  && ip.ValueKind  == System.Text.Json.JsonValueKind.String) log.IpAddress  = ip.GetString();
+            if (elem.TryGetProperty("oldValue",   out var ov)  && ov.ValueKind  == System.Text.Json.JsonValueKind.String) log.OldValue   = ov.GetString();
+            if (elem.TryGetProperty("newValue",   out var nv)  && nv.ValueKind  == System.Text.Json.JsonValueKind.String) log.NewValue   = nv.GetString();
+            if (elem.TryGetProperty("ts",         out var ts)  && ts.TryGetDateTime(out var tsv)) log.Ts         = tsv;
+
+            _db.AuditLogs.Add(log);
+            saved++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        await MarkStationOnlineAsync(station, "audit_ingest");
+        _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Saved}/{Total} audit logs", station.Name, saved, items.Count);
+        return Ok(new { received = items.Count, saved });
+    }
+
+    // ── POST /api/v1/ingest/maintenance ─────────────────────
+    /// <summary>Nhận maintenance tasks từ trạm con.</summary>
+    [HttpPost("maintenance")]
+    public async Task<IActionResult> IngestMaintenance([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
+    {
+        var station = await AuthenticateStationAsync();
+        if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
+
+        int saved = 0;
+        foreach (var elem in items)
+        {
+            if (!elem.TryGetProperty("id", out var idProp) || !idProp.TryGetGuid(out var id)) continue;
+            if (await _db.MaintenanceTasks.AnyAsync(m => m.Id == id, ct)) continue;
+
+            var task = new MaintenanceTask { Id = id, StationId = station.Id };
+            if (elem.TryGetProperty("title",         out var tp) && tp.ValueKind == System.Text.Json.JsonValueKind.String) task.Title  = tp.GetString() ?? "";
+            if (elem.TryGetProperty("type",          out var typ) && typ.ValueKind == System.Text.Json.JsonValueKind.String) task.Type  = typ.GetString() ?? "general";
+            if (elem.TryGetProperty("status",        out var sp) && sp.ValueKind  == System.Text.Json.JsonValueKind.String) task.Status = sp.GetString() ?? "pending";
+            if (elem.TryGetProperty("assignedTo",    out var at) && at.ValueKind  == System.Text.Json.JsonValueKind.String) task.AssignedTo = at.GetString();
+            if (elem.TryGetProperty("notes",         out var nt) && nt.ValueKind  == System.Text.Json.JsonValueKind.String) task.Notes = nt.GetString();
+            if (elem.TryGetProperty("scheduledDate", out var sd) && sd.TryGetDateTime(out var sdv)) task.ScheduledDate = sdv;
+            if (elem.TryGetProperty("completedAt",   out var ca) && ca.TryGetDateTime(out var cav)) task.CompletedAt   = cav;
+
+            _db.MaintenanceTasks.Add(task);
+            saved++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        await MarkStationOnlineAsync(station, "maintenance_ingest");
+        _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Saved}/{Total} maintenance tasks", station.Name, saved, items.Count);
+        return Ok(new { received = items.Count, saved });
+    }
+
     // ── GET /api/v1/ingest/ping ──────────────────────────────
     /// <summary>Trạm con kiểm tra kết nối đến trạm tổng.</summary>
     [HttpGet("ping")]
