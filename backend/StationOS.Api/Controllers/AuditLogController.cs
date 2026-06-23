@@ -55,7 +55,8 @@ public class AuditLogController : ControllerBase
             .Select(a => new {
                 a.Id, a.Action, a.EntityType, a.EntityId,
                 a.IpAddress, a.Ts, a.UserId,
-                a.OldValue, a.NewValue
+                a.OldValue, a.NewValue,
+                a.StationId   // include pre-set stationId from synced logs
             })
             .ToListAsync();
 
@@ -148,33 +149,37 @@ public class AuditLogController : ControllerBase
             : new Dictionary<Guid, Guid>();
 
         var mappedLogs = logs.Select(l => {
-            Guid? resolvedStationId = null;
-            if (l.EntityType == "device" && l.EntityId.HasValue && deviceStations.TryGetValue(l.EntityId.Value, out var ds))
-                resolvedStationId = ds;
-            else if (l.EntityType == "rule" && l.EntityId.HasValue && ruleStations.TryGetValue(l.EntityId.Value, out var rs))
-                resolvedStationId = rs;
-            else if (l.EntityType == "alert" && l.EntityId.HasValue && alertStations.TryGetValue(l.EntityId.Value, out var als))
-                resolvedStationId = als;
-            else if (l.EntityType == "maintenance" && l.EntityId.HasValue && maintenanceStations.TryGetValue(l.EntityId.Value, out var ms))
-                resolvedStationId = ms;
-            else if (l.EntityType == "maintenance" && l.EntityId.HasValue && alertStations.TryGetValue(l.EntityId.Value, out var mas))
-                resolvedStationId = mas;
-            else if (l.EntityType == "report" && l.EntityId.HasValue && reportStations.TryGetValue(l.EntityId.Value, out var rps))
-                resolvedStationId = rps;
-            else if (l.EntityType == "setting" && l.EntityId.HasValue && settingStations.TryGetValue(l.EntityId.Value, out var sts))
-                resolvedStationId = sts;
-            else if (l.EntityType == "station" && l.EntityId.HasValue && stationEntities.Contains(l.EntityId.Value))
-                resolvedStationId = l.EntityId.Value;
-            else if (l.EntityType == "sld" && l.EntityId.HasValue && sldFileStations.TryGetValue(l.EntityId.Value, out var sldFs))
-                resolvedStationId = sldFs;
-            else if (l.EntityType == "sld" && l.EntityId.HasValue && sldPointStations.TryGetValue(l.EntityId.Value, out var sldPs))
-                resolvedStationId = sldPs;
-            else if (l.EntityType == "sld" && l.EntityId.HasValue && stationEntities.Contains(l.EntityId.Value))
-                resolvedStationId = l.EntityId.Value;
-            else if (TryExtractStationIdFromJson(l.NewValue, out var bodyStationId))
-                resolvedStationId = bodyStationId;
-            else if (TryExtractDeviceIdFromJson(l.NewValue, out var bodyDeviceId) && deviceStations.TryGetValue(bodyDeviceId, out var bodyDeviceStationId))
-                resolvedStationId = bodyDeviceStationId;
+            // Ưu tiên StationId đã được set sẵn (ví dụ: log được đẩy từ trạm con qua IngestController)
+            Guid? resolvedStationId = l.StationId;
+            if (resolvedStationId == null)
+            {
+                if (l.EntityType == "device" && l.EntityId.HasValue && deviceStations.TryGetValue(l.EntityId.Value, out var ds))
+                    resolvedStationId = ds;
+                else if (l.EntityType == "rule" && l.EntityId.HasValue && ruleStations.TryGetValue(l.EntityId.Value, out var rs))
+                    resolvedStationId = rs;
+                else if (l.EntityType == "alert" && l.EntityId.HasValue && alertStations.TryGetValue(l.EntityId.Value, out var als))
+                    resolvedStationId = als;
+                else if (l.EntityType == "maintenance" && l.EntityId.HasValue && maintenanceStations.TryGetValue(l.EntityId.Value, out var ms))
+                    resolvedStationId = ms;
+                else if (l.EntityType == "maintenance" && l.EntityId.HasValue && alertStations.TryGetValue(l.EntityId.Value, out var mas))
+                    resolvedStationId = mas;
+                else if (l.EntityType == "report" && l.EntityId.HasValue && reportStations.TryGetValue(l.EntityId.Value, out var rps))
+                    resolvedStationId = rps;
+                else if (l.EntityType == "setting" && l.EntityId.HasValue && settingStations.TryGetValue(l.EntityId.Value, out var sts))
+                    resolvedStationId = sts;
+                else if (l.EntityType == "station" && l.EntityId.HasValue && stationEntities.Contains(l.EntityId.Value))
+                    resolvedStationId = l.EntityId.Value;
+                else if (l.EntityType == "sld" && l.EntityId.HasValue && sldFileStations.TryGetValue(l.EntityId.Value, out var sldFs))
+                    resolvedStationId = sldFs;
+                else if (l.EntityType == "sld" && l.EntityId.HasValue && sldPointStations.TryGetValue(l.EntityId.Value, out var sldPs))
+                    resolvedStationId = sldPs;
+                else if (l.EntityType == "sld" && l.EntityId.HasValue && stationEntities.Contains(l.EntityId.Value))
+                    resolvedStationId = l.EntityId.Value;
+                else if (TryExtractStationIdFromJson(l.NewValue, out var bodyStationId))
+                    resolvedStationId = bodyStationId;
+                else if (TryExtractDeviceIdFromJson(l.NewValue, out var bodyDeviceId) && deviceStations.TryGetValue(bodyDeviceId, out var bodyDeviceStationId))
+                    resolvedStationId = bodyDeviceStationId;
+            }
 
             Guid? accountStationId = null;
             Guid? accountProvinceId = null;

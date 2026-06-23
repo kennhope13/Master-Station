@@ -481,6 +481,12 @@ namespace StationOS.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("SyncSource")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SyncedToStationAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
 
                     b.ToTable("MaintenanceTasks", (string)null);

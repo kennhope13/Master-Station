@@ -251,7 +251,8 @@ public class PermissionService
     {
         "station:view", "station:manage", "device:view", "device:manage",
         "rule:view", "rule:manage", "user:view", "user:manage",
-        "report:view", "report:manage", "license:manage"
+        "report:view", "report:manage", "license:manage",
+        "maintenance:view", "maintenance:manage"
     };
 
     private static readonly string[] StationAdminPermissions = new[]

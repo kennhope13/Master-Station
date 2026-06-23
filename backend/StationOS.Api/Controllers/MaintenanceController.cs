@@ -28,11 +28,13 @@ public class MaintenanceController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IRealtimeNotifier _notifier;
+    private readonly PermissionService _permissions;
 
-    public MaintenanceController(AppDbContext db, IRealtimeNotifier notifier)
+    public MaintenanceController(AppDbContext db, IRealtimeNotifier notifier, PermissionService permissions)
     {
         _db = db;
         _notifier = notifier;
+        _permissions = permissions;
     }
 
     // ── GET /api/v1/maintenance ──────────────────────────────
@@ -48,7 +50,13 @@ public class MaintenanceController : ControllerBase
         [FromQuery] string? status,
         [FromQuery] Guid? deviceId)
     {
+        var allowedStationIds = await _permissions.GetAllowedStationIdsAsync();
+
         var query = _db.MaintenanceTasks.AsQueryable();
+
+        // Áp dụng phạm vi tỉnh/trạm theo quyền người dùng
+        if (allowedStationIds != null)
+            query = query.Where(t => allowedStationIds.Contains(t.StationId));
 
         if (stationId.HasValue)
             query = query.Where(t => t.StationId == stationId.Value);
@@ -82,6 +90,9 @@ public class MaintenanceController : ControllerBase
     [HasPermission("maintenance:manage")]
     public async Task<IActionResult> Create([FromBody] CreateMaintenanceRequest req)
     {
+        if (!await _permissions.CanAccessStationAsync(req.StationId))
+            return Forbid();
+
         var task = new MaintenanceTask
         {
             StationId     = req.StationId,
@@ -94,6 +105,7 @@ public class MaintenanceController : ControllerBase
             Checklist     = req.Checklist,
             Status        = "pending",
             CreatedAt     = DateTime.UtcNow,
+            SyncSource    = "central",  // Tạo tại trạm tổng → đẩy xuống trạm con
         };
 
         _db.MaintenanceTasks.Add(task);
@@ -121,6 +133,7 @@ public class MaintenanceController : ControllerBase
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
         if (task == null) return NotFound(new { message = "Không tìm thấy task" });
+        if (!await _permissions.CanAccessStationAsync(task.StationId)) return Forbid();
 
         if (req.Title != null)         task.Title         = req.Title;
         if (req.Type != null)          task.Type          = req.Type;
@@ -153,6 +166,7 @@ public class MaintenanceController : ControllerBase
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
         if (task == null) return NotFound(new { message = "Không tìm thấy task" });
+        if (!await _permissions.CanAccessStationAsync(task.StationId)) return Forbid();
 
         _db.MaintenanceTasks.Remove(task);
         await _db.SaveChangesAsync();
@@ -170,6 +184,7 @@ public class MaintenanceController : ControllerBase
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
         if (task == null) return NotFound(new { message = "Không tìm thấy task" });
+        if (!await _permissions.CanAccessStationAsync(task.StationId)) return Forbid();
 
         task.Status = "in_progress";
         await _db.SaveChangesAsync();
@@ -196,6 +211,7 @@ public class MaintenanceController : ControllerBase
     {
         var task = await _db.MaintenanceTasks.FindAsync(id);
         if (task == null) return NotFound(new { message = "Không tìm thấy task" });
+        if (!await _permissions.CanAccessStationAsync(task.StationId)) return Forbid();
 
         task.Status      = "completed";
         task.CompletedAt = DateTime.UtcNow;
@@ -251,6 +267,7 @@ public class MaintenanceController : ControllerBase
             SourceAlertId = alert.Id,
             Status        = "pending",
             CreatedAt     = DateTime.UtcNow,
+            SyncSource    = "central",
         };
 
         _db.MaintenanceTasks.Add(task);
@@ -431,6 +448,7 @@ public class MaintenanceController : ControllerBase
             sourceAlertId = t.SourceAlertId,
             createdAt     = t.CreatedAt,
             completedAt   = t.CompletedAt,
+            syncSource    = t.SyncSource,   // "station" = trạm con tạo; null/"central" = trạm tổng tạo
         };
     }
 }

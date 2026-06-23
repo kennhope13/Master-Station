@@ -35,4 +35,10 @@ public class MaintenanceTask
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>null/"central" = tạo tại trạm tổng (đẩy xuống trạm con); "station" = trạm con tự tạo rồi sync lên</summary>
+    public string? SyncSource { get; set; }
+
+    /// <summary>Thời điểm trạm con pull task này về lần cuối (null = chưa sync xuống)</summary>
+    public DateTime? SyncedToStationAt { get; set; }
 }

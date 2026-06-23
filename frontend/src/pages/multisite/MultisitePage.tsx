@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore, useAuthStore } from '@/store';
-import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team } from '@/types/api.types';
+import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team, Device } from '@/types/api.types';
 import type { StationView, StationLocation, StationKpi } from './types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
@@ -9,7 +9,8 @@ import {
   X, ShieldCheck, Wifi,
   ChevronLeft, ChevronRight, ChevronDown, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video, Settings,
   ArrowLeft, Key,
-  Download, RefreshCw, Calendar, Clock, Loader2, Filter, Bell, Zap
+  Download, RefreshCw, Calendar, Clock, Loader2, Filter, Bell, Zap,
+  Play, CheckCircle2, Trash2, ChevronUp, Wrench
 } from 'lucide-react';
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
@@ -4210,6 +4211,88 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
   const [loading, setLoading] = useState(false);
   const [tasks, setTasks] = useState<MaintenanceTask[]>([]);
 
+  // Create modal
+  const [showCreate, setShowCreate] = useState(false);
+  const [cStation, setCStation] = useState('');
+  const [cDevice, setCDevice] = useState('');
+  const [cTitle, setCTitle] = useState('');
+  const [cType, setCType] = useState('inspection');
+  const [cDate, setCDate] = useState('');
+  const [cAssignTo, setCAssignTo] = useState('');
+  const [cNotes, setCNotes] = useState('');
+  const [cChecklist, setCChecklist] = useState<{ item: string; done: boolean }[]>([]);
+  const [cNewItem, setCNewItem] = useState('');
+  const [stationDevices, setStationDevices] = useState<Device[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Task detail expansion
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const canManage = authService.hasPermission('maintenance:manage');
+
+  // Load devices khi chọn trạm trong form tạo
+  useEffect(() => {
+    if (!cStation) { setStationDevices([]); setCDevice(''); return; }
+    stationApi.getDevices(cStation).then(setStationDevices).catch(() => setStationDevices([]));
+  }, [cStation]);
+
+  const resetCreateForm = () => {
+    setCStation(''); setCDevice(''); setCTitle(''); setCType('inspection');
+    setCDate(''); setCAssignTo(''); setCNotes(''); setCChecklist([]); setCNewItem('');
+  };
+
+  const handleCreate = async () => {
+    if (!cTitle.trim() || !cStation || !cDate) return;
+    setSaving(true);
+    try {
+      await stationApi.createMaintenance({
+        stationId: cStation,
+        deviceId: cDevice || undefined,
+        title: cTitle.trim(),
+        type: cType,
+        scheduledDate: new Date(cDate + 'T00:00:00').toISOString(),
+        assignedTo: cAssignTo.trim() || undefined,
+        notes: cNotes.trim() || undefined,
+        checklist: cChecklist.length ? JSON.stringify(cChecklist) : undefined,
+      });
+      setShowCreate(false);
+      resetCreateForm();
+      await load();
+      showToast('Đã tạo nhiệm vụ — sẽ đồng bộ xuống trạm con trong ~30 giây', 'success');
+    } catch {
+      showToast('Lỗi tạo nhiệm vụ bảo trì', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleStart = async (id: string) => {
+    try {
+      await stationApi.startMaintenance(id);
+      await load();
+      showToast('Đã bắt đầu thực hiện', 'success');
+    } catch { showToast('Lỗi', 'error'); }
+  };
+
+  const handleComplete = async (id: string) => {
+    const notes = window.prompt('Ghi chú kết quả bảo trì (tùy chọn):') ?? undefined;
+    if (notes === null) return; // bấm Cancel
+    try {
+      await stationApi.completeMaintenance(id, notes || undefined);
+      await load();
+      showToast('Đã đánh dấu hoàn thành', 'success');
+    } catch { showToast('Lỗi', 'error'); }
+  };
+
+  const handleDelete = async (id: string, title: string) => {
+    if (!window.confirm(`Xóa nhiệm vụ "${title}"?`)) return;
+    try {
+      await stationApi.deleteMaintenance(id);
+      await load();
+      showToast('Đã xóa', 'success');
+    } catch { showToast('Lỗi xóa', 'error'); }
+  };
+
   // Phạm vi theo role
   const currentUser = authService.getUser();
   const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
@@ -4344,6 +4427,12 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
 
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{tasks.length} công việc</span>
+
+        {canManage && (
+          <button onClick={() => setShowCreate(true)} style={{ height: 26, padding: '0 12px', background: 'var(--admin-accent)', border: 'none', color: '#fff', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, fontSize: '.65rem' }}>
+            <Plus size={12} />Giao việc bảo trì
+          </button>
+        )}
       </div>
 
       {/* ── Stats strip ──────────────────────────────────── */}
@@ -4373,31 +4462,193 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
               <th style={MS.th}>Ngày dự kiến</th>
               <th style={MS.th}>Trạng thái</th>
               <th style={MS.th}>Phụ trách</th>
+              {canManage && <th style={MS.th}>Thao tác</th>}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Đang tải...</td></tr>
+              <tr><td colSpan={canManage ? 8 : 7} style={{ padding: 28, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Đang tải...</td></tr>
             ) : tasks.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--admin-text-muted)', opacity: .5 }}>Chưa có công việc bảo trì nào</td></tr>
+              <tr><td colSpan={canManage ? 8 : 7} style={{ padding: 32, textAlign: 'center', color: 'var(--admin-text-muted)', opacity: .5 }}>Chưa có công việc bảo trì nào</td></tr>
             ) : tasks.map(task => {
               const station = stations.find(s => s.id === task.stationId);
               const provinceName = visibleProvinces.find(p => p.id === station?.provinceId)?.name || '—';
+              const isExpanded = expandedId === task.id;
+              const checklist: { item: string; done: boolean }[] = (() => { try { return JSON.parse(task.checklist || '[]'); } catch { return []; } })();
+              const isCentral = (task as any).syncSource === 'central' || (task as any).syncSource == null;
               return (
-                <tr key={task.id}>
-                  <td style={{ ...MS.td, fontSize: '.65rem', color: 'var(--admin-accent)', fontWeight: 600 }}>{provinceName}</td>
-                  <td style={MS.td}>{station?.name || '—'}</td>
-                  <td style={{ ...MS.td, fontWeight: 700 }}>{task.title}</td>
-                  <td style={{ ...MS.td, color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{task.deviceName || '—'}</td>
-                  <td style={{ ...MS.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)' }}>{task.scheduledDate?.slice(0, 10) || '—'}</td>
-                  <td style={MS.td}><span style={MS.pill(statusColor(task.status))}>{statusLabel(task.status)}</span></td>
-                  <td style={{ ...MS.td, color: 'var(--admin-text-muted)' }}>{task.assignedTo || '—'}</td>
-                </tr>
+                <>
+                  <tr key={task.id} onClick={() => setExpandedId(isExpanded ? null : task.id)} style={{ cursor: 'pointer', background: isExpanded ? 'var(--admin-layer-1)' : undefined }}>
+                    <td style={{ ...MS.td, fontSize: '.65rem', color: 'var(--admin-accent)', fontWeight: 600 }}>{provinceName}</td>
+                    <td style={MS.td}>{station?.name || '—'}</td>
+                    <td style={{ ...MS.td, fontWeight: 700 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {isCentral
+                          ? <span title="Giao từ trạm tổng" style={{ fontSize: '.5rem', background: '#3b82f620', border: '1px solid #3b82f640', color: '#3b82f6', borderRadius: 2, padding: '1px 5px', fontWeight: 800 }}>HQ</span>
+                          : <span title="Tạo tại trạm con" style={{ fontSize: '.5rem', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 2, padding: '1px 5px', fontWeight: 800 }}>CON</span>
+                        }
+                        {task.title}
+                        {isExpanded ? <ChevronUp size={11} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} /> : <ChevronDown size={11} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} />}
+                      </span>
+                    </td>
+                    <td style={{ ...MS.td, color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{task.deviceName || '—'}</td>
+                    <td style={{ ...MS.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)' }}>{task.scheduledDate?.slice(0, 10) || '—'}</td>
+                    <td style={MS.td}><span style={MS.pill(statusColor(task.status))}>{statusLabel(task.status)}</span></td>
+                    <td style={{ ...MS.td, color: 'var(--admin-text-muted)' }}>{task.assignedTo || '—'}</td>
+                    {canManage && (
+                      <td style={{ ...MS.td }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {task.status === 'pending' || task.status === 'overdue' ? (
+                            <button onClick={() => handleStart(task.id)} title="Bắt đầu" style={{ padding: '2px 6px', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '.6rem', fontWeight: 700 }}>
+                              <Play size={10} />Bắt đầu
+                            </button>
+                          ) : task.status === 'in_progress' ? (
+                            <button onClick={() => handleComplete(task.id)} title="Hoàn thành" style={{ padding: '2px 6px', background: '#22c55e20', border: '1px solid #22c55e40', color: '#22c55e', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '.6rem', fontWeight: 700 }}>
+                              <CheckCircle2 size={10} />Hoàn thành
+                            </button>
+                          ) : null}
+                          <button onClick={() => handleDelete(task.id, task.title)} title="Xóa" style={{ padding: '2px 6px', background: 'transparent', border: '1px solid var(--admin-border)', color: 'var(--admin-danger)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                  {isExpanded && (
+                    <tr key={task.id + '_detail'}>
+                      <td colSpan={canManage ? 8 : 7} style={{ padding: '10px 20px 14px 24px', background: 'var(--admin-layer-1)', borderBottom: '2px solid var(--admin-accent)' }}>
+                        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' as const, fontSize: '.7rem' }}>
+                          <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ color: 'var(--admin-text-muted)', fontWeight: 800, fontSize: '.55rem', letterSpacing: '.08em', textTransform: 'uppercase' as const, marginBottom: 6 }}>Ghi chú / Yêu cầu</div>
+                            <div style={{ color: 'var(--admin-text)', whiteSpace: 'pre-wrap' as const, lineHeight: 1.5 }}>{task.notes || '(không có ghi chú)'}</div>
+                          </div>
+                          {checklist.length > 0 && (
+                            <div style={{ flex: 1, minWidth: 200 }}>
+                              <div style={{ color: 'var(--admin-text-muted)', fontWeight: 800, fontSize: '.55rem', letterSpacing: '.08em', textTransform: 'uppercase' as const, marginBottom: 6 }}>Checklist ({checklist.filter(c => c.done).length}/{checklist.length})</div>
+                              <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                                {checklist.map((c, i) => (
+                                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, color: c.done ? 'var(--admin-success)' : 'var(--admin-text)' }}>
+                                    <span style={{ fontSize: '.75rem' }}>{c.done ? '✓' : '○'}</span>
+                                    <span style={{ textDecoration: c.done ? 'line-through' : 'none', opacity: c.done ? .6 : 1 }}>{c.item}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <div>
+                            <div style={{ color: 'var(--admin-text-muted)', fontWeight: 800, fontSize: '.55rem', letterSpacing: '.08em', textTransform: 'uppercase' as const, marginBottom: 6 }}>Thông tin</div>
+                            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, color: 'var(--admin-text-muted)' }}>
+                              <span>Loại: <b style={{ color: 'var(--admin-text)' }}>{task.type}</b></span>
+                              {task.completedAt && <span>Hoàn thành: <b style={{ color: 'var(--admin-success)' }}>{fmtDateTime(task.completedAt)}</b></span>}
+                              <span>Nguồn: <b style={{ color: isCentral ? '#3b82f6' : '#f59e0b' }}>{isCentral ? 'Giao từ trạm tổng (HQ)' : 'Trạm con tự tạo'}</b></span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               );
             })}
           </tbody>
         </table>
       </div>
+
+      {/* ── Create modal ─────────────────────────────────── */}
+      {showCreate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setShowCreate(false); resetCreateForm(); }}>
+          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 6, width: 560, maxHeight: '88vh', overflow: 'auto', padding: 24 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+              <Wrench size={16} style={{ color: 'var(--admin-accent)' }} />
+              <h3 style={{ margin: 0, fontSize: '.9rem', fontWeight: 800, color: 'var(--admin-text)' }}>Giao nhiệm vụ bảo trì xuống trạm con</h3>
+              <button onClick={() => { setShowCreate(false); resetCreateForm(); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer' }}><X size={16} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
+              {/* Trạm con */}
+              <div>
+                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Trạm con nhận việc <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
+                <select value={cStation} onChange={e => setCStation(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem' }}>
+                  <option value="">— Chọn trạm con —</option>
+                  {visibleStations.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              {/* Thiết bị */}
+              <div>
+                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Thiết bị (tùy chọn)</label>
+                <select value={cDevice} onChange={e => setCDevice(e.target.value)} disabled={!cStation} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', opacity: !cStation ? .5 : 1 }}>
+                  <option value="">— Không gắn với thiết bị cụ thể —</option>
+                  {stationDevices.map(d => <option key={d.id} value={d.id}>{d.name} ({d.type})</option>)}
+                </select>
+              </div>
+
+              {/* Tiêu đề */}
+              <div>
+                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Tiêu đề nhiệm vụ <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
+                <input value={cTitle} onChange={e => setCTitle(e.target.value)} placeholder="VD: Kiểm tra định kỳ MBA 110kV" style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
+              </div>
+
+              {/* Loại + Ngày */}
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Loại bảo trì</label>
+                  <select value={cType} onChange={e => setCType(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem' }}>
+                    <option value="inspection">Kiểm tra định kỳ</option>
+                    <option value="repair">Sửa chữa</option>
+                    <option value="cleaning">Vệ sinh</option>
+                    <option value="calibration">Hiệu chỉnh</option>
+                    <option value="other">Khác</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Ngày thực hiện dự kiến <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
+                  <input type="date" value={cDate} onChange={e => setCDate(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
+                </div>
+              </div>
+
+              {/* Giao cho ai */}
+              <div>
+                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Giao cho (tên / username)</label>
+                <input value={cAssignTo} onChange={e => setCAssignTo(e.target.value)} placeholder="VD: Nguyễn Văn A, stationadmin..." style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
+              </div>
+
+              {/* Ghi chú */}
+              <div>
+                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Ghi chú / Yêu cầu chi tiết</label>
+                <textarea value={cNotes} onChange={e => setCNotes(e.target.value)} rows={3} placeholder="Mô tả chi tiết yêu cầu bảo trì, chú ý an toàn..." style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', resize: 'vertical' as const, boxSizing: 'border-box' as const }} />
+              </div>
+
+              {/* Checklist */}
+              <div>
+                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Checklist ({cChecklist.length} hạng mục)</label>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                  <input value={cNewItem} onChange={e => setCNewItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && cNewItem.trim()) { setCChecklist(prev => [...prev, { item: cNewItem.trim(), done: false }]); setCNewItem(''); } }} placeholder="Nhập hạng mục kiểm tra, nhấn Enter để thêm" style={{ flex: 1, padding: '6px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem' }} />
+                  <button onClick={() => { if (cNewItem.trim()) { setCChecklist(prev => [...prev, { item: cNewItem.trim(), done: false }]); setCNewItem(''); } }} style={{ padding: '6px 10px', background: 'var(--admin-accent)', border: 'none', color: '#fff', borderRadius: 3, cursor: 'pointer', fontSize: '.7rem' }}>+ Thêm</button>
+                </div>
+                {cChecklist.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
+                    {cChecklist.map((c, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', background: 'var(--admin-layer-1)', borderRadius: 3, fontSize: '.72rem' }}>
+                        <span style={{ flex: 1, color: 'var(--admin-text)' }}>○ {c.item}</span>
+                        <button onClick={() => setCChecklist(prev => prev.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: 'var(--admin-danger)', cursor: 'pointer', padding: '0 4px', fontSize: '.75rem' }}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Submit */}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid var(--admin-border)' }}>
+                <button onClick={() => { setShowCreate(false); resetCreateForm(); }} style={{ padding: '7px 16px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', borderRadius: 3, cursor: 'pointer', fontSize: '.75rem' }}>Hủy</button>
+                <button onClick={handleCreate} disabled={saving || !cTitle.trim() || !cStation || !cDate} style={{ padding: '7px 18px', background: saving || !cTitle.trim() || !cStation || !cDate ? 'var(--admin-layer-2)' : 'var(--admin-accent)', border: 'none', color: saving || !cTitle.trim() || !cStation || !cDate ? 'var(--admin-text-muted)' : '#fff', borderRadius: 3, cursor: saving || !cTitle.trim() || !cStation || !cDate ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '.75rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {saving ? <><Loader2 size={12} style={{ animation: 'crv-spin 1s linear infinite' }} />Đang lưu...</> : <><Wrench size={12} />Giao nhiệm vụ</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
