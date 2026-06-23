@@ -82,16 +82,12 @@ export default function LicensePage() {
     setSuccessMsg('');
 
     try {
-      const data = await stationApi.activateLicense(key.trim());
-      if (data?.message && !data?.activated) {
-        setErrorMsg(data.message ?? 'Kích hoạt thất bại');
-      } else {
-        setSuccessMsg('Kích hoạt thành công! Đang tải lại...');
-        setKey('');
-        await loadStatus();
-        await loadLimits();
-        setTimeout(() => navigate('/dashboard'), 1500);
-      }
+      await stationApi.activateLicense(key.trim());
+      setSuccessMsg('Kích hoạt thành công! Đang tải lại...');
+      setKey('');
+      await loadStatus();
+      await loadLimits();
+      setTimeout(() => navigate('/dashboard'), 1500);
     } catch (err: any) {
       setErrorMsg(err?.message ?? 'Không thể kết nối backend');
     } finally {
