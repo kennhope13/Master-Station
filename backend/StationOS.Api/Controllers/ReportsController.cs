@@ -81,7 +81,8 @@ public class ReportsController : ControllerBase
     {
         var q = _db.Reports.AsQueryable();
         var normalizedScopeType = string.IsNullOrWhiteSpace(scopeType) ? null : scopeType.Trim().ToLowerInvariant();
-        if (!string.IsNullOrWhiteSpace(normalizedScopeType))
+        // "fleet" = xem toàn bộ, không lọc theo scopeType
+        if (!string.IsNullOrWhiteSpace(normalizedScopeType) && normalizedScopeType != "fleet")
         {
             if (normalizedScopeType == "station")
                 q = q.Where(r => r.ScopeType == normalizedScopeType || r.ScopeType == null || r.ScopeType == "");

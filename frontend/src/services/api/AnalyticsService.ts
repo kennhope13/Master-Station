@@ -45,7 +45,7 @@ export class AnalyticsService {
     teamId?: string;
   }): Promise<ReportItem[]> {
     const params = new URLSearchParams();
-    if (filters?.scopeType) params.set('scopeType', filters.scopeType);
+    if (filters?.scopeType && filters.scopeType !== 'fleet') params.set('scopeType', filters.scopeType);
     if (filters?.stationId) params.set('stationId', filters.stationId);
     if (filters?.provinceId) params.set('provinceId', filters.provinceId);
     if (filters?.teamId) params.set('teamId', filters.teamId);

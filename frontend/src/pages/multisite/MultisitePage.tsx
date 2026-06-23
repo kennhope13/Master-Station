@@ -3116,7 +3116,29 @@ function CentralReportsView({
   const tl = (t: string) => t === 'daily' ? 'Hàng ngày' : t === 'monthly' ? 'Hàng tháng' : 'Sự cố';
   const tc = (t: string) => t === 'daily' ? 'var(--admin-accent)' : t === 'monthly' ? '#a855f7' : '#f97316';
 
-  const filtered = useMemo(() => filter === 'all' ? history : history.filter(r => r.type === filter), [history, filter]);
+  const [histFilterProvince, setHistFilterProvince] = useState('');
+  const [histFilterTeam, setHistFilterTeam] = useState('');
+
+  const filtered = useMemo(() => {
+    let src = filter === 'all' ? history : history.filter(r => r.type === filter);
+    if (histFilterProvince) {
+      // lọc theo tỉnh: report có provinceId trực tiếp, hoặc station của report thuộc tỉnh này
+      const stationIdsInProvince = new Set(stations.filter(s => s.provinceId === histFilterProvince).map(s => s.id));
+      src = src.filter(r =>
+        r.provinceId === histFilterProvince ||
+        (r.scopeType === 'station' && stationIdsInProvince.has(r.stationId))
+      );
+    }
+    if (histFilterTeam) {
+      const team = teams.find(t => t.id === histFilterTeam);
+      const teamStationIds = new Set(team?.stationIds || []);
+      src = src.filter(r =>
+        r.teamId === histFilterTeam ||
+        (r.scopeType === 'station' && teamStationIds.has(r.stationId))
+      );
+    }
+    return src;
+  }, [history, filter, histFilterProvince, histFilterTeam, stations, teams]);
 
   const types: Array<{ t: 'daily'|'monthly'|'event'; title: string; icon: React.ReactNode; c: string }> = [
     { t: 'daily', title: 'Báo cáo ngày', icon: <Clock size={12} />, c: 'var(--admin-accent)' },
@@ -3141,7 +3163,8 @@ function CentralReportsView({
       </div>
 
       {/* ── Scope + filters ───────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+        {/* Phạm vi tạo báo cáo */}
         <InlineDarkDropdown
           value={scopeType}
           options={scopeTypeOptions}
@@ -3156,6 +3179,42 @@ function CentralReportsView({
             minWidth={240}
           />
         )}
+
+        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
+
+        {/* Bộ lọc lịch sử hiển thị */}
+        {provinces.length > 0 && (
+          <>
+            <span style={S.label}>Tỉnh</span>
+            <InlineDarkDropdown
+              value={histFilterProvince}
+              onChange={v => { setHistFilterProvince(v); setHistFilterTeam(''); }}
+              minWidth={140}
+              options={[
+                { value: '', label: 'Tất cả tỉnh' },
+                ...provinces.map(p => ({ value: p.id, label: p.name }))
+              ]}
+            />
+          </>
+        )}
+        {teams.length > 0 && (
+          <>
+            <span style={S.label}>Tổ</span>
+            <InlineDarkDropdown
+              value={histFilterTeam}
+              onChange={setHistFilterTeam}
+              minWidth={130}
+              options={[
+                { value: '', label: 'Tất cả tổ' },
+                ...(histFilterProvince
+                  ? teams.filter(t => t.provinceId === histFilterProvince)
+                  : teams
+                ).map(t => ({ value: t.id, label: t.name }))
+              ]}
+            />
+          </>
+        )}
+
         <div style={S.flex1} />
         <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{filtered.length} báo cáo</span>
         {(['all','daily','monthly','event'] as const).map(f => (
@@ -3175,16 +3234,37 @@ function CentralReportsView({
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr>
-              <th style={S.th}>Loại</th><th style={S.th}>Phạm vi</th><th style={S.th}>Kỳ báo cáo</th><th style={S.th}>Ngày tạo</th><th style={{ ...S.th, textAlign: 'right', width: 80 }}></th>
+              <th style={S.th}>Loại</th>
+              <th style={S.th}>Tỉnh</th>
+              <th style={S.th}>Tổ</th>
+              <th style={S.th}>Phạm vi</th>
+              <th style={S.th}>Kỳ báo cáo</th>
+              <th style={S.th}>Ngày tạo</th>
+              <th style={{ ...S.th, textAlign: 'right', width: 80 }}></th>
             </tr></thead>
             <tbody>
               {filtered.map(r => {
-                const sname = stations.find(s => s.id === r.stationId)?.name;
+                const station = stations.find(s => s.id === r.stationId);
                 const c = tc(r.type);
-                const resolvedScopeLabel = r.scopeLabel || sname || 'Toàn hệ thống';
+                const resolvedScopeLabel = r.scopeLabel || station?.name || 'Toàn hệ thống';
+                // Tỉnh: từ provinceId của report, hoặc từ station nếu là report theo trạm
+                const provinceId = r.provinceId || (r.scopeType === 'station' ? station?.provinceId : undefined);
+                const provinceName = provinces.find(p => p.id === provinceId)?.name;
+                // Tổ: từ teamId của report
+                const teamName = teams.find(t => t.id === r.teamId)?.name;
                 return (
                   <tr key={r.id} style={{ cursor: 'default' }}>
                     <td style={S.td}><div style={S.pill(c)}><span style={S.pillBar(c)} /><span style={S.pillLbl}>{tl(r.type)}</span></div></td>
+                    <td style={{ ...S.td, fontSize: '.65rem' }}>
+                      {provinceName
+                        ? <span style={{ color: 'var(--admin-accent)', fontWeight: 600 }}>{provinceName}</span>
+                        : <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span>}
+                    </td>
+                    <td style={{ ...S.td, fontSize: '.65rem' }}>
+                      {teamName
+                        ? <span style={{ color: '#f59e0b', fontWeight: 600 }}>{teamName}</span>
+                        : <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span>}
+                    </td>
                     <td style={S.td}>{resolvedScopeLabel || <span style={{ ...S.muted, fontStyle: 'italic' }}>Toàn hệ thống</span>}</td>
                     <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.65rem', ...S.muted }}>
                       {r.periodFrom ? new Date(r.periodFrom).toLocaleDateString('vi-VN') : '--'}
@@ -3387,9 +3467,11 @@ function buildChangeRows(item: MergedLogItem, stations: Station[], provinces: Pr
 
 function CentralLogView({ stations, provinces, teams }: { stations: Station[]; provinces: Province[]; teams: Team[] }) {
   const [logType, setLogType] = useState<LogType>('all');
-  const [selectedDate, setSelectedDate] = useState(() => formatIsoDate(new Date()));
+  const [selectedDate, setSelectedDate] = useState('');
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => parseIsoDate(formatIsoDate(new Date())));
+  const [filterProvince, setFilterProvince] = useState('');
+  const [filterTeam, setFilterTeam] = useState('');
   const [scopeStationId, setScopeStationId] = useState('');
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
@@ -3398,7 +3480,62 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
   const [showDetail, setShowDetail] = useState(true);
   const calendarRef = useRef<HTMLDivElement>(null);
 
-  const dates = useMemo(() => ({ from: selectedDate, to: selectedDate }), [selectedDate]);
+  // Phạm vi hiển thị theo role của user hiện tại
+  const currentUser = authService.getUser();
+  const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
+    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+
+    // admin toàn cục / multi → thấy hết
+    if (currentUser.role === 'admin' && (!currentUser.station_ids?.length)) {
+      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    }
+
+    // admin_province / operator_province → chỉ tỉnh được gán
+    if (currentUser.role === 'admin_province' || currentUser.role === 'operator_province') {
+      const pIds = new Set(currentUser.province_ids || []);
+      const vProvinces = provinces.filter(p => pIds.has(p.id));
+      const vStations = stations.filter(s => s.provinceId && pIds.has(s.provinceId));
+      const vStationIds = new Set(vStations.map(s => s.id));
+      const vTeams = teams.filter(t => t.stationIds?.some(id => vStationIds.has(id)));
+      return { visibleProvinces: vProvinces, visibleTeams: vTeams, visibleStations: vStations };
+    }
+
+    // team_leader / team_member → chỉ trạm của tổ
+    if (currentUser.role === 'team_leader' || currentUser.role === 'team_member') {
+      const userTeam = teams.find(t => t.id === currentUser.team_id);
+      const teamStIds = new Set(userTeam?.stationIds || []);
+      const vStations = stations.filter(s => teamStIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return {
+        visibleProvinces: provinces.filter(p => pIds.has(p.id)),
+        visibleTeams: userTeam ? [userTeam] : [],
+        visibleStations: vStations,
+      };
+    }
+
+    // station user → chỉ trạm được gán
+    if (currentUser.station_ids?.length) {
+      const sIds = new Set(currentUser.station_ids);
+      const vStations = stations.filter(s => sIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return {
+        visibleProvinces: provinces.filter(p => pIds.has(p.id)),
+        visibleTeams: teams.filter(t => t.stationIds?.some(id => sIds.has(id))),
+        visibleStations: vStations,
+      };
+    }
+
+    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+  }, [currentUser, provinces, teams, stations]);
+
+  const dates = useMemo(() => {
+    if (selectedDate) return { from: selectedDate, to: selectedDate };
+    // Mặc định: 7 ngày gần nhất
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 7);
+    return { from: formatIsoDate(from), to: formatIsoDate(to) };
+  }, [selectedDate]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -3470,8 +3607,24 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     if (selectedDate) setCalendarMonth(parseIsoDate(selectedDate));
   }, [selectedDate]);
 
+  // Stations có sẵn sau khi lọc theo tỉnh/tổ (giới hạn trong phạm vi role của user)
+  const availableStationIds = useMemo<Set<string> | null>(() => {
+    if (!filterProvince && !filterTeam) return null;
+    let ids = visibleStations.map(s => s.id);
+    if (filterProvince) ids = ids.filter(id => visibleStations.find(s => s.id === id)?.provinceId === filterProvince);
+    if (filterTeam) {
+      const team = visibleTeams.find(t => t.id === filterTeam);
+      if (team?.stationIds?.length) ids = ids.filter(id => team.stationIds!.includes(id));
+    }
+    return new Set(ids);
+  }, [visibleStations, visibleTeams, filterProvince, filterTeam]);
+
   const filtered = useMemo(() => {
     let source = logType === 'all' ? logs : logs.filter(l => l.type === logType);
+    // Lọc theo tỉnh/tổ (client-side khi chưa chọn trạm cụ thể)
+    if (!scopeStationId && availableStationIds) {
+      source = source.filter(l => l.stationId ? availableStationIds.has(l.stationId) : false);
+    }
     if (!searchText) return source;
     const q = searchText.toLowerCase();
     return source.filter(l =>
@@ -3480,7 +3633,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
       l.user.toLowerCase().includes(q) ||
       (l.stationName || '').toLowerCase().includes(q)
     );
-  }, [logs, logType, searchText]);
+  }, [logs, logType, searchText, scopeStationId, availableStationIds]);
 
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
   const todayIso = useMemo(() => formatIsoDate(new Date()), []);
@@ -3547,7 +3700,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
             style={S.dateButton}
             aria-label="Chọn ngày xem nhật ký"
           >
-            <span>{selectedDate.split('-').reverse().join('/')}</span>
+            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : '7 ngày gần nhất'}</span>
             <Calendar size={12} />
           </button>
           {calendarOpen && (
@@ -3604,6 +3757,13 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                 <button
                   type="button"
                   style={{ ...S.btn, flex: 1, justifyContent: 'center' }}
+                  onClick={() => { setSelectedDate(''); setCalendarOpen(false); }}
+                >
+                  7 NGÀY
+                </button>
+                <button
+                  type="button"
+                  style={{ ...S.btn, flex: 1, justifyContent: 'center' }}
                   onClick={() => {
                     const today = formatIsoDate(new Date());
                     setSelectedDate(today);
@@ -3627,14 +3787,50 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
 
         <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
 
+        {visibleProvinces.length > 0 && (
+          <>
+            <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TỈNH</span>
+            <InlineDarkDropdown
+              value={filterProvince}
+              onChange={v => { setFilterProvince(v); setFilterTeam(''); setScopeStationId(''); }}
+              minWidth={150}
+              options={[
+                { value: '', label: 'TẤT CẢ TỈNH' },
+                ...visibleProvinces.map(p => ({ value: p.id, label: p.name }))
+              ]}
+            />
+          </>
+        )}
+
+        {visibleTeams.length > 0 && (
+          <>
+            <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TỔ</span>
+            <InlineDarkDropdown
+              value={filterTeam}
+              onChange={v => { setFilterTeam(v); setScopeStationId(''); }}
+              minWidth={140}
+              options={[
+                { value: '', label: 'TẤT CẢ TỔ' },
+                ...(filterProvince
+                  ? visibleTeams.filter(t => t.provinceId === filterProvince)
+                  : visibleTeams
+                ).map(t => ({ value: t.id, label: t.name }))
+              ]}
+            />
+          </>
+        )}
+
         <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TRẠM</span>
         <InlineDarkDropdown
           value={scopeStationId}
           onChange={setScopeStationId}
           minWidth={180}
           options={[
-            { value: '', label: `TẤT CẢ TRẠM (${stations.length})` },
-            ...stations.map(s => ({ value: s.id, label: `${s.code ? `${s.code} · ` : ''}${s.name}` }))
+            { value: '', label: availableStationIds ? `TẤT CẢ (${availableStationIds.size})` : `TẤT CẢ TRẠM (${visibleStations.length})` },
+            ...(availableStationIds
+              ? visibleStations.filter(s => availableStationIds.has(s.id))
+              : visibleStations
+            ).map(s => ({ value: s.id, label: `${s.code ? `${s.code} · ` : ''}${s.name}` }))
           ]}
         />
 
