@@ -64,8 +64,8 @@ public class IngestController : ControllerBase
         }
         static bool TryGuid(System.Text.Json.JsonElement e, string camel, string snake, out Guid result)
         {
-            if (e.TryGetProperty(camel, out var v) && v.TryGetGuid(out result)) return true;
-            if (e.TryGetProperty(snake, out var v2) && v2.TryGetGuid(out result)) return true;
+            if (e.TryGetProperty(camel, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String && v.TryGetGuid(out result)) return true;
+            if (e.TryGetProperty(snake, out var v2) && v2.ValueKind == System.Text.Json.JsonValueKind.String && v2.TryGetGuid(out result)) return true;
             result = Guid.Empty; return false;
         }
 
@@ -241,7 +241,7 @@ public class IngestController : ControllerBase
             if (elem.TryGetProperty("fileUrl",    out var fuProp) && fuProp.ValueKind == System.Text.Json.JsonValueKind.String)
                 report.FileUrl = fuProp.GetString();
             if (elem.TryGetProperty("generatedAt", out var gaProp) && gaProp.TryGetDateTime(out var ga)) report.GeneratedAt = ga;
-            if (elem.TryGetProperty("generatedBy", out var gbProp) && gbProp.TryGetGuid(out var gb)) report.GeneratedBy = gb;
+            if (elem.TryGetProperty("generatedBy", out var gbProp) && gbProp.ValueKind == System.Text.Json.JsonValueKind.String && gbProp.TryGetGuid(out var gb)) report.GeneratedBy = gb;
 
             _db.Reports.Add(report);
             saved++;
@@ -270,8 +270,8 @@ public class IngestController : ControllerBase
             var log = new AuditLog { Id = id, StationId = station.Id };
             if (elem.TryGetProperty("action",     out var ap) && ap.ValueKind == System.Text.Json.JsonValueKind.String) log.Action     = ap.GetString() ?? "";
             if (elem.TryGetProperty("entityType", out var ep) && ep.ValueKind == System.Text.Json.JsonValueKind.String) log.EntityType = ep.GetString();
-            if (elem.TryGetProperty("entityId",   out var eid) && eid.TryGetGuid(out var eidv))  log.EntityId   = eidv;
-            if (elem.TryGetProperty("userId",     out var uid) && uid.TryGetGuid(out var uidv))   log.UserId     = uidv;
+            if (elem.TryGetProperty("entityId",   out var eid) && eid.ValueKind == System.Text.Json.JsonValueKind.String && eid.TryGetGuid(out var eidv))  log.EntityId   = eidv;
+            if (elem.TryGetProperty("userId",     out var uid) && uid.ValueKind == System.Text.Json.JsonValueKind.String && uid.TryGetGuid(out var uidv))   log.UserId     = uidv;
             if (elem.TryGetProperty("ipAddress",  out var ip)  && ip.ValueKind  == System.Text.Json.JsonValueKind.String) log.IpAddress  = ip.GetString();
             if (elem.TryGetProperty("oldValue",   out var ov)  && ov.ValueKind  == System.Text.Json.JsonValueKind.String) log.OldValue   = ov.GetString();
             if (elem.TryGetProperty("newValue",   out var nv)  && nv.ValueKind  == System.Text.Json.JsonValueKind.String) log.NewValue   = nv.GetString();

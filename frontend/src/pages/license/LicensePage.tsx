@@ -193,7 +193,7 @@ export default function LicensePage() {
             gap: '8px'
           }}>
             <span>⚠️</span>
-            <span>Hệ thống đang chạy ở chế độ Demo/Thử nghiệm. Giới hạn mặc định tối đa 10 đơn vị cho mỗi loại tài nguyên. Vui lòng liên hệ nhà phát triển (dev) để nâng cấp bản quyền.</span>
+            <span>Hệ thống đang chạy ở chế độ Demo/Thử nghiệm. Giới hạn mặc định là 10 đơn vị cho mỗi loại tài nguyên. Vui lòng liên hệ nhà phát triển (dev) để nâng cấp bản quyền.</span>
           </div>
         )}
         <div className="resource-grid">
