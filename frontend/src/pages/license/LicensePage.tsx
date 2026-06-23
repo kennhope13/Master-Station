@@ -123,8 +123,12 @@ export default function LicensePage() {
             <span className="status-badge demo">Chưa kích hoạt (Demo)</span>
           </div>
           <div className="status-row">
-            <span>Giới hạn</span>
-            <span style={{ color: '#ff8787', fontWeight: 'bold' }}>Mặc định 10 đơn vị/tài nguyên (Liên hệ dev để nâng cấp)</span>
+            <span>Người dùng đồng thời</span>
+            <span>Không giới hạn</span>
+          </div>
+          <div className="status-row">
+            <span>Giới hạn tài nguyên</span>
+            <span style={{ color: '#ff8787', fontWeight: 'bold' }}>Mặc định 10 đơn vị/tài nguyên</span>
           </div>
         </div>
       );
@@ -193,7 +197,7 @@ export default function LicensePage() {
             gap: '8px'
           }}>
             <span>⚠️</span>
-            <span>Hệ thống đang chạy ở chế độ Demo/Thử nghiệm. Giới hạn mặc định là 10 đơn vị cho mỗi loại tài nguyên. Vui lòng liên hệ nhà phát triển (dev) để nâng cấp bản quyền.</span>
+            <span>Hệ thống đang chạy ở chế độ Demo/Thử nghiệm. Mặc định là 10 đơn vị cho mỗi loại tài nguyên, nhưng không có giới hạn người dùng.</span>
           </div>
         )}
         <div className="resource-grid">
