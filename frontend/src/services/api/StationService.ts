@@ -47,6 +47,8 @@ export class StationService {
     alertsCount: number;
     points: Array<{ deviceId: string; pointId: string; value: number; unit: string; quality: number; time: string }>;
     healthScores: Array<{ deviceId: string; deviceName: string; deviceType: string; status: string; score: number; risk: string }>;
+    boundaries: Array<{ id: string; deviceId: string; name: string; type: string; severityLevel: string; enabled: boolean }>;
+    roiPoints: Array<{ id: string; deviceId: string; label: string }>;
     go2rtcBase?: string;
     rtspBase?: string;
     webUiUrl?: string;

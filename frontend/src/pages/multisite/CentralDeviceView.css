@@ -324,6 +324,166 @@
   gap: 14px;
 }
 
+.cdv-hierarchy {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cdv-province-block {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-panel);
+}
+
+.cdv-province-row {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--admin-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cdv-province-row:hover {
+  background: var(--admin-layer-2);
+}
+
+.cdv-province-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cdv-province-chevron {
+  display: inline-flex;
+  color: var(--admin-text-muted);
+  flex-shrink: 0;
+}
+
+.cdv-province-label {
+  font-size: 0.8rem;
+  font-weight: 900;
+  color: var(--admin-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cdv-province-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--admin-text-muted);
+}
+
+.cdv-meta-online {
+  color: var(--admin-success);
+  font-weight: 800;
+}
+
+.cdv-station-list {
+  border-top: 1px solid var(--admin-border);
+}
+
+.cdv-station-row {
+  width: 100%;
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  background: transparent;
+  color: var(--admin-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px 11px 32px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cdv-station-row:first-child {
+  border-top: none;
+}
+
+.cdv-station-row:hover {
+  background: var(--admin-layer-2);
+}
+
+.cdv-station-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cdv-station-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cdv-station-status.online {
+  background: var(--admin-success);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.cdv-station-status.offline {
+  background: var(--admin-danger);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.35);
+}
+
+.cdv-station-code {
+  font-size: 0.65rem;
+  font-weight: 900;
+  color: var(--admin-accent);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cdv-station-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--admin-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cdv-station-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.cdv-station-count {
+  font-size: 0.64rem;
+  font-weight: 800;
+  color: var(--admin-text-muted);
+}
+
+.cdv-station-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--admin-danger);
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
 .cdv-dashboard-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));

@@ -150,6 +150,7 @@ public class DevicesController : ControllerBase
         try
         {
             var loginClient = _http.CreateClient();
+            loginClient.Timeout = TimeSpan.FromSeconds(2);
             _internalAuth.ApplyHeaders(loginClient);
             var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/internal-token", JsonContent.Create(new { }));
             if (loginRes.IsSuccessStatusCode)
@@ -189,6 +190,7 @@ public class DevicesController : ControllerBase
             if (!string.IsNullOrEmpty(username))
             {
                 var loginClient = _http.CreateClient();
+                loginClient.Timeout = TimeSpan.FromSeconds(2);
                 var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/login", JsonContent.Create(new
                 {
                     username = username,
@@ -225,8 +227,9 @@ public class DevicesController : ControllerBase
 
     private async Task<(Guid StationId, string ApiUrl)?> FindRemoteStationByDeviceIdAsync(Guid deviceId)
     {
+        var threshold = DateTime.UtcNow.AddMinutes(-5);
         var stations = await _db.Stations
-            .Where(s => s.Status == "active" && !string.IsNullOrWhiteSpace(s.ApiUrl))
+            .Where(s => s.Status == "active" && !string.IsNullOrWhiteSpace(s.ApiUrl) && s.LastContactAt.HasValue && s.LastContactAt.Value >= threshold)
             .ToListAsync();
 
         var tasks = stations.Select(async s =>
@@ -266,7 +269,9 @@ public class DevicesController : ControllerBase
             return Forbid();
 
         var station = await _db.Stations.FindAsync(stationId);
-        if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
+        var threshold = DateTime.UtcNow.AddMinutes(-5);
+        bool isOnline = station != null && station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+        if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl) && isOnline)
         {
             var apiBase = station.ApiUrl.TrimEnd('/');
             try
@@ -278,7 +283,7 @@ public class DevicesController : ControllerBase
                     await _db.SaveChangesAsync();
 
                     using var client = _http.CreateClient();
-                    client.Timeout = TimeSpan.FromSeconds(10);
+                    client.Timeout = TimeSpan.FromSeconds(3);
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
                     var url = $"{apiBase}/api/v1/devices";
@@ -382,6 +387,13 @@ public class DevicesController : ControllerBase
         var station = await _db.Stations.FindAsync(req.StationId);
         if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
         {
+            var threshold = DateTime.UtcNow.AddMinutes(-5);
+            bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+            if (!isOnline)
+            {
+                return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể tự động cấu hình thiết bị lúc này." });
+            }
+
             var apiBase = station.ApiUrl.TrimEnd('/');
             try
             {
@@ -389,7 +401,7 @@ public class DevicesController : ControllerBase
                 if (!string.IsNullOrEmpty(token))
                 {
                     using var client = _http.CreateClient();
-                    client.Timeout = TimeSpan.FromSeconds(30);
+                    client.Timeout = TimeSpan.FromSeconds(10);
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
                     var response = await client.PostAsJsonAsync($"{apiBase}/api/v1/devices/auto-configure", req);
@@ -515,6 +527,13 @@ public class DevicesController : ControllerBase
         var station = await _db.Stations.FindAsync(req.StationId);
         if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
         {
+            var threshold = DateTime.UtcNow.AddMinutes(-5);
+            bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+            if (!isOnline)
+            {
+                return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể thêm thiết bị lúc này." });
+            }
+
             var apiBase = station.ApiUrl.TrimEnd('/');
             try
             {
@@ -522,7 +541,7 @@ public class DevicesController : ControllerBase
                 if (!string.IsNullOrEmpty(token))
                 {
                     using var client = _http.CreateClient();
-                    client.Timeout = TimeSpan.FromSeconds(15);
+                    client.Timeout = TimeSpan.FromSeconds(5);
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
                     var forwardReq = new {
@@ -707,11 +726,18 @@ public class DevicesController : ControllerBase
                 {
                     var station = await _db.Stations.FindAsync(stationId);
                     if (station == null) return NotFound();
+                    var threshold = DateTime.UtcNow.AddMinutes(-5);
+                    bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+                    if (!isOnline)
+                    {
+                        return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể cập nhật thiết bị lúc này." });
+                    }
+
                     var token = await GetOrFetchTokenAsync(station, apiBase);
                     if (!string.IsNullOrEmpty(token))
                     {
                         using var client = _http.CreateClient();
-                        client.Timeout = TimeSpan.FromSeconds(15);
+                        client.Timeout = TimeSpan.FromSeconds(5);
                         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
                         var response = await client.PutAsJsonAsync($"{apiBase}/api/v1/devices/{id}", req);
@@ -797,11 +823,18 @@ public class DevicesController : ControllerBase
                 {
                     var station = await _db.Stations.FindAsync(stationId);
                     if (station == null) return NotFound();
+                    var threshold = DateTime.UtcNow.AddMinutes(-5);
+                    bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+                    if (!isOnline)
+                    {
+                        return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể xóa thiết bị lúc này." });
+                    }
+
                     var token = await GetOrFetchTokenAsync(station, apiBase);
                     if (!string.IsNullOrEmpty(token))
                     {
                         using var client = _http.CreateClient();
-                        client.Timeout = TimeSpan.FromSeconds(15);
+                        client.Timeout = TimeSpan.FromSeconds(5);
                         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
                         var response = await client.DeleteAsync($"{apiBase}/api/v1/devices/{id}");

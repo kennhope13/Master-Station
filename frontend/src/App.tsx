@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppShell from '@/components/layout/AppShell';
 import MultisitePage from '@/pages/multisite/MultisitePage';
 import LiveCameraPopup from '@/pages/multisite/LiveCameraPopup';
+import LiveWallPopup from '@/pages/multisite/LiveWallPopup';
 
 // Lazy import — mỗi trang là một chunk riêng, tải khi cần
 const DashboardPage = React.lazy(() => import('@/pages/dashboard/DashboardPage'));
@@ -16,7 +17,6 @@ const RealtimeMonitorPage = React.lazy(() => import('@/pages/realtime-monitor/Re
 const AlertsHistoryPage = React.lazy(() => import('@/pages/alerts-history/AlertsHistoryPage'));
 const AlertDetailPage = React.lazy(() => import('@/pages/alert-detail/AlertDetailPage'));
 const AnalyticsLayout = React.lazy(() => import('@/pages/analytics/AnalyticsLayout'));
-const ReportsPage = React.lazy(() => import('@/pages/reports/ReportsPage'));
 const MaintenancePage = React.lazy(() => import('@/pages/maintenance/MaintenancePage'));
 const AuditLogPage = React.lazy(() => import('@/pages/audit-log/AuditLogPage'));
 const DeviceManagementPage = React.lazy(() => import('@/pages/device-management/DeviceManagementPage'));
@@ -110,6 +110,7 @@ export default function App() {
           {/* Trạm tổng — không cần đăng nhập, tự auto-login */}
           <Route path="/multisite" element={<MultisitePage />} />
           <Route path="/live-camera" element={<LiveCameraPopup />} />
+          <Route path="/live-wall" element={<LiveWallPopup />} />
 
           {/* AppShell bọc toàn bộ layout (sidebar + header + content) */}
           <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
@@ -122,7 +123,6 @@ export default function App() {
             {/* Analytics — internal tabs, no nested routes */}
             <Route path="analytics" element={<AnalyticsLayout />} />
 
-            <Route path="reports" element={<ProtectedRoute roles={['admin', 'manager']}><ReportsPage /></ProtectedRoute>} />
             <Route path="maintenance" element={<ProtectedRoute roles={['admin', 'manager']}><MaintenancePage /></ProtectedRoute>} />
             <Route path="audit-log" element={<ProtectedRoute roles={['admin']}><AuditLogPage /></ProtectedRoute>} />
               <Route path="device-management" element={<ProtectedRoute roles={['admin', 'admin_province', 'admin_station']}><DeviceManagementPage /></ProtectedRoute>} />

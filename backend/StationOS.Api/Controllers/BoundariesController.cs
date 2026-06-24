@@ -49,7 +49,10 @@ public class BoundariesController : ControllerBase
     {
         var query = _db.Boundaries.Where(b => b.DeviceId == deviceId);
         if (!string.IsNullOrEmpty(type))
-            query = query.Where(b => b.Type == type);
+        {
+            var normalizedType = type.Trim().ToLowerInvariant();
+            query = query.Where(b => b.Type.ToLower() == normalizedType);
+        }
 
         var items = await query
             .OrderBy(b => b.Name)
@@ -86,7 +89,7 @@ public class BoundariesController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Create(Guid deviceId, [FromBody] BoundaryRequest req)
     {
-        var type = string.IsNullOrEmpty(req.Type) ? "pd" : req.Type;
+        var type = NormalizeBoundaryType(req.Type);
         var limitInfo = await _license.CheckResourceLimitAsync(type == "roi" ? "roi_regions" : "pd_regions");
         if (limitInfo.Exceeded)
         {
@@ -105,7 +108,7 @@ public class BoundariesController : ControllerBase
         {
             DeviceId       = deviceId,
             Name           = req.Name.Trim(),
-            Type           = string.IsNullOrEmpty(req.Type) ? "pd" : req.Type,
+            Type           = type,
             PolygonJson    = req.Polygon,
             ThresholdsJson = req.Thresholds,
             SeverityLevel  = req.SeverityLevel ?? "warning",
@@ -144,7 +147,7 @@ public class BoundariesController : ControllerBase
         if (b == null) return NotFound();
 
         if (!string.IsNullOrWhiteSpace(req.Name))            b.Name = req.Name.Trim();
-        if (!string.IsNullOrWhiteSpace(req.Type))            b.Type = req.Type;
+        if (!string.IsNullOrWhiteSpace(req.Type))            b.Type = NormalizeBoundaryType(req.Type);
         if (!string.IsNullOrWhiteSpace(req.Polygon))         b.PolygonJson = req.Polygon;
         if (req.Thresholds != null)                          b.ThresholdsJson = req.Thresholds;
         if (!string.IsNullOrWhiteSpace(req.SeverityLevel))   b.SeverityLevel = req.SeverityLevel;
@@ -206,6 +209,18 @@ public class BoundariesController : ControllerBase
         }
 
         return NoContent();
+    }
+
+    private static string NormalizeBoundaryType(string? type)
+    {
+        var normalized = string.IsNullOrWhiteSpace(type) ? "pd" : type.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "roi" => "roi",
+            "pd" => "pd",
+            "intrusion" => "intrusion",
+            _ => normalized,
+        };
     }
 }
 

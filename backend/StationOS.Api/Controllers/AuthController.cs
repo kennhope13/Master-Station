@@ -29,13 +29,19 @@ public class AuthController : ControllerBase
     private readonly AppDbContext _db;
     private readonly LicenseService _license;
     private readonly InternalAuthService _internalAuth;
+    private readonly IConfiguration _config;
 
-    public AuthController(AuthService auth, AppDbContext db, LicenseService license, InternalAuthService internalAuth)
+    // Các role chỉ dùng cho trạm con — không được đăng nhập vào trạm tổng
+    private static readonly HashSet<string> StationOnlyRoles = new(StringComparer.OrdinalIgnoreCase)
+        { "admin_station", "manager", "operator" };
+
+    public AuthController(AuthService auth, AppDbContext db, LicenseService license, InternalAuthService internalAuth, IConfiguration config)
     {
         _auth    = auth;
         _db      = db;
         _license = license;
         _internalAuth = internalAuth;
+        _config  = config;
     }
 
     /// <summary>
@@ -52,6 +58,10 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Tên đăng nhập hoặc mật khẩu không đúng" });
 
         var (token, refreshToken, user) = result.Value;
+
+        // Chặn tài khoản trạm con đăng nhập vào trạm tổng
+        if (_config["StationMode"] == "master" && StationOnlyRoles.Contains(user.Role))
+            return StatusCode(403, new { message = "Tài khoản này chỉ dùng để đăng nhập vào trạm con, không thể đăng nhập vào trạm tổng." });
 
         // Kiểm tra license: giới hạn concurrent users
         var tokenHash  = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

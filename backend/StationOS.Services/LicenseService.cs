@@ -282,10 +282,7 @@ public class LicenseService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var license = await db.Licenses
-            .Where(l => l.IsActive)
-            .OrderByDescending(l => l.ActivatedAt)
-            .FirstOrDefaultAsync();
+        var license = await GetActiveLicenseAsync(db);
 
         int current = 0;
         int max = 999;
@@ -306,10 +303,10 @@ public class LicenseService
                     current = await db.RoiPoints.CountAsync();
                     break;
                 case "roi_regions":
-                    current = await db.Boundaries.CountAsync(b => b.Type == "roi");
+                    current = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "roi");
                     break;
                 case "pd_regions":
-                    current = await db.Boundaries.CountAsync(b => b.Type == "pd");
+                    current = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "pd");
                     break;
             }
             max = 10;
@@ -334,12 +331,12 @@ public class LicenseService
                 break;
             case "roi_regions":
                 current = await db.Set<StationOS.Data.Entities.Boundary>()
-                    .CountAsync(b => b.Type == "roi");
+                    .CountAsync(b => b.Type.ToLower() == "roi");
                 max = license.MaxRoiRegions;
                 break;
             case "pd_regions":
                 current = await db.Set<StationOS.Data.Entities.Boundary>()
-                    .CountAsync(b => b.Type == "pd");
+                    .CountAsync(b => b.Type.ToLower() == "pd");
                 max = license.MaxPdRegions;
                 break;
             default:
@@ -355,12 +352,36 @@ public class LicenseService
     /// </summary>
     public async Task<List<ResourceLimitInfo>> GetAllResourceLimitsAsync()
     {
-        var resources = new[] { "stations", "cameras", "roi_points", "roi_regions", "pd_regions" };
-        var results = new List<ResourceLimitInfo>();
-        foreach (var r in resources)
-            results.Add(await CheckResourceLimitAsync(r));
-        return results;
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var license = await GetActiveLicenseAsync(db);
+        var stationCount = await db.Stations.CountAsync();
+        var cameraCount = await db.Devices.CountAsync();
+        var roiPointCount = await db.RoiPoints.CountAsync();
+        var roiRegionCount = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "roi");
+        var pdRegionCount = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "pd");
+
+        var defaultMax = 10;
+
+        return new List<ResourceLimitInfo>
+        {
+            new("stations", stationCount, license?.MaxStations ?? defaultMax, IsExceeded(stationCount, license?.MaxStations ?? defaultMax)),
+            new("cameras", cameraCount, license?.MaxCameras ?? defaultMax, IsExceeded(cameraCount, license?.MaxCameras ?? defaultMax)),
+            new("roi_points", roiPointCount, license?.MaxRoiPoints ?? defaultMax, IsExceeded(roiPointCount, license?.MaxRoiPoints ?? defaultMax)),
+            new("roi_regions", roiRegionCount, license?.MaxRoiRegions ?? defaultMax, IsExceeded(roiRegionCount, license?.MaxRoiRegions ?? defaultMax)),
+            new("pd_regions", pdRegionCount, license?.MaxPdRegions ?? defaultMax, IsExceeded(pdRegionCount, license?.MaxPdRegions ?? defaultMax)),
+        };
     }
+
+    private static bool IsExceeded(int current, int max)
+        => max < 999 && current >= max;
+
+    private static Task<License?> GetActiveLicenseAsync(AppDbContext db)
+        => db.Licenses
+            .Where(l => l.IsActive)
+            .OrderByDescending(l => l.ActivatedAt)
+            .FirstOrDefaultAsync();
 
     // ── Session tracking ───────────────────────────────────────
 

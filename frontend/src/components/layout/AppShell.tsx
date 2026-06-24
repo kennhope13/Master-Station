@@ -19,7 +19,7 @@ import { isCentralUser as isCentralUserAccount, MULTISITE_RETURN_TAB_KEY } from 
 import { createRealtimeHub } from '@/services/realtime.service';
 import RichAlertModal from '@/components/ui/RichAlertModal';
 import {
-  LayoutDashboard, Video, AlertTriangle, LineChart, FileText,
+  LayoutDashboard, Video, AlertTriangle, LineChart,
   Wrench, FileArchive, Map, Radio, Users, Settings, LogOut,
   ChevronLeft, ChevronRight, Key
 } from 'lucide-react';
@@ -30,9 +30,7 @@ interface NavItem { id: string; path: string; icon: React.ReactNode; label: stri
 
 const CENTRAL_NAV: NavItem[] = [
   { id: 'multisite', path: '/multisite', icon: <Map size={19} strokeWidth={1.5} />, label: 'Tổng quan', permission: 'station:view' },
-  { id: 'alerts-history', path: '/alerts-history', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Nhật ký', permission: 'rule:view' },
-  { id: 'reports', path: '/reports', icon: <FileText size={19} strokeWidth={1.5} />, label: 'Báo cáo', permission: 'report:view' },
-  { id: 'audit-log', path: '/audit-log', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký hệ thống', permission: 'settings:manage' },
+  { id: 'alerts-history', path: '/alerts-history', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký', permission: 'rule:view' },
 ];
 
 const CENTRAL_ADMIN_NAV: NavItem[] = [
@@ -43,11 +41,9 @@ const CENTRAL_ADMIN_NAV: NavItem[] = [
 const CHILD_NAV: NavItem[] = [
   { id: 'dashboard', path: '/dashboard', icon: <LayoutDashboard size={19} strokeWidth={1.5} />, label: 'Tổng quan', permission: 'station:view' },
   { id: 'realtime', path: '/realtime', icon: <Video size={19} strokeWidth={1.5} />, label: 'Trực tiếp', permission: 'device:view' },
-  { id: 'alerts-history', path: '/alerts-history', icon: <AlertTriangle size={19} strokeWidth={1.5} />, label: 'Lịch sử hệ thống', permission: 'rule:view' },
+  { id: 'alerts-history', path: '/alerts-history', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký', permission: 'rule:view' },
   { id: 'analytics', path: '/analytics', icon: <LineChart size={19} strokeWidth={1.5} />, label: 'Phân tích', permission: 'report:view' },
-  { id: 'reports', path: '/reports', icon: <FileText size={19} strokeWidth={1.5} />, label: 'Báo cáo', permission: 'report:view' },
   { id: 'maintenance', path: '/maintenance', icon: <Wrench size={19} strokeWidth={1.5} />, label: 'Bảo trì', permission: 'maintenance:view' },
-  { id: 'audit-log', path: '/audit-log', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký hệ thống', permission: 'settings:manage' },
 ];
 
 const CHILD_ADMIN_NAV: NavItem[] = [

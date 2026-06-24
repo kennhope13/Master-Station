@@ -196,6 +196,8 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   const [teamProvinceFilter, setTeamProvinceFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'stations' | 'teams' | 'users'>('stations');
   const [teamsList, setTeamsList] = useState<Team[]>([]);
+  const [collapsedStationProvinces, setCollapsedStationProvinces] = useState<Set<string>>(new Set());
+  const [collapsedStationTeams, setCollapsedStationTeams] = useState<Set<string>>(new Set());
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
   const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
   const [teamFormData, setTeamFormData] = useState({
@@ -873,60 +875,19 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
             <Activity className="animate-spin" style={{ margin: '0 auto 10px' }} /> Đang tải dữ liệu...
           </div>
         ) : activeTab === 'stations' && !filterStationId ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-            {stationsList.map(s => {
-              const stationUsers = getStationUsers(s.id);
-              const onlineCount = stationUsers.filter(u => {
-                const last = getLastActive(u.username);
-                return last && (Date.now() - new Date(last).getTime() < 15 * 60 * 1000);
-              }).length;
-
-              return (
-                <div 
-                  key={s.id} 
-                  onClick={() => setFilterStationId(s.id)}
-                  className="multisite-hud-panel station-card-interactive" 
-                  style={{ 
-                    padding: 0, display: 'flex', flexDirection: 'column', 
-                    border: '1px solid var(--admin-border)', background: 'rgba(255,255,255,0.02)',
-                    cursor: 'pointer', transition: 'transform 0.2s, border-color 0.2s',
-                    borderRadius: 4
-                  }}
-                >
-                  <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)' }}>
-                    <div>
-                      <div style={{ fontSize: '.6rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase' }}>{s.code || 'TBA'}</div>
-                      <div style={{ fontSize: '.85rem', fontWeight: 800, color: 'var(--admin-text)' }}>{s.name}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--admin-layer-2)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--admin-border)' }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 1, background: 'var(--admin-success)' }} />
-                      <span style={{ fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text)' }}>{onlineCount}/{stationUsers.length} TRỰC</span>
-                    </div>
-                  </div>
-
-                  <div style={{ padding: 15, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: '.6rem', fontWeight: 900, color: 'var(--admin-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Users size={12} /> NHÂN SỰ PHỤ TRÁCH ({stationUsers.length})
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {stationUsers.slice(0, 5).map(u => (
-                          <div key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ width: 22, height: 22, borderRadius: 4, background: 'var(--admin-layer-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.6rem', fontWeight: 900, color: 'var(--admin-accent)', border: '1px solid var(--admin-border)' }}>
-                              {u.username.charAt(0).toUpperCase()}
-                            </div>
-                            <span style={{ fontSize: '.72rem', color: 'var(--admin-text)', fontWeight: 600 }}>{u.fullName || u.username}</span>
-                          </div>
-                        ))}
-                        {stationUsers.length > 5 && <div style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', paddingLeft: 30 }}>+ {stationUsers.length - 5} nhân sự khác...</div>}
-                        {stationUsers.length === 0 && <div style={{ fontSize: '.7rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Chưa gán nhân sự</div>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <StationGroupedView
+            stationsList={stationsList}
+            provincesList={provincesList}
+            teamsList={teamsList}
+            liveStations={stations}
+            getStationUsers={getStationUsers}
+            getLastActive={getLastActive}
+            setFilterStationId={setFilterStationId}
+            collapsedProvinces={collapsedStationProvinces}
+            collapsedTeams={collapsedStationTeams}
+            setCollapsedProvinces={setCollapsedStationProvinces}
+            setCollapsedTeams={setCollapsedStationTeams}
+          />
         ) : activeTab === 'teams' ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 20 }}>
             {filteredTeamsView.map(t => {
@@ -1501,6 +1462,150 @@ function ActionIcon({ icon, onClick, danger, title }: any) {
     >
       {icon}
     </button>
+  );
+}
+
+/* ── Grouped Station View: Tỉnh → Tổ → Trạm ─────────────────── */
+function StationGroupedView({
+  stationsList, provincesList, teamsList, liveStations,
+  getStationUsers, getLastActive, setFilterStationId,
+  collapsedProvinces, collapsedTeams, setCollapsedProvinces, setCollapsedTeams,
+}: {
+  stationsList: Station[];
+  provincesList: Province[];
+  teamsList: Team[];
+  liveStations: Station[];
+  getStationUsers: (id: string) => any[];
+  getLastActive: (username: string) => string | null;
+  setFilterStationId: (id: string) => void;
+  collapsedProvinces: Set<string>;
+  collapsedTeams: Set<string>;
+  setCollapsedProvinces: React.Dispatch<React.SetStateAction<Set<string>>>;
+  setCollapsedTeams: React.Dispatch<React.SetStateAction<Set<string>>>;
+}) {
+  const provMap = Object.fromEntries(provincesList.map(p => [p.id, p.name]));
+
+  // Real-time connection status: merge live store over stale API data
+  const liveStatusMap = Object.fromEntries(liveStations.map(s => [s.id, s.connectionStatus ?? 'unknown']));
+  const getConnStatus = (id: string) => liveStatusMap[id] ?? stationsList.find(s => s.id === id)?.connectionStatus ?? 'unknown';
+
+  const byProvince = new window.Map<string, Station[]>();
+  for (const s of stationsList) {
+    const pid = s.provinceId ?? '__none__';
+    if (!byProvince.has(pid)) byProvince.set(pid, []);
+    byProvince.get(pid)!.push(s);
+  }
+  const provinceEntries = [...byProvince.entries()].sort(([a], [b]) => {
+    if (a === '__none__') return 1;
+    if (b === '__none__') return -1;
+    return (provMap[a] ?? '').localeCompare(provMap[b] ?? '', 'vi');
+  });
+
+  const toggleSP = (id: string) => setCollapsedProvinces(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleST = (id: string) => setCollapsedTeams(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  if (stationsList.length === 0) {
+    return <div style={{ padding: 40, textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '0.75rem' }}>Chưa có trạm nào</div>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {provinceEntries.map(([pid, pStations]) => {
+        const provinceName = pid === '__none__' ? 'Chưa phân tỉnh' : (provMap[pid] ?? pid.slice(0, 8));
+        const pCollapsed = collapsedProvinces.has(pid);
+        const pUserCount = pStations.reduce((sum: number, st: Station) => sum + getStationUsers(st.id).length, 0);
+        const pOnlineCount = pStations.filter(st => getConnStatus(st.id) === 'online').length;
+
+        const byTeam = new window.Map<string, Station[]>();
+        for (const s of pStations) {
+          const team = teamsList.find(t => t.stationIds?.includes(s.id));
+          const tid = team?.id ?? '__none__';
+          if (!byTeam.has(tid)) byTeam.set(tid, []);
+          byTeam.get(tid)!.push(s);
+        }
+        const teamEntries = [...byTeam.entries()].sort(([a], [b]) => {
+          if (a === '__none__') return 1;
+          if (b === '__none__') return -1;
+          const na = teamsList.find(t => t.id === a)?.name ?? '';
+          const nb = teamsList.find(t => t.id === b)?.name ?? '';
+          return na.localeCompare(nb, 'vi');
+        });
+
+        return (
+          <div key={pid} style={{ border: '1px solid var(--admin-border)', borderRadius: 6, overflow: 'hidden' }}>
+            {/* Province header */}
+            <div onClick={() => toggleSP(pid)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', cursor: 'pointer', background: 'var(--admin-layer-2)', borderBottom: pCollapsed ? 'none' : '1px solid var(--admin-border)', userSelect: 'none' }}>
+              <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', flexShrink: 0 }}>{pCollapsed ? '▸' : '▾'}</span>
+              <Map size={12} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} />
+              <span style={{ fontWeight: 800, fontSize: '0.72rem', color: 'var(--admin-text)', flex: 1 }}>{provinceName}</span>
+              <span style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)' }}>{pStations.length} trạm</span>
+              <span style={{ fontSize: '0.58rem', fontWeight: 700, color: 'var(--admin-success)', marginLeft: 10 }}>● {pOnlineCount} online</span>
+              <span style={{ fontSize: '0.58rem', fontWeight: 700, color: 'var(--admin-text)', marginLeft: 10 }}>{pUserCount} nhân sự</span>
+            </div>
+
+            {!pCollapsed && (
+              <div>
+                {teamEntries.map(([tid, tStations]) => {
+                  const teamName = tid === '__none__' ? 'Chưa có tổ' : (teamsList.find(t => t.id === tid)?.name ?? tid.slice(0, 8));
+                  const tKey = tid + pid;
+                  const tCollapsed = collapsedTeams.has(tKey);
+                  const tUserCount = tStations.reduce((sum: number, st: Station) => sum + getStationUsers(st.id).length, 0);
+                  const tOnlineCount = tStations.filter(st => getConnStatus(st.id) === 'online').length;
+
+                  return (
+                    <div key={tid}>
+                      {/* Team sub-header */}
+                      <div onClick={() => toggleST(tKey)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px 7px 32px', cursor: 'pointer', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', userSelect: 'none' }}>
+                        <span style={{ fontSize: 11, color: 'var(--admin-text-muted)', flexShrink: 0 }}>{tCollapsed ? '▸' : '▾'}</span>
+                        <Users size={11} style={{ color: 'var(--admin-warning)', flexShrink: 0 }} />
+                        <span style={{ fontWeight: 700, fontSize: '0.65rem', color: 'var(--admin-warning)', flex: 1 }}>{teamName}</span>
+                        <span style={{ fontSize: '0.56rem', color: 'var(--admin-text-muted)' }}>{tStations.length} trạm</span>
+                        <span style={{ fontSize: '0.56rem', fontWeight: 700, color: 'var(--admin-success)', marginLeft: 10 }}>● {tOnlineCount} online</span>
+                        <span style={{ fontSize: '0.56rem', fontWeight: 700, color: 'var(--admin-text)', marginLeft: 10 }}>{tUserCount} nhân sự</span>
+                      </div>
+
+                      {/* Station rows */}
+                      {!tCollapsed && tStations.map((s: Station, i: number) => {
+                        const stationUsers = getStationUsers(s.id);
+                        const onDutyCount = stationUsers.filter(u => {
+                          const last = getLastActive(u.username);
+                          return last && (Date.now() - new Date(last).getTime() < 15 * 60 * 1000);
+                        }).length;
+                        const connStatus = getConnStatus(s.id);
+                        const isOnline = connStatus === 'online';
+                        const isLast = i === tStations.length - 1;
+
+                        return (
+                          <div key={s.id}
+                            onClick={() => setFilterStationId(s.id)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px 8px 52px', borderBottom: isLast ? 'none' : '1px solid var(--admin-border)', cursor: 'pointer', transition: 'background 0.12s' }}
+                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--admin-hover)'}
+                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                          >
+                            {/* Connection status dot */}
+                            <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: isOnline ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: isOnline ? '0 0 5px var(--admin-success)' : 'none' }} />
+                            <span style={{ fontSize: '0.58rem', fontWeight: 800, color: isOnline ? 'var(--admin-success)' : 'var(--admin-danger)', flexShrink: 0, letterSpacing: '0.04em' }}>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.63rem', color: 'var(--admin-accent)', flexShrink: 0, width: 90 }}>{s.code || s.id.slice(0, 8).toUpperCase()}</span>
+                            <span style={{ fontWeight: 600, fontSize: '0.68rem', color: 'var(--admin-text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                              <Users size={10} style={{ color: 'var(--admin-text-muted)' }} />
+                              <span style={{ fontSize: '0.6rem', fontWeight: 700, color: onDutyCount > 0 ? 'var(--admin-text)' : 'var(--admin-text-muted)', fontFamily: 'monospace' }}>
+                                {onDutyCount}/{stationUsers.length} TRỰC
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--admin-text-muted)', marginLeft: 6 }}>›</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

@@ -20,6 +20,8 @@ namespace StationOS.Services.Auth;
 
 public class AuthService
 {
+    private const string DefaultProvinceAdminPasswordSuffix = "@2026!";
+    private const string DefaultStationAdminPasswordSuffix = "@26";
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
     private readonly CredentialEncryptionService _crypto;
@@ -274,6 +276,133 @@ public class AuthService
         if (existingTeamMember != null) _db.Users.Remove(existingTeamMember);
 
         await _db.SaveChangesAsync();
+
+        await EnsureDefaultScopedAdminAccountsAsync();
+    }
+
+    private async Task EnsureDefaultScopedAdminAccountsAsync()
+    {
+        var provinces = await _db.Provinces
+            .AsNoTracking()
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+
+        foreach (var province in provinces)
+        {
+            var hasProvinceAdmin = await _db.Users.AnyAsync(u =>
+                u.Role == "admin_province" &&
+                u.ProvinceIds != null &&
+                u.ProvinceIds.Contains(province.Id));
+
+            if (hasProvinceAdmin)
+                continue;
+
+            var token = !string.IsNullOrWhiteSpace(province.Code)
+                ? NormalizeProvinceAccountToken(province.Code)
+                : NormalizeProvinceAccountToken(province.Name);
+
+            var usernameBase = $"admintinh{token}";
+            var username = await BuildUniqueUsernameAsync(usernameBase);
+
+            var passwordToken = (!string.IsNullOrWhiteSpace(province.Code)
+                ? NormalizeProvinceAccountToken(province.Code).ToUpperInvariant()
+                : token.ToUpperInvariant());
+            var defaultPassword = $"Tinh{passwordToken}{DefaultProvinceAdminPasswordSuffix}";
+
+            _db.Users.Add(new User
+            {
+                Username = username,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultPassword, workFactor: 12),
+                ProvisionedPassword = _crypto.Encrypt(defaultPassword),
+                FullName = $"Quản trị viên {province.Name}",
+                Email = $"{username}@stationos.vn",
+                Role = "admin_province",
+                ProvinceIds = new[] { province.Id },
+                Permissions = PermissionService.GetDefaultPermissionsForRole("admin_province").ToArray(),
+                IsActive = true,
+                MustChangePassword = true,
+                LastPasswordChangedAt = DateTime.UtcNow
+            });
+        }
+
+        var stations = await _db.Stations
+            .AsNoTracking()
+            .OrderBy(s => s.Name)
+            .ToListAsync();
+
+        foreach (var station in stations)
+        {
+            var hasStationAdmin = await _db.Users.AnyAsync(u =>
+                u.Role == "admin_station" &&
+                u.StationIds != null &&
+                u.StationIds.Contains(station.Id));
+
+            if (hasStationAdmin)
+                continue;
+
+            var token = !string.IsNullOrWhiteSpace(station.Code)
+                ? NormalizeStationAccountToken(station.Code)
+                : NormalizeStationAccountToken(station.Name);
+
+            var usernameBase = $"admintram{token}";
+            var username = await BuildUniqueUsernameAsync(usernameBase);
+
+            var passwordToken = !string.IsNullOrWhiteSpace(station.Code)
+                ? NormalizeStationAccountToken(station.Code).ToUpperInvariant()
+                : token.ToUpperInvariant();
+            if (passwordToken.Length > 8)
+                passwordToken = passwordToken[..8];
+
+            var defaultPassword = $"Tram{passwordToken}{DefaultStationAdminPasswordSuffix}";
+
+            _db.Users.Add(new User
+            {
+                Username = username,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultPassword, workFactor: 12),
+                ProvisionedPassword = _crypto.Encrypt(defaultPassword),
+                FullName = $"Quản trị viên {station.Name}",
+                Email = $"{username}@stationos.vn",
+                Role = "admin_station",
+                StationIds = new[] { station.Id },
+                Permissions = PermissionService.GetDefaultPermissionsForRole("admin_station").ToArray(),
+                IsActive = true,
+                MustChangePassword = true,
+                LastPasswordChangedAt = DateTime.UtcNow
+            });
+        }
+
+        await _db.SaveChangesAsync();
+    }
+
+    private async Task<string> BuildUniqueUsernameAsync(string usernameBase)
+    {
+        var username = usernameBase;
+        var suffix = 2;
+        while (await _db.Users.AnyAsync(u => u.Username == username))
+        {
+            username = $"{usernameBase}{suffix}";
+            suffix++;
+        }
+
+        return username;
+    }
+
+    private static string NormalizeProvinceAccountToken(string? value)
+    {
+        var token = UsernameNormalizer.Normalize(
+            value?
+                .Replace("Tỉnh", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("Thành phố", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("TP.", "", StringComparison.OrdinalIgnoreCase)
+                .Replace("TP", "", StringComparison.OrdinalIgnoreCase)
+                .Trim());
+        return string.IsNullOrWhiteSpace(token) ? "province" : token;
+    }
+
+    private static string NormalizeStationAccountToken(string? value)
+    {
+        var token = UsernameNormalizer.Normalize(value);
+        return string.IsNullOrWhiteSpace(token) ? "tram" : token;
     }
 
     private async Task NormalizeExistingUsernamesAsync()

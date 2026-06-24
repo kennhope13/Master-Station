@@ -79,6 +79,14 @@ export function statusColor(status: string): string {
     open: 'var(--admin-danger)',
     acked: 'var(--admin-warning)',
     closed: 'var(--admin-success)',
-  };
+    };
   return colorMap[status] || 'var(--admin-text-muted)';
+}
+
+// Làm sạch nội dung cảnh báo (loại bỏ mã bảo trì và tiền tố không cần thiết)
+export function cleanAlertMessage(msg: string): string {
+  if (!msg) return '';
+  let cleaned = msg.replace(/^\[[A-Z]+:[0-9a-fA-F-]{36}\]\s*/i, '');
+  cleaned = cleaned.replace(/^(Hôm nay phải bảo trì|Hôm nay cần bảo trì|Bảo trì):\s*/i, '');
+  return cleaned;
 }

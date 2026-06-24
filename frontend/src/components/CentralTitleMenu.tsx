@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, Map, FileArchive, FileText, Users, LogOut, LayoutGrid, BellRing } from 'lucide-react';
+import { ChevronDown, Map, FileArchive, Users, LogOut, LayoutGrid, BellRing } from 'lucide-react';
 import { authService } from '@/services/AuthService';
 import { isCentralUser } from '@/utils/centralAccess';
 
@@ -138,9 +138,6 @@ export default function CentralTitleMenu({ title }: Props) {
             </button>
             <button onClick={() => go('/audit-log')} className="menu-item">
               <FileArchive size={16} /> Nhật ký hệ thống
-            </button>
-            <button onClick={() => go('/reports')} className="menu-item">
-              <FileText size={16} /> Báo cáo & Thống kê
             </button>
             <div style={{ height: 1, background: 'var(--admin-border)', margin: '6px 0' }} />
             <button onClick={() => go('/user-management')} className="menu-item">

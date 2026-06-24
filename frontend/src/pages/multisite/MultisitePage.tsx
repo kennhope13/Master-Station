@@ -1,30 +1,30 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore, useAuthStore } from '@/store';
-import type { Station, AlertItem, ReportItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team, Device } from '@/types/api.types';
+import type { Station, AlertItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team, Device } from '@/types/api.types';
 import type { StationView, StationLocation, StationKpi } from './types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
   Search, Map as MapIcon, AlertTriangle,
   X, ShieldCheck, Wifi,
   ChevronLeft, ChevronRight, ChevronDown, Plus, LogIn, LogOut, FileText, FileArchive, Users, LineChart, Radio, Video, Settings,
-  ArrowLeft, Key,
+  ArrowLeft, Key, FileSpreadsheet,
   Download, RefreshCw, Calendar, Clock, Loader2, Filter, Bell, Zap,
   Play, CheckCircle2, Trash2, ChevronUp, Wrench
 } from 'lucide-react';
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
-import { fmtDateTime } from '@/utils/format';
+import { fmtDateTime, cleanAlertMessage, fmtTimeRange } from '@/utils/format';
 import { createRealtimeHub } from '@/services/realtime.service';
 import { showToast } from '@/utils/toast';
 
 const CentralAnalyticsLayout = lazy(() => import('@/pages/analytics/CentralAnalyticsLayout'));
 const DeviceManagementPage = lazy(() => import('@/pages/device-management/DeviceManagementPage'));
 const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView'));
-const LiveStationPicker = lazy(() => import('@/pages/multisite/LiveStationPicker'));
+const MultisiteLiveWall = lazy(() => import('@/pages/multisite/MultisiteLiveWall'));
 const UserManagementPage = lazy(() => import('@/pages/user-management/UserManagementPage'));
 
-type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'alerts_history' | 'maintenance' | 'audit_log' | 'reports' | 'users';
+type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'alerts_history' | 'maintenance' | 'audit_log' | 'users';
 
 const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
   overview: 'TỔNG QUAN',
@@ -34,7 +34,6 @@ const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
   alerts_history: 'LỊCH SỬ CẢNH BÁO',
   maintenance: 'BẢO TRÌ',
   audit_log: 'NHẬT KÝ',
-  reports: 'BÁO CÁO',
   users: 'NGƯỜI DÙNG',
 };
 
@@ -262,10 +261,13 @@ const ROLE_DISPLAY: Record<string, { label: string; color: string; bg: string }>
 export default function MultisitePage() {
   const navigate = useNavigate();
   const currentUser = authService.getUser();
+  const [subLogTab, setSubLogTab] = useState<'system' | 'user'>('system');
   const _roleFallback = { label: 'USER', color: 'var(--admin-accent)', bg: 'rgba(0,0,0,0)' };
   const currentRoleCfg = (currentUser?.role ? (ROLE_DISPLAY[currentUser.role] ?? _roleFallback) : _roleFallback);
   const isProvinceAdmin = currentUser?.role === 'admin_province';
+  const isTeamLeader = currentUser?.role === 'team_leader';
   const callerProvinceIds = currentUser?.province_ids || [];
+  const canManageStations = authService.hasPermission('station:manage');
   const location = useLocation();
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<any>(null);
@@ -315,8 +317,19 @@ export default function MultisitePage() {
   }, []);
 
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeTab = (searchParams.get('tab') as MultisiteTab) || 'overview';
+  const rawTab = searchParams.get('tab');
+  const activeTab: MultisiteTab = rawTab === 'reports'
+    ? 'overview'
+    : (rawTab as MultisiteTab) || 'overview';
   const stationIdFromQuery = searchParams.get('stationId');
+
+  useEffect(() => {
+    if (rawTab !== 'reports') return;
+    setSearchParams(prev => {
+      prev.set('tab', 'overview');
+      return prev;
+    }, { replace: true });
+  }, [rawTab, setSearchParams]);
 
   const setActiveTab = (tab: MultisiteTab) => {
     setSearchParams(prev => {
@@ -396,7 +409,13 @@ export default function MultisitePage() {
   const [editWebUrl, setEditWebUrl] = useState('');
   const [editApiPassword, setEditApiPassword] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
-  const [remoteKpis, setRemoteKpis] = useState<Record<string, { devicesOnline: number; devicesTotal: number; alertsCount: number }>>({});
+  const [remoteKpis, setRemoteKpis] = useState<Record<string, {
+    devicesOnline: number;
+    devicesTotal: number;
+    alertsCount: number;
+    points?: Array<{ deviceId: string; pointId: string; value: number; unit: string; quality: number; time: string }>;
+    boundaries?: Array<{ id: string; deviceId: string; name: string; type: string; severityLevel: string; enabled: boolean }>;
+  }>>({});
   const [isAuthReady, setIsAuthReady] = useState(() => !!authService.getToken());
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [userDropdownPos, setUserDropdownPos] = useState({ top: 0, left: 0 });
@@ -417,13 +436,22 @@ export default function MultisitePage() {
   const [provinces, setProvinces] = useState<Province[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const visibleProvinces = useMemo(() => {
-    if (!isProvinceAdmin || callerProvinceIds.length === 0) return provinces;
-    const allowed = new Set(callerProvinceIds.map(id => id.toLowerCase()));
-    return provinces.filter(p => allowed.has(p.id.toLowerCase()));
-  }, [callerProvinceIds, isProvinceAdmin, provinces]);
+    if (isProvinceAdmin && callerProvinceIds.length > 0) {
+      const allowed = new Set(callerProvinceIds.map(id => id.toLowerCase()));
+      return provinces.filter(p => allowed.has(p.id.toLowerCase()));
+    }
+
+    if (isTeamLeader && currentUser?.team_id) {
+      const team = teams.find(t => t.id === currentUser.team_id);
+      if (!team?.provinceId) return [];
+      return provinces.filter(p => p.id.toLowerCase() === team.provinceId.toLowerCase());
+    }
+
+    return provinces;
+  }, [callerProvinceIds, currentUser?.team_id, isProvinceAdmin, isTeamLeader, provinces, teams]);
 
   const openAddStationModal = () => {
-    if (isProvinceAdmin && visibleProvinces.length > 0) {
+    if ((isProvinceAdmin || isTeamLeader) && visibleProvinces.length > 0) {
       setNewStationProvinceId(visibleProvinces[0]!.id);
     }
     setIsAddModalOpen(true);
@@ -1461,30 +1489,7 @@ export default function MultisitePage() {
                 Thiết bị
               </button>
             )}
-            {authService.hasPermission('report:view') && (
-              <button
-                onClick={() => activateTab('alerts_history')}
-                className="btn-industrial"
-                style={{
-                  padding: '0 10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  height: 24,
-                  fontSize: '0.68rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.04em',
-                  textTransform: 'uppercase',
-                  background: activeTab === 'alerts_history' ? 'var(--admin-accent)' : 'transparent',
-                  color: activeTab === 'alerts_history' ? '#fff' : 'var(--admin-text-muted)',
-                  borderColor: activeTab === 'alerts_history' ? 'var(--admin-accent)' : 'transparent'
-                }}
-              >
-                <AlertTriangle size={11} />
-                CẢNH BÁO
-              </button>
-            )}
-            {authService.hasPermission('maintenance:view') && (
+             {authService.hasPermission('maintenance:view') && (
               <button
                 onClick={() => activateTab('maintenance')}
                 className="btn-industrial"
@@ -1507,7 +1512,7 @@ export default function MultisitePage() {
                 BẢO TRÌ
               </button>
             )}
-            {authService.hasPermission('settings:manage') && (
+            {(authService.hasPermission('settings:manage') || authService.hasPermission('report:view')) && (
               <button
                 onClick={() => activateTab('audit_log')}
                 className="btn-industrial"
@@ -1527,28 +1532,6 @@ export default function MultisitePage() {
                 }}
               >
                 <FileArchive size={11} /> NHẬT KÝ
-              </button>
-            )}
-            {authService.hasPermission('report:view') && (
-              <button
-                onClick={() => activateTab('reports')}
-                className="btn-industrial"
-                style={{
-                  padding: '0 10px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  height: 24,
-                  fontSize: '0.68rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.04em',
-                  textTransform: 'uppercase',
-                  background: activeTab === 'reports' ? 'var(--admin-accent)' : 'transparent',
-                  color: activeTab === 'reports' ? '#fff' : 'var(--admin-text-muted)',
-                  borderColor: activeTab === 'reports' ? 'var(--admin-accent)' : 'transparent'
-                }}
-              >
-                <FileText size={11} /> BÁO CÁO
               </button>
             )}
             {authService.hasPermission('user:view') && (
@@ -1783,6 +1766,7 @@ export default function MultisitePage() {
             ) : (
               <CentralDeviceView
                 stations={stations}
+                provinces={provinces}
                 devicesByStation={devicesByStation}
                 selectedStationId={selectedStationId}
                 onSelectStation={id => setSelectedStationId(id)}
@@ -1798,13 +1782,10 @@ export default function MultisitePage() {
       {activeTab === 'truc_tiep' && (
         <div style={{ position: 'absolute', top: 74, left: 0, right: 0, bottom: 0, zIndex: 2, overflow: 'hidden' }}>
           <Suspense fallback={null}>
-            <LiveStationPicker
+            <MultisiteLiveWall
               views={views}
-              onOpenStation={station => {
-                localStorage.setItem('multisite_return_tab', 'truc_tiep');
-                setViewingStation(station.id);
-                navigate(`/realtime?stationId=${encodeURIComponent(station.id)}`);
-              }}
+              provinces={provinces}
+              teams={teams}
             />
           </Suspense>
         </div>
@@ -1855,30 +1836,68 @@ export default function MultisitePage() {
             right: 0,
             bottom: 0,
             zIndex: 2,
-            overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
             background: 'var(--admin-bg, #0b1220)',
-            padding: 0
           }}
         >
-          <CentralLogView stations={stations} provinces={provinces} teams={teams} />
-        </div>
-      )}
+          {/* Sub-tab Header */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 15,
+              padding: '8px 16px',
+              borderBottom: '1px solid var(--admin-border, rgba(255,255,255,0.05))',
+              background: 'var(--admin-layer-2, #0d1627)',
+            }}
+          >
+            <button
+              onClick={() => setSubLogTab('system')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: subLogTab === 'system' ? 'var(--admin-accent, #00ebc7)' : 'var(--admin-text-muted, #64748b)',
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                letterSpacing: '0.04em',
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderBottom: subLogTab === 'system' ? '2px solid var(--admin-accent, #00ebc7)' : '2px solid transparent',
+                transition: 'all 0.2s',
+              }}
+            >
+              NHẬT KÝ CẢNH BÁO
+            </button>
+            {authService.hasPermission('settings:manage') && (
+              <button
+                onClick={() => setSubLogTab('user')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: subLogTab === 'user' ? 'var(--admin-accent, #00ebc7)' : 'var(--admin-text-muted, #64748b)',
+                  fontSize: '0.72rem',
+                  fontWeight: 800,
+                  letterSpacing: '0.04em',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderBottom: subLogTab === 'user' ? '2px solid var(--admin-accent, #00ebc7)' : '2px solid transparent',
+                  transition: 'all 0.2s',
+                }}
+              >
+                NHẬT KÝ HỆ THỐNG
+              </button>
+            )}
+          </div>
 
-      {activeTab === 'reports' && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 74,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 2,
-            overflow: 'auto',
-            background: 'var(--admin-bg, #0b1220)',
-            padding: 0
-          }}
-        >
-          <CentralReportsView stations={stations} views={views} provinces={provinces} teams={teams} globalStats={globalStats} selectedStationId={selectedStationId} />
+          {/* Sub-tab Content */}
+          <div style={{ flex: 1, position: 'relative', overflow: 'auto' }}>
+            {subLogTab === 'system' ? (
+              <CentralAlertsHistoryView stations={stations} provinces={provinces} />
+            ) : (
+              <CentralLogView stations={stations} provinces={provinces} teams={teams} />
+            )}
+          </div>
         </div>
       )}
 
@@ -1958,25 +1977,27 @@ export default function MultisitePage() {
               }}
             >
               <div style={{ padding: '0 8px 6px 8px', borderBottom: '1px solid var(--admin-border-light)' }}>
-                <button
-                  className="btn-industrial"
-                  style={{
-                    width: '100%',
-                    marginTop: 6,
-                    padding: '5px 8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                    fontSize: '0.68rem',
-                    fontWeight: 800,
-                    color: 'var(--admin-accent)',
-                    borderColor: 'var(--admin-accent)'
-                  }}
-                  onClick={openAddStationModal}
-                >
-                  <Plus size={11} /> THÊM TRẠM MỚI
-                </button>
+                {canManageStations && (
+                  <button
+                    className="btn-industrial"
+                    style={{
+                      width: '100%',
+                      marginTop: 6,
+                      padding: '5px 8px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      fontSize: '0.68rem',
+                      fontWeight: 800,
+                      color: 'var(--admin-accent)',
+                      borderColor: 'var(--admin-accent)'
+                    }}
+                    onClick={openAddStationModal}
+                  >
+                    <Plus size={11} /> THÊM TRẠM MỚI
+                  </button>
+                )}
               </div>
 
               <div className="custom-hud-scroll" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
@@ -2363,6 +2384,93 @@ export default function MultisitePage() {
                     </div>
                   </div>
 
+                  {/* Điểm nhiệt + Vùng từ trạm con */}
+                  {(() => {
+                    const kpi = remoteKpis[selectedView.station.id];
+                    const points = kpi?.points ?? [];
+                    const boundaries = kpi?.boundaries ?? [];
+                    const thermalPts = points.filter(p =>
+                      p.unit === '°C' || p.unit === 'C' || p.pointId?.toLowerCase().includes('temp') || p.pointId?.toLowerCase().startsWith('t')
+                    );
+                    const pdPts = points.filter(p =>
+                      p.pointId?.toLowerCase().includes('pd') || p.pointId?.toLowerCase().includes('phong') || p.pointId?.toLowerCase() === 'phong_dien'
+                    );
+                    const roiZones = boundaries.filter(b => b.type === 'roi');
+                    const pdZones  = boundaries.filter(b => b.type === 'pd');
+                    if (points.length === 0 && boundaries.length === 0) return null;
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {/* Điểm nhiệt */}
+                        {thermalPts.length > 0 && (
+                          <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
+                            <div style={{ fontSize: '0.5rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em', marginBottom: 4 }}>ĐIỂM NHIỆT</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {thermalPts.slice(0, 6).map(p => (
+                                <div key={`${p.deviceId}_${p.pointId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{p.pointId}</span>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'monospace', color: p.value > 80 ? 'var(--admin-danger)' : p.value > 60 ? 'var(--admin-warning)' : 'var(--admin-text)', flexShrink: 0 }}>
+                                    {p.value?.toFixed(1)}{p.unit || '°C'}
+                                  </span>
+                                </div>
+                              ))}
+                              {thermalPts.length > 6 && (
+                                <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', textAlign: 'right' }}>+{thermalPts.length - 6} điểm khác</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {/* PD points */}
+                        {pdPts.length > 0 && (
+                          <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
+                            <div style={{ fontSize: '0.5rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em', marginBottom: 4 }}>PHÓNG ĐIỆN (PD)</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {pdPts.slice(0, 4).map(p => (
+                                <div key={`${p.deviceId}_${p.pointId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{p.pointId}</span>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'monospace', color: p.value > 0 ? 'var(--admin-warning)' : 'var(--admin-text)', flexShrink: 0 }}>
+                                    {p.value?.toFixed(2)}{p.unit || ''}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* Vùng (zones) */}
+                        {(roiZones.length > 0 || pdZones.length > 0) && (
+                          <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
+                            <div style={{ fontSize: '0.5rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em', marginBottom: 4 }}>VÙNG GIÁM SÁT</div>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {roiZones.length > 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+                                  <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>Vùng ROI nhiệt</div>
+                                  {roiZones.slice(0, 4).map(z => (
+                                    <div key={z.id} style={{ fontSize: '0.6rem', color: z.enabled ? 'var(--admin-text)' : 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: z.enabled ? 'var(--admin-success)' : 'var(--admin-text-muted)', flexShrink: 0 }} />
+                                      {z.name}
+                                    </div>
+                                  ))}
+                                  {roiZones.length > 4 && <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)' }}>+{roiZones.length - 4} vùng</div>}
+                                </div>
+                              )}
+                              {pdZones.length > 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+                                  <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>Vùng PD</div>
+                                  {pdZones.slice(0, 4).map(z => (
+                                    <div key={z.id} style={{ fontSize: '0.6rem', color: z.enabled ? 'var(--admin-text)' : 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: z.enabled ? 'var(--admin-warning)' : 'var(--admin-text-muted)', flexShrink: 0 }} />
+                                      {z.name}
+                                    </div>
+                                  ))}
+                                  {pdZones.length > 4 && <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)' }}>+{pdZones.length - 4} vùng</div>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* Nút vào trạm */}
                   {selectedView.station.apiUrl ? (
                     <button
@@ -2542,7 +2650,7 @@ export default function MultisitePage() {
                 <select
                   value={newStationProvinceId}
                   onChange={e => setNewStationProvinceId(e.target.value)}
-                  disabled={isProvinceAdmin && visibleProvinces.length <= 1}
+                  disabled={(isProvinceAdmin || isTeamLeader) && visibleProvinces.length <= 1}
                   style={{
                     background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
                     padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none',
@@ -2556,9 +2664,9 @@ export default function MultisitePage() {
                     <option key={p.id} value={p.id} style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>{p.name}</option>
                   ))}
                 </select>
-                {isProvinceAdmin && (
+                {(isProvinceAdmin || isTeamLeader) && (
                   <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
-                    Tài khoản quản lý tỉnh chỉ được tạo trạm trong tỉnh được phân quyền.
+                    Tài khoản này chỉ được tạo trạm trong tỉnh được phân quyền.
                   </span>
                 )}
               </div>
@@ -2954,374 +3062,6 @@ export default function MultisitePage() {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   CentralReportsView — tab Báo cáo đa trạm
-   Chỉ hiển thị: nút tạo nhanh + dropdown trạm + bảng lịch sử
-   ───────────────────────────────────────────────────────────── */
-function CentralReportsView({
-  stations, views, provinces, teams, globalStats, selectedStationId,
-}: {
-  stations: Station[];
-  views: StationView[];
-  provinces: Province[];
-  teams: Team[];
-  globalStats: { totalStations: number; totalDevices: number; onlineDevices: number; totalAlerts: number; totalCameras?: number };
-  selectedStationId: string | null;
-}) {
-  const S = {
-    // card
-    card: { background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3 } as React.CSSProperties,
-    // text
-    muted: { color: 'var(--admin-text-muted)' } as React.CSSProperties,
-    label: { fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' as const },
-    // buttons
-    btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
-    btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
-    btnPrimary: { height: 26, padding: '0 10px', borderRadius: 3, border: 'none', background: 'var(--admin-accent)', color: '#fff', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
-    // table
-    th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
-    td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
-    tdNoWrap: { whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' as const },
-    pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
-    pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 1, background: c, flexShrink: 0 } as React.CSSProperties),
-    pillLbl: { fontSize: '.7rem', fontWeight: 700 } as React.CSSProperties,
-    // misc
-    row: { display: 'flex', alignItems: 'center', gap: 8 } as React.CSSProperties,
-    flex1: { flex: 1 } as React.CSSProperties,
-    empty: { display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', gap: 8, padding: '48px 24px', color: 'var(--admin-text-muted)', opacity: .5, textAlign: 'center' as const },
-    spin: { animation: 'crv-spin 1s linear infinite' } as React.CSSProperties,
-  };
-
-  const [scopeType, setScopeType] = useState<'fleet' | 'province' | 'team' | 'station'>(selectedStationId ? 'station' : 'fleet');
-  const [scopeId, setScopeId] = useState(selectedStationId || '');
-  const [history, setHistory] = useState<ReportItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState<string | null>(null);
-  const [filter, setFilter] = useState('all');
-
-  useEffect(() => {
-    if (selectedStationId) {
-      setScopeType('station');
-      setScopeId(selectedStationId);
-    }
-  }, [selectedStationId]);
-
-  // Phạm vi hiển thị theo role
-  const currentUser = authService.getUser();
-  const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
-    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
-    if (currentUser.role === 'admin' && !currentUser.station_ids?.length)
-      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
-    if (currentUser.role === 'admin_province' || currentUser.role === 'operator_province') {
-      const pIds = new Set(currentUser.province_ids || []);
-      const vProvinces = provinces.filter(p => pIds.has(p.id));
-      const vStations = stations.filter(s => s.provinceId && pIds.has(s.provinceId));
-      const vSIds = new Set(vStations.map(s => s.id));
-      return { visibleProvinces: vProvinces, visibleTeams: teams.filter(t => t.stationIds?.some(id => vSIds.has(id))), visibleStations: vStations };
-    }
-    if (currentUser.role === 'team_leader' || currentUser.role === 'team_member') {
-      const userTeam = teams.find(t => t.id === currentUser.team_id);
-      const tSIds = new Set(userTeam?.stationIds || []);
-      const vStations = stations.filter(s => tSIds.has(s.id));
-      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
-      return { visibleProvinces: provinces.filter(p => pIds.has(p.id)), visibleTeams: userTeam ? [userTeam] : [], visibleStations: vStations };
-    }
-    if (currentUser.station_ids?.length) {
-      const sIds = new Set(currentUser.station_ids);
-      const vStations = stations.filter(s => sIds.has(s.id));
-      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
-      return { visibleProvinces: provinces.filter(p => pIds.has(p.id)), visibleTeams: teams.filter(t => t.stationIds?.some(id => sIds.has(id))), visibleStations: vStations };
-    }
-    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
-  }, [currentUser, provinces, teams, stations]);
-
-  const scopeTypeOptions = useMemo(() => {
-    const opts = [{ value: 'fleet', label: `Toàn bộ hệ thống (${visibleStations.length} trạm)` }];
-    if (visibleProvinces.length > 0) opts.push({ value: 'province', label: 'Theo tỉnh' });
-    if (visibleTeams.length > 0) opts.push({ value: 'team', label: 'Theo tổ' });
-    opts.push({ value: 'station', label: 'Theo trạm' });
-    return opts;
-  }, [visibleStations.length, visibleProvinces.length, visibleTeams.length]);
-
-  const scopeEntityOptions = useMemo(() => {
-    if (scopeType === 'province') {
-      return visibleProvinces.map(p => ({ value: p.id, label: p.name }));
-    }
-    if (scopeType === 'team') {
-      return visibleTeams.map(t => ({ value: t.id, label: t.name }));
-    }
-    if (scopeType === 'station') {
-      return visibleStations.map(s => ({
-        value: s.id,
-        label: `${s.code ? `${s.code} · ` : ''}${s.name}`,
-      }));
-    }
-    return [];
-  }, [visibleProvinces, visibleTeams, visibleStations, scopeType]);
-
-  useEffect(() => {
-    if (scopeType === 'fleet') {
-      if (scopeId) setScopeId('');
-      return;
-    }
-    if (!scopeEntityOptions.some(option => option.value === scopeId)) {
-      setScopeId(scopeEntityOptions[0]?.value || '');
-    }
-  }, [scopeEntityOptions, scopeId, scopeType]);
-
-  const scopeLabel = useMemo(() => {
-    if (scopeType === 'fleet') return `Toàn bộ hệ thống (${visibleStations.length} trạm)`;
-    if (scopeType === 'province') return visibleProvinces.find(p => p.id === scopeId)?.name || 'Chưa chọn tỉnh';
-    if (scopeType === 'team') return visibleTeams.find(t => t.id === scopeId)?.name || 'Chưa chọn tổ';
-    return visibleStations.find(s => s.id === scopeId)?.name || 'Chưa chọn trạm';
-  }, [visibleProvinces, visibleTeams, visibleStations, scopeId, scopeType]);
-
-  const scopeStationIds = useMemo(() => {
-    if (scopeType === 'fleet') return visibleStations.map(s => s.id);
-    if (scopeType === 'province') return visibleStations.filter(s => s.provinceId === scopeId).map(s => s.id);
-    if (scopeType === 'team') return visibleTeams.find(t => t.id === scopeId)?.stationIds || [];
-    return scopeId ? [scopeId] : [];
-  }, [scopeId, scopeType, visibleStations, visibleTeams]);
-
-  const reportFilters = useMemo(() => {
-    if (scopeType === 'province') return { scopeType, provinceId: scopeId || undefined };
-    if (scopeType === 'team') return { scopeType, teamId: scopeId || undefined };
-    if (scopeType === 'station') return { scopeType, stationId: scopeId || undefined };
-    return { scopeType: 'fleet' as const };
-  }, [scopeId, scopeType]);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const items = await stationApi.getReports(reportFilters);
-      setHistory(items.sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()));
-    } catch { setHistory([]); } finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, [reportFilters]);
-
-  const gen = async (type: 'daily' | 'monthly' | 'event') => {
-    if (scopeType !== 'fleet' && !scopeId) {
-      alert('Vui lòng chọn phạm vi báo cáo.');
-      return;
-    }
-    if (scopeStationIds.length === 0) {
-      alert('Phạm vi hiện tại chưa có trạm để tạo báo cáo.');
-      return;
-    }
-    const now = new Date(), from = new Date(now);
-    if (type === 'daily') from.setDate(now.getDate() - 1);
-    if (type === 'monthly') from.setDate(now.getDate() - 30);
-    if (type === 'event') from.setDate(now.getDate() - 7);
-    setGenerating(type);
-    try {
-      await stationApi.generateReport({
-        stationId: scopeType === 'station' ? scopeId || undefined : undefined,
-        provinceId: scopeType === 'province' ? scopeId || undefined : undefined,
-        teamId: scopeType === 'team' ? scopeId || undefined : undefined,
-        scopeType,
-        scopeLabel,
-        type,
-        from: from.toISOString(),
-        to: now.toISOString()
-      });
-      await load();
-    }
-    catch { alert('Không thể tạo báo cáo.'); }
-    finally { setGenerating(null); }
-  };
-
-  const dl = async (r: ReportItem) => {
-    try {
-      const blob = await stationApi.downloadReport(r.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `BaoCao_${r.type}_${r.generatedAt.slice(0,10)}.pdf`; a.click();
-      URL.revokeObjectURL(url);
-    } catch { alert('Không thể tải.'); }
-  };
-
-  const del = async (id: string) => { try { await stationApi.deleteReport(id); load(); } catch {} };
-
-  const tl = (t: string) => t === 'daily' ? 'Hàng ngày' : t === 'monthly' ? 'Hàng tháng' : 'Sự cố';
-  const tc = (t: string) => t === 'daily' ? 'var(--admin-accent)' : t === 'monthly' ? '#a855f7' : '#f97316';
-
-  const [histFilterProvince, setHistFilterProvince] = useState('');
-  const [histFilterTeam, setHistFilterTeam] = useState('');
-
-  const filtered = useMemo(() => {
-    let src = filter === 'all' ? history : history.filter(r => r.type === filter);
-    if (histFilterProvince) {
-      const stationIdsInProvince = new Set(visibleStations.filter(s => s.provinceId === histFilterProvince).map(s => s.id));
-      src = src.filter(r =>
-        r.provinceId === histFilterProvince ||
-        (r.scopeType === 'station' && stationIdsInProvince.has(r.stationId))
-      );
-    }
-    if (histFilterTeam) {
-      const team = visibleTeams.find(t => t.id === histFilterTeam);
-      const teamStationIds = new Set(team?.stationIds || []);
-      src = src.filter(r =>
-        r.teamId === histFilterTeam ||
-        (r.scopeType === 'station' && teamStationIds.has(r.stationId))
-      );
-    }
-    return src;
-  }, [history, filter, histFilterProvince, histFilterTeam, visibleStations, visibleTeams]);
-
-  const types: Array<{ t: 'daily'|'monthly'|'event'; title: string; icon: React.ReactNode; c: string }> = [
-    { t: 'daily', title: 'Báo cáo ngày', icon: <Clock size={12} />, c: 'var(--admin-accent)' },
-    { t: 'monthly', title: 'Báo cáo tháng', icon: <Calendar size={12} />, c: '#a855f7' },
-    { t: 'event', title: 'Báo cáo sự cố', icon: <AlertTriangle size={12} />, c: '#f97316' },
-  ];
-
-  return (
-    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
-
-      {/* ── Generate bar (scope + buttons cùng hàng) ─────── */}
-      <div style={{ ...S.card, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
-        <span style={S.label}>Tạo báo cáo</span>
-
-        {/* Chọn cấp: Trạm tổng / Tỉnh / Tổ / Trạm */}
-        <InlineDarkDropdown
-          value={scopeType}
-          options={scopeTypeOptions}
-          onChange={value => { setScopeType(value as 'fleet' | 'province' | 'team' | 'station'); setScopeId(''); }}
-          minWidth={200}
-        />
-        {scopeType !== 'fleet' && (
-          <InlineDarkDropdown
-            value={scopeId}
-            options={scopeEntityOptions}
-            onChange={setScopeId}
-            minWidth={220}
-          />
-        )}
-
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
-
-        {types.map(x => (
-          <button key={x.t} style={generating === x.t ? S.btnActive(x.c) : S.btn}
-            disabled={!!generating}
-            onClick={() => !generating && gen(x.t)}>
-            {generating === x.t ? <Loader2 size={12} style={S.spin} /> : <span style={{ color: x.c, display: 'flex' }}>{x.icon}</span>}
-            {generating === x.t ? 'Đang tạo...' : x.title}
-          </button>
-        ))}
-      </div>
-
-      {/* ── History filter row ───────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
-        <div style={{ width: 1, height: 20, background: 'transparent' }} />
-
-        {/* Bộ lọc lịch sử hiển thị */}
-        {visibleProvinces.length > 0 && (
-          <>
-            <span style={S.label}>Tỉnh</span>
-            <InlineDarkDropdown
-              value={histFilterProvince}
-              onChange={v => { setHistFilterProvince(v); setHistFilterTeam(''); }}
-              minWidth={140}
-              options={[
-                { value: '', label: 'Tất cả tỉnh' },
-                ...visibleProvinces.map(p => ({ value: p.id, label: p.name }))
-              ]}
-            />
-          </>
-        )}
-        {visibleTeams.length > 0 && (
-          <>
-            <span style={S.label}>Tổ</span>
-            <InlineDarkDropdown
-              value={histFilterTeam}
-              onChange={setHistFilterTeam}
-              minWidth={130}
-              options={[
-                { value: '', label: 'Tất cả tổ' },
-                ...(histFilterProvince
-                  ? visibleTeams.filter(t => t.provinceId === histFilterProvince)
-                  : visibleTeams
-                ).map(t => ({ value: t.id, label: t.name }))
-              ]}
-            />
-          </>
-        )}
-
-        <div style={S.flex1} />
-        <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{filtered.length} báo cáo</span>
-        {(['all','daily','monthly','event'] as const).map(f => (
-          <button key={f} style={filter === f ? S.btnActive('var(--admin-accent)') : S.btn}
-            onClick={() => setFilter(f)}>
-            {f === 'all' ? 'Tất cả' : tl(f)}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Table ─────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
-        {loading ? (
-          <div style={S.empty}><Loader2 size={22} style={{ ...S.spin, color: 'var(--admin-accent)', opacity: 1 }} /><p>Đang tải...</p></div>
-        ) : filtered.length === 0 ? (
-          <div style={S.empty}><FileText size={32} /><p>{history.length === 0 ? 'Chưa có báo cáo nào. Nhấn nút tạo bên trên.' : 'Không có báo cáo phù hợp.'}</p></div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr>
-              <th style={S.th}>Loại</th>
-              <th style={S.th}>Tỉnh</th>
-              <th style={S.th}>Tổ</th>
-              <th style={S.th}>Phạm vi</th>
-              <th style={S.th}>Kỳ báo cáo</th>
-              <th style={S.th}>Ngày tạo</th>
-              <th style={{ ...S.th, textAlign: 'right', width: 80 }}></th>
-            </tr></thead>
-            <tbody>
-              {filtered.map(r => {
-                const station = stations.find(s => s.id === r.stationId);
-                const c = tc(r.type);
-                const resolvedScopeLabel = r.scopeLabel || station?.name || 'Toàn hệ thống';
-                // Tỉnh: từ provinceId của report, hoặc từ station nếu là report theo trạm
-                const provinceId = r.provinceId || (r.scopeType === 'station' ? station?.provinceId : undefined);
-                const provinceName = provinces.find(p => p.id === provinceId)?.name;
-                // Tổ: từ teamId của report
-                const teamName = teams.find(t => t.id === r.teamId)?.name;
-                return (
-                  <tr key={r.id} style={{ cursor: 'default' }}>
-                    <td style={S.td}><div style={S.pill(c)}><span style={S.pillBar(c)} /><span style={S.pillLbl}>{tl(r.type)}</span></div></td>
-                    <td style={{ ...S.td, fontSize: '.65rem' }}>
-                      {provinceName
-                        ? <span style={{ color: 'var(--admin-accent)', fontWeight: 600 }}>{provinceName}</span>
-                        : <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span>}
-                    </td>
-                    <td style={{ ...S.td, fontSize: '.65rem' }}>
-                      {teamName
-                        ? <span style={{ color: '#f59e0b', fontWeight: 600 }}>{teamName}</span>
-                        : <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span>}
-                    </td>
-                    <td style={S.td}>{resolvedScopeLabel || <span style={{ ...S.muted, fontStyle: 'italic' }}>Toàn hệ thống</span>}</td>
-                    <td style={{ ...S.td, fontFamily: 'monospace', fontSize: '.65rem', ...S.muted }}>
-                      {r.periodFrom ? new Date(r.periodFrom).toLocaleDateString('vi-VN') : '--'}
-                      {' → '}{r.periodTo ? new Date(r.periodTo).toLocaleDateString('vi-VN') : '--'}
-                    </td>
-                    <td style={{ ...S.td, ...S.muted, fontSize: '.68rem' }}>{new Date(r.generatedAt).toLocaleString('vi-VN')}</td>
-                    <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      {r.fileUrl && (
-                        <button style={S.btn} onClick={() => dl(r)}><Download size={12} /> PDF</button>
-                      )}
-                      <button style={{ ...S.btn, borderColor: 'transparent', background: 'transparent', opacity: .3, marginLeft: 4, padding: '0 5px' }}
-                        onClick={() => del(r.id)} title="Xóa"><X size={12} /></button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* keyframe for spinner */}
-      <style>{`@keyframes crv-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────
    CentralLogView — tab Nhật ký đa trạm
    Gộp 4 loại log (audit, login, notify, rule-trigger) từ tất cả
    trạm, hiển thị dạng bảng nhất quán với theme admin/industrial.
@@ -3508,6 +3248,19 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
   const [selectedLog, setSelectedLog] = useState<MergedLogItem | null>(null);
   const [showDetail, setShowDetail] = useState(true);
   const calendarRef = useRef<HTMLDivElement>(null);
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const downloadDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!downloadDropdownOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (downloadDropdownRef.current && !downloadDropdownRef.current.contains(event.target as Node)) {
+        setDownloadDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [downloadDropdownOpen]);
 
   // Phạm vi hiển thị theo role của user hiện tại
   const currentUser = authService.getUser();
@@ -3636,6 +3389,104 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     if (selectedDate) setCalendarMonth(parseIsoDate(selectedDate));
   }, [selectedDate]);
 
+  const downloadCsv = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất CSV');
+      return;
+    }
+    const headers = ['Thời gian', 'Loại', 'Tài khoản', 'Hành động', 'Chi tiết/Đối tượng', 'Trạm', 'IP Address'];
+    const rows = filtered.map(l => {
+      const escape = (val: string) => `"${val.replace(/"/g, '""')}"`;
+      const typeLabel = l.type === 'audit' ? 'Hệ thống' : l.type === 'login' ? 'Đăng nhập' : l.type === 'notify' ? 'Thông báo' : 'Luật cảnh báo';
+      return [
+        fmtDateTime(l.ts),
+        typeLabel,
+        l.user,
+        l.action,
+        l.detail,
+        l.stationName || 'Hệ thống',
+        l.ipAddress || '—'
+      ].map(escape).join(',');
+    });
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NhatKyHeThong_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadPdf = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất PDF');
+      return;
+    }
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return;
+
+    const rowsHtml = filtered.map(l => {
+      const typeLabel = l.type === 'audit' ? 'Hệ thống' : l.type === 'login' ? 'Đăng nhập' : l.type === 'notify' ? 'Thông báo' : 'Luật cảnh báo';
+      return `
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-family:monospace;font-size:11px;">${fmtDateTime(l.ts)}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-weight:bold;">${typeLabel}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.user}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.action}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.detail}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.stationName || 'Hệ thống'}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-family:monospace;">${l.ipAddress || '—'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Nhật ký hệ thống</title>
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; color: #111; background: #fff; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th { background: #f3f4f6; padding: 8px; font-size: 11px; text-transform: uppercase; font-weight: bold; border: 1px solid #e5e7eb; text-align: left; }
+          h2 { color: #1a56db; margin: 0 0 10px 0; }
+          .meta { font-size: 11px; color: #6b7280; margin-bottom: 15px; }
+        </style>
+      </head>
+      <body>
+        <h2>NHẬT KÝ VẬN HÀNH HỆ THỐNG</h2>
+        <div class="meta">
+          Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> &nbsp;|&nbsp;
+          Số lượng: <b>${filtered.length} dòng</b>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:130px;">Thời gian</th>
+              <th style="width:80px;">Loại</th>
+              <th style="width:100px;">Tài khoản</th>
+              <th style="width:120px;">Hành động</th>
+              <th>Chi tiết/Đối tượng</th>
+              <th style="width:120px;">Trạm</th>
+              <th style="width:100px;">IP Address</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => {
+      win.print();
+    }, 400);
+  };
+
   // Stations có sẵn sau khi lọc theo tỉnh/tổ (giới hạn trong phạm vi role của user)
   const availableStationIds = useMemo<Set<string> | null>(() => {
     if (!filterProvince && !filterTeam) return null;
@@ -3673,7 +3524,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
     dropdown: { height: 28, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 160 } as React.CSSProperties,
     input: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', minWidth: 160 } as React.CSSProperties,
-    dateButton: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', width: 145, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' } as React.CSSProperties,
+    dateButton: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', width: 100, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' } as React.CSSProperties,
     th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
     tdNoWrap: { whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' },
@@ -3729,7 +3580,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
             style={S.dateButton}
             aria-label="Chọn ngày xem nhật ký"
           >
-            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : '7 ngày gần nhất'}</span>
+            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Tất cả'}</span>
             <Calendar size={12} />
           </button>
           {calendarOpen && (
@@ -3822,9 +3673,9 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
             <InlineDarkDropdown
               value={filterProvince}
               onChange={v => { setFilterProvince(v); setFilterTeam(''); setScopeStationId(''); }}
-              minWidth={150}
+              minWidth={100}
               options={[
-                { value: '', label: 'TẤT CẢ TỈNH' },
+                { value: '', label: 'Tất cả' },
                 ...visibleProvinces.map(p => ({ value: p.id, label: p.name }))
               ]}
             />
@@ -3837,9 +3688,9 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
             <InlineDarkDropdown
               value={filterTeam}
               onChange={v => { setFilterTeam(v); setScopeStationId(''); }}
-              minWidth={140}
+              minWidth={100}
               options={[
-                { value: '', label: 'TẤT CẢ TỔ' },
+                { value: '', label: 'Tất cả' },
                 ...(filterProvince
                   ? visibleTeams.filter(t => t.provinceId === filterProvince)
                   : visibleTeams
@@ -3853,9 +3704,9 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
         <InlineDarkDropdown
           value={scopeStationId}
           onChange={setScopeStationId}
-          minWidth={180}
+          minWidth={120}
           options={[
-            { value: '', label: availableStationIds ? `TẤT CẢ (${availableStationIds.size})` : `TẤT CẢ TRẠM (${visibleStations.length})` },
+            { value: '', label: 'Tất cả' },
             ...(availableStationIds
               ? visibleStations.filter(s => availableStationIds.has(s.id))
               : visibleStations
@@ -3873,9 +3724,96 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
           {searchText && <X size={12} style={{ ...S.muted, cursor: 'pointer' }} onClick={() => setSearchText('')} />}
         </div>
 
-        <button style={S.btn} onClick={loadLogs} title="Tải lại">
-          <RefreshCw size={12} className={loading ? 'spin' : ''} />
-        </button>
+        <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setDownloadDropdownOpen(v => !v)}
+            title="Xuất dữ liệu"
+            style={{
+              height: 26,
+              padding: '0 8px',
+              border: '1px solid var(--admin-border)',
+              background: 'var(--admin-layer-2)',
+              color: 'var(--admin-text)',
+              borderRadius: 3,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+            }}
+          >
+            <Download size={12} />
+            <span style={{ fontSize: '.5rem', opacity: 0.7 }}>▼</span>
+          </button>
+          
+          {downloadDropdownOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 4px)',
+                right: 0,
+                background: '#0b0f14',
+                border: '1px solid var(--admin-border)',
+                borderRadius: 3,
+                boxShadow: '0 4px 12px rgba(0,0,0,.5)',
+                padding: '4px 0',
+                zIndex: 30,
+                minWidth: 120,
+              }}
+            >
+              <button
+                onClick={() => {
+                  downloadCsv();
+                  setDownloadDropdownOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--admin-text)',
+                  padding: '6px 12px',
+                  fontSize: '.65rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <FileSpreadsheet size={12} style={{ color: 'var(--admin-success)' }} />
+                <span>Tải file CSV</span>
+              </button>
+              <button
+                onClick={() => {
+                  downloadPdf();
+                  setDownloadDropdownOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--admin-text)',
+                  padding: '6px 12px',
+                  fontSize: '.65rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <FileText size={12} style={{ color: 'var(--admin-warning)' }} />
+                <span>Tải file PDF</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+
 
         <span style={{ fontSize: '.6rem', fontWeight: 600, color: 'var(--admin-text-muted)' }}>
           {filtered.length} dòng
@@ -4090,12 +4028,58 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]; provinces: Province[] }) {
+  const [selectedDate, setSelectedDate] = useState('');
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => parseIsoDate(formatIsoDate(new Date())));
   const [provinceId, setProvinceId] = useState('');
   const [stationId, setStationId] = useState('');
   const [status, setStatus] = useState('');
+  const [filterSource, setFilterSource] = useState('');
+  const [filterLevel, setFilterLevel] = useState('');
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const calendarRef = useRef<HTMLDivElement>(null);
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const downloadDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!downloadDropdownOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (downloadDropdownRef.current && !downloadDropdownRef.current.contains(event.target as Node)) {
+        setDownloadDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [downloadDropdownOpen]);
+
+  useEffect(() => {
+    if (!calendarOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
+        setCalendarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [calendarOpen]);
+
+  useEffect(() => {
+    if (selectedDate) setCalendarMonth(parseIsoDate(selectedDate));
+  }, [selectedDate]);
+
+  const dates = useMemo(() => {
+    if (selectedDate) return { from: selectedDate, to: selectedDate };
+    // Mặc định: 7 ngày gần nhất
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 7);
+    return { from: formatIsoDate(from), to: formatIsoDate(to) };
+  }, [selectedDate]);
+
+  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
+  const todayIso = useMemo(() => formatIsoDate(new Date()), []);
 
   const stationsByProvince = useMemo(
     () => provinceId ? stations.filter(s => s.provinceId === provinceId) : stations,
@@ -4109,7 +4093,9 @@ function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await stationApi.getAlerts(status || undefined, undefined, undefined, 500, stationId || undefined);
+      const from = dates.from ? new Date(dates.from).toISOString() : undefined;
+      const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
+      const data = await stationApi.getAlerts(status || undefined, from, to, 500, stationId || undefined);
       const filteredByProvince = provinceId
         ? data.filter(a => stations.find(s => s.id === a.stationId)?.provinceId === provinceId)
         : data;
@@ -4119,80 +4105,475 @@ function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]
     } finally {
       setLoading(false);
     }
-  }, [status, stationId, provinceId, stations]);
+  }, [dates, status, stationId, provinceId, stations]);
 
   useEffect(() => { load(); }, [load]);
 
   const filtered = useMemo(() => {
-    if (!searchText) return alerts;
+    let list = alerts;
+    if (filterSource) {
+      list = list.filter(a => a.source === filterSource);
+    }
+    if (filterLevel) {
+      if (filterLevel === 'alarm') {
+        list = list.filter(a => a.level === 'alarm' || a.level === 'danger');
+      } else {
+        list = list.filter(a => a.level === filterLevel);
+      }
+    }
+    if (!searchText) return list;
     const q = searchText.toLowerCase();
-    return alerts.filter(a =>
+    return list.filter(a =>
       (a.message || '').toLowerCase().includes(q) ||
       (a.stationName || stations.find(s => s.id === a.stationId)?.name || '').toLowerCase().includes(q) ||
       (a.deviceId || '').toLowerCase().includes(q)
     );
-  }, [alerts, searchText, stations]);
+  }, [alerts, searchText, stations, filterSource, filterLevel]);
 
-  return (
-    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <InlineDarkDropdown value={provinceId} onChange={setProvinceId} minWidth={180} options={[
-          { value: '', label: 'TẤT CẢ TỈNH' },
-          ...provinces.map(p => ({ value: p.id, label: p.name }))
-        ]} />
-        <InlineDarkDropdown value={stationId} onChange={setStationId} minWidth={220} options={[
-          { value: '', label: 'TẤT CẢ TRẠM CON' },
-          ...stationsByProvince.map(s => ({ value: s.id, label: s.name }))
-        ]} />
-        <InlineDarkDropdown value={status} onChange={setStatus} minWidth={160} options={[
-          { value: '', label: 'TẤT CẢ TRẠNG THÁI' },
-          { value: 'open', label: 'CHƯA XỬ LÝ' },
-          { value: 'acked', label: 'ĐANG XỬ LÝ' },
-          { value: 'closed', label: 'ĐÃ ĐÓNG' }
-        ]} />
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', padding: '0 8px', height: 28 }}>
-          <Search size={12} color="var(--admin-text-muted)" />
-          <input value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="TÌM CẢNH BÁO..." style={{ border: 'none', background: 'transparent', color: 'var(--admin-text)', outline: 'none', minWidth: 180 }} />
+  const downloadPdf = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất PDF');
+      return;
+    }
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return;
+
+    const levelColor = (level: string) => {
+      if (level === 'alarm' || level === 'danger') return '#dc2626';
+      if (level === 'warning') return '#d97706';
+      return '#4b5563';
+    };
+
+    const statusColor = (s: string) => {
+      if (s === 'open') return '#dc2626';
+      if (s === 'acked') return '#d97706';
+      if (s === 'closed') return '#16a34a';
+      return '#4b5563';
+    };
+
+    const rowsHtml = filtered.map(alert => {
+      const station = stations.find(s => s.id === alert.stationId);
+      const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || '—';
+      const lv = levelCfg(alert.level);
+      const st = statusCfg(alert.status);
+      const lvCol = levelColor(alert.level);
+      const stCol = statusColor(alert.status);
+      return `
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-family:monospace;font-size:11px;white-space:nowrap;">${fmtDateTime(alert.triggeredAt)}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${provinceName}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-weight:bold;">${alert.stationName || station?.name || '—'}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${alertSourceLabel(alert.source)}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-weight:600;max-width:300px;word-break:break-all;">${cleanAlertMessage(alert.message)}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;text-align:center;">
+            <span style="background:${lvCol}18;color:${lvCol};border:1px solid ${lvCol}40;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:bold;">${lv.label}</span>
+          </td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;text-align:center;">
+            <span style="background:${stCol}18;color:${stCol};border:1px solid ${stCol}40;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:bold;">${st.label}</span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Nhật ký cảnh báo</title>
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; color: #111; background: #fff; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th { background: #f3f4f6; padding: 8px; font-size: 11px; text-transform: uppercase; font-weight: bold; border: 1px solid #e5e7eb; text-align: left; }
+          h2 { color: #1a56db; margin: 0 0 10px 0; }
+          .meta { font-size: 11px; color: #6b7280; margin-bottom: 15px; }
+        </style>
+      </head>
+      <body>
+        <h2>NHẬT KÝ CẢNH BÁO TRUNG TÂM</h2>
+        <div class="meta">
+          Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> &nbsp;|&nbsp;
+          Số lượng: <b>${filtered.length} cảnh báo</b>
         </div>
-        <button onClick={load} className="btn-industrial" style={{ height: 28, padding: '0 10px' }}>
-          <RefreshCw size={12} className={loading ? 'spin' : ''} />
-        </button>
-      </div>
-
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>TỔNG CẢNH BÁO: <b>{filtered.length}</b></div>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>MỞ: <b style={{ color: 'var(--admin-danger)' }}>{filtered.filter(a => a.status === 'open').length}</b></div>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>ĐANG XỬ LÝ: <b style={{ color: 'var(--admin-warning)' }}>{filtered.filter(a => a.status === 'acked').length}</b></div>
-        <div className="admin-card" style={{ padding: '8px 12px' }}>ĐÃ ĐÓNG: <b style={{ color: 'var(--admin-success)' }}>{filtered.filter(a => a.status === 'closed').length}</b></div>
-      </div>
-
-      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table>
           <thead>
             <tr>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>THỜI GIAN</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TỈNH</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠM CON</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>NỘI DUNG</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>MỨC ĐỘ</th>
-              <th style={{ padding: '8px 10px', textAlign: 'left', fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>TRẠNG THÁI</th>
+              <th style="width:130px;">Thời gian</th>
+              <th style="width:80px;">Tỉnh</th>
+              <th style="width:120px;">Trạm</th>
+              <th style="width:100px;">Nguồn</th>
+              <th>Nội dung</th>
+              <th style="width:100px;text-align:center;">Mức độ</th>
+              <th style="width:100px;text-align:center;">Trạng thái</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding: 28, textAlign: 'center', color: 'var(--admin-text-muted)' }}>{loading ? 'Đang tải...' : 'Không có dữ liệu'}</td></tr>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => {
+      win.print();
+    }, 400);
+  };
+
+  const downloadCsv = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất CSV');
+      return;
+    }
+    const headers = ['Thời gian', 'Tỉnh', 'Trạm con', 'Loại cảnh báo', 'Nội dung', 'Mức độ', 'Trạng thái'];
+    const rows = filtered.map(alert => {
+      const station = stations.find(s => s.id === alert.stationId);
+      const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || '—';
+      const lv = levelCfg(alert.level);
+      const st = statusCfg(alert.status);
+      const escape = (val: string) => `"${val.replace(/"/g, '""')}"`;
+      return [
+        fmtDateTime(alert.triggeredAt),
+        provinceName,
+        alert.stationName || station?.name || '—',
+        alertSourceLabel(alert.source),
+        cleanAlertMessage(alert.message),
+        lv.label,
+        st.label
+      ].map(escape).join(',');
+    });
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `NhatKyCanhBao_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const AL = {
+    th: { padding: '8px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
+    td: { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
+  };
+
+  const levelCfg = (level: string) => {
+    if (level === 'alarm' || level === 'danger') return { label: 'BÁO ĐỘNG', color: 'var(--admin-danger)' };
+    if (level === 'warning') return { label: 'CẢNH BÁO', color: 'var(--admin-warning)' };
+    return { label: level?.toUpperCase() || 'INFO', color: 'var(--admin-text-muted)' };
+  };
+
+  const statusCfg = (s: string) => {
+    if (s === 'open')   return { label: 'CHƯA XỬ LÝ', color: 'var(--admin-danger)' };
+    if (s === 'acked')  return { label: 'ĐANG XỬ LÝ', color: 'var(--admin-warning)' };
+    if (s === 'closed') return { label: 'ĐÃ ĐÓNG',    color: 'var(--admin-success)' };
+    return { label: s?.toUpperCase() || '—', color: 'var(--admin-text-muted)' };
+  };
+
+  const alertSourceLabel = (src: string): string => {
+    const sourceMap: Record<string, string> = {
+      rule_engine: 'NGƯỠNG ĐO',
+      ai_detection: 'NGƯỜI',
+      manual: 'THỦ CÔNG',
+      maintenance: 'BẢO TRÌ',
+      camera: 'CAMERA',
+      storage_monitor: 'GIÁM SÁT BỘ NHỚ',
+      system: 'HỆ THỐNG',
+    };
+    return sourceMap[src] || src?.toUpperCase() || 'HỆ THỐNG';
+  };
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
+      {/* Filter bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+          <Calendar size={12} style={{ color: 'var(--admin-text-muted)' }} />
+          <button
+            type="button"
+            onClick={() => setCalendarOpen(v => !v)}
+            style={{
+              height: 26,
+              padding: '0 8px',
+              borderRadius: 3,
+              border: '1px solid var(--admin-border)',
+              background: 'var(--admin-layer-2)',
+              color: 'var(--admin-text)',
+              fontSize: '.62rem',
+              fontWeight: 600,
+              outline: 'none',
+              width: 100,
+              fontFamily: 'monospace',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer'
+            }}
+            aria-label="Chọn ngày xem nhật ký"
+          >
+            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Tất cả'}</span>
+            <Calendar size={12} />
+          </button>
+          {calendarOpen && (
+            <div style={{ position: 'absolute' as const, top: 'calc(100% + 6px)', left: 0, width: 240, background: '#0b0f14', border: '1px solid var(--admin-border)', borderRadius: 0, boxShadow: '0 12px 32px rgba(0,0,0,.45)', padding: 10, zIndex: 30 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <button
+                  type="button"
+                  style={{ width: 24, height: 24, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 0 }}
+                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <div style={{ fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text)', letterSpacing: '.06em' }}>{monthLabel(calendarMonth)}</div>
+                <button
+                  type="button"
+                  style={{ width: 24, height: 24, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 0 }}
+                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+                {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(label => (
+                  <div key={label} style={{ textAlign: 'center' as const, fontSize: '.52rem', color: 'var(--admin-text-muted)', fontWeight: 700, padding: '4px 0' }}>{label}</div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+                {calendarDays.map((day, index) => {
+                  if (!day) return <div key={`empty-${index}`} style={{ height: 28, border: '1px solid transparent', background: 'transparent', color: 'rgba(255,255,255,.18)', fontSize: '.62rem', fontWeight: 700, cursor: 'default', borderRadius: 0 }} />;
+                  const iso = formatIsoDate(day);
+                  const isSelected = iso === selectedDate;
+                  const isToday = iso === todayIso;
+                  return (
+                    <button
+                      key={iso}
+                      type="button"
+                      onClick={() => {
+                        setSelectedDate(iso);
+                        setCalendarOpen(false);
+                      }}
+                      style={{
+                        height: 28,
+                        border: '1px solid var(--admin-border)',
+                        fontSize: '.62rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        borderRadius: 0,
+                        borderColor: isSelected ? 'var(--admin-accent)' : isToday ? '#3b475a' : 'var(--admin-border)',
+                        background: isSelected ? 'rgba(245, 158, 11, 0.16)' : isToday ? '#111827' : 'var(--admin-layer-2)',
+                        color: isSelected ? 'var(--admin-accent)' : 'var(--admin-text)',
+                      }}
+                    >
+                      {day.getDate()}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 6 }}>
+                <button
+                  type="button"
+                  style={{ height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap', flex: 1, justifyContent: 'center' }}
+                  onClick={() => { setSelectedDate(''); setCalendarOpen(false); }}
+                >
+                  7 NGÀY
+                </button>
+                <button
+                  type="button"
+                  style={{ height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap', flex: 1, justifyContent: 'center' }}
+                  onClick={() => {
+                    const today = formatIsoDate(new Date());
+                    setSelectedDate(today);
+                    setCalendarMonth(parseIsoDate(today));
+                    setCalendarOpen(false);
+                  }}
+                >
+                  HÔM NAY
+                </button>
+                <button
+                  type="button"
+                  style={{ height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap', flex: 1, justifyContent: 'center' }}
+                  onClick={() => setCalendarOpen(false)}
+                >
+                  ĐÓNG
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
+        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tỉnh</span>
+        <InlineDarkDropdown value={provinceId} onChange={v => { setProvinceId(v); setStationId(''); }} minWidth={95} options={[
+          { value: '', label: 'Tất cả' },
+          ...provinces.map(p => ({ value: p.id, label: p.name }))
+        ]} />
+        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạm</span>
+        <InlineDarkDropdown value={stationId} onChange={setStationId} minWidth={110} options={[
+          { value: '', label: 'Tất cả' },
+          ...stationsByProvince.map(s => ({ value: s.id, label: s.name }))
+        ]} />
+        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
+        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạng thái</span>
+        <InlineDarkDropdown value={status} onChange={setStatus} minWidth={105} options={[
+          { value: '', label: 'Tất cả' },
+          { value: 'open',   label: 'Chưa xử lý' },
+          { value: 'acked',  label: 'Đang xử lý' },
+          { value: 'closed', label: 'Đã đóng' },
+        ]} />
+        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Loại</span>
+        <InlineDarkDropdown value={filterSource} onChange={setFilterSource} minWidth={100} options={[
+          { value: '', label: 'Tất cả' },
+          { value: 'rule_engine',     label: 'Ngưỡng đo' },
+          { value: 'ai_detection',    label: 'Người' },
+          { value: 'manual',          label: 'Thủ công' },
+          { value: 'maintenance',     label: 'Bảo trì' },
+          { value: 'camera',          label: 'Camera' },
+          { value: 'storage_monitor', label: 'Giám sát bộ nhớ' },
+          { value: 'system',          label: 'Hệ thống' },
+        ]} />
+        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Mức độ</span>
+        <InlineDarkDropdown value={filterLevel} onChange={setFilterLevel} minWidth={100} options={[
+          { value: '', label: 'Tất cả' },
+          { value: 'warning', label: 'Cảnh báo' },
+          { value: 'alarm',   label: 'Báo động' },
+        ]} />
+
+        <div style={{ flex: 1 }} />
+        <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setDownloadDropdownOpen(v => !v)}
+            title="Xuất dữ liệu"
+            style={{
+              height: 26,
+              padding: '0 8px',
+              border: '1px solid var(--admin-border)',
+              background: 'var(--admin-layer-2)',
+              color: 'var(--admin-text)',
+              borderRadius: 3,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 4,
+            }}
+          >
+            <Download size={12} />
+            <span style={{ fontSize: '.5rem', opacity: 0.7 }}>▼</span>
+          </button>
+          
+          {downloadDropdownOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 4px)',
+                right: 0,
+                background: '#0b0f14',
+                border: '1px solid var(--admin-border)',
+                borderRadius: 3,
+                boxShadow: '0 4px 12px rgba(0,0,0,.5)',
+                padding: '4px 0',
+                zIndex: 30,
+                minWidth: 120,
+              }}
+            >
+              <button
+                onClick={() => {
+                  downloadCsv();
+                  setDownloadDropdownOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--admin-text)',
+                  padding: '6px 12px',
+                  fontSize: '.65rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <FileSpreadsheet size={12} style={{ color: 'var(--admin-success)' }} />
+                <span>Tải file CSV</span>
+              </button>
+              <button
+                onClick={() => {
+                  downloadPdf();
+                  setDownloadDropdownOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--admin-text)',
+                  padding: '6px 12px',
+                  fontSize: '.65rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <FileText size={12} style={{ color: 'var(--admin-warning)' }} />
+                <span>Tải file PDF</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+
+      {/* Table */}
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={AL.th}>Thời gian</th>
+              <th style={AL.th}>Tỉnh</th>
+              <th style={AL.th}>Trạm con</th>
+              <th style={AL.th}>Loại cảnh báo</th>
+              <th style={AL.th}>Nội dung</th>
+              <th style={AL.th}>Mức độ</th>
+              <th style={AL.th}>Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Đang tải...</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--admin-text-muted)', opacity: .5 }}>Không có dữ liệu cảnh báo</td></tr>
             ) : filtered.map(alert => {
               const station = stations.find(s => s.id === alert.stationId);
-              const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || 'Chưa phân tỉnh';
+              const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || '—';
+              const lv = levelCfg(alert.level);
+              const st = statusCfg(alert.status);
               return (
-                <tr key={alert.id}>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{fmtDateTime(alert.triggeredAt)}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{provinceName}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{alert.stationName || station?.name || '—'}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)', fontWeight: 700 }}>{alert.message}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{alert.level}</td>
-                  <td style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,.03)' }}>{alert.status}</td>
+                <tr key={alert.id} style={{ transition: 'background .12s' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                >
+                  <td style={{ ...AL.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{fmtDateTime(alert.triggeredAt)}</td>
+                  <td style={{ ...AL.td, fontSize: '.68rem', color: 'var(--admin-text)' }}>{provinceName}</td>
+                  <td style={{ ...AL.td, fontSize: '.68rem', fontWeight: 600, color: 'var(--admin-text)' }}>{alert.stationName || station?.name || '—'}</td>
+                  <td style={{ ...AL.td, fontSize: '.68rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{alertSourceLabel(alert.source)}</td>
+                  <td style={{ ...AL.td, fontWeight: 700, color: 'var(--admin-text)', maxWidth: 340 }}>{cleanAlertMessage(alert.message)}</td>
+                  <td style={AL.td}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, background: `${lv.color}18`, border: `1px solid ${lv.color}40`, color: lv.color, fontSize: '.58rem', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                      {lv.label}
+                    </span>
+                  </td>
+                  <td style={AL.td}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, background: `${st.color}18`, border: `1px solid ${st.color}40`, color: st.color, fontSize: '.58rem', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                      {st.label}
+                    </span>
+                  </td>
                 </tr>
               );
             })}

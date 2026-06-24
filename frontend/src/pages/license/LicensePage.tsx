@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '@/services/AuthService';
 import { stationApi } from '@/services/StationApiService';
+import { useRealtime } from '@/hooks/useRealtime';
+import type { Device } from '@/types/api.types';
 import './LicensePage.css';
 
 interface LicenseStatus {
@@ -27,6 +29,37 @@ interface ResourceLimit {
   exceeded: boolean;
 }
 
+type ResourceCountSummary = {
+  stations: number;
+  cameras: number;
+  roi_points: number;
+  roi_regions: number;
+  pd_regions: number;
+};
+
+const LICENSE_STATUS_CACHE_KEY = 'license-page-status-cache';
+const LICENSE_LIMITS_CACHE_KEY = 'license-page-limits-cache-v2';
+
+function readCachedStatus(): LicenseStatus | null {
+  try {
+    const raw = sessionStorage.getItem(LICENSE_STATUS_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as LicenseStatus;
+  } catch {
+    return null;
+  }
+}
+
+function readCachedLimits(): ResourceLimit[] {
+  try {
+    const raw = sessionStorage.getItem(LICENSE_LIMITS_CACHE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as ResourceLimit[];
+  } catch {
+    return [];
+  }
+}
+
 const RESOURCE_LABELS: Record<string, { label: string; icon: string }> = {
   stations:    { label: 'Trạm biến áp',      icon: '🏭' },
   cameras:     { label: 'Camera',             icon: '📷' },
@@ -35,39 +68,232 @@ const RESOURCE_LABELS: Record<string, { label: string; icon: string }> = {
   pd_regions:  { label: 'Vùng phóng điện (PD)', icon: '⚡' },
 };
 
+function isThermalDevice(device: Device) {
+  const cfg = device.config || {};
+  return device.type === 'camera_thermal'
+    || device.type === 'camera_dual'
+    || !!cfg.go2rtc_thermal
+    || !!cfg.rtsp_thermal;
+}
+
+function isPdDevice(device: Device) {
+  const name = device.name?.toLowerCase?.() || '';
+  return device.type === 'camera_pd'
+    || device.type === 'cabinet'
+    || name.includes('pd')
+    || name.includes('phong dien')
+    || name.includes('phóng điện');
+}
+
+function isCameraDevice(device: Device) {
+  return device.type.startsWith('camera') || device.protocol?.toLowerCase() === 'rtsp';
+}
+
 export default function LicensePage() {
   const navigate = useNavigate();
+  const refreshTimerRef = useRef<number | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const refreshQueuedRef = useRef(false);
+  const cachedStatusRef = useRef<LicenseStatus | null>(readCachedStatus());
+  const cachedLimitsRef = useRef<ResourceLimit[]>(readCachedLimits());
   
-  const [status, setStatus] = useState<LicenseStatus | null>(null);
-  const [limits, setLimits] = useState<ResourceLimit[]>([]);
+  const [status, setStatus] = useState<LicenseStatus | null>(cachedStatusRef.current);
+  const [limits, setLimits] = useState<ResourceLimit[]>(cachedLimitsRef.current);
   const [key, setKey] = useState('');
   const [loading, setLoading] = useState(false);
+  const [statusLoading, setStatusLoading] = useState(cachedStatusRef.current === null);
+  const [limitsLoading, setLimitsLoading] = useState(cachedLimitsRef.current.length === 0);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
   const canManageLicense = authService.hasPermission('license:manage');
 
-  const loadStatus = async () => {
+  const getActualResourceCounts = async (): Promise<ResourceCountSummary> => {
+    const stations = await stationApi.getStations().catch(() => []);
+
+    // Lấy KPI (boundaries + roiPoints) từ tất cả trạm con có apiUrl song song
+    const subStations = stations.filter(s => (s as any).apiUrl);
+    const remoteKpis = await Promise.all(
+      subStations.map(s => stationApi.getRemoteKpi(s.id).catch(() => null))
+    );
+
+    // Đếm devices từ local DB
+    const deviceGroups = await Promise.all(
+      stations.map(station => stationApi.getDevices(station.id).catch(() => []))
+    );
+    const devices = deviceGroups.flat();
+
+    // Gộp boundaries + roiPoints từ tất cả trạm con
+    let roi_regions = 0;
+    let pd_regions = 0;
+    let roi_points = 0;
+    for (const kpi of remoteKpis) {
+      if (!kpi) continue;
+      roi_regions += (kpi.boundaries ?? []).filter((b: any) => b.type === 'roi').length;
+      pd_regions  += (kpi.boundaries ?? []).filter((b: any) => b.type === 'pd').length;
+      roi_points  += (kpi.roiPoints ?? []).length;
+    }
+
+    // Fallback sang local DB nếu không lấy được từ trạm con
+    if (roi_regions === 0 && pd_regions === 0 && roi_points === 0) {
+      const thermalDevices = devices.filter(isThermalDevice);
+      const pdDevices = devices.filter(isPdDevice);
+      const thermalConfigs = await Promise.all(
+        thermalDevices.map(async device => {
+          const [points, regions] = await Promise.all([
+            stationApi.getRoiPoints(device.id).catch(() => []),
+            stationApi.getBoundaries(device.id, 'roi').catch(() => []),
+          ]);
+          return { points: points.length, regions: regions.length };
+        })
+      );
+      const pdConfigs = await Promise.all(
+        pdDevices.map(async device => {
+          const regions = await stationApi.getBoundaries(device.id, 'pd').catch(() => []);
+          return regions.length;
+        })
+      );
+      roi_points  = thermalConfigs.reduce((sum, item) => sum + item.points, 0);
+      roi_regions = thermalConfigs.reduce((sum, item) => sum + item.regions, 0);
+      pd_regions  = pdConfigs.reduce((sum, count) => sum + count, 0);
+    }
+
+    return {
+      stations: stations.length,
+      cameras: devices.filter(isCameraDevice).length,
+      roi_points,
+      roi_regions,
+      pd_regions,
+    };
+  };
+
+  const mergeActualCounts = (baseLimits: ResourceLimit[], actualCounts: ResourceCountSummary) => {
+    const actualByResource: Record<string, number> = actualCounts;
+    return baseLimits.map(item => {
+      const actualCurrent = actualByResource[item.resource];
+      const current = typeof actualCurrent === 'number'
+        ? Math.max(item.current ?? 0, actualCurrent)
+        : item.current;
+      const normalizedMax = item.max === -1 ? 999 : item.max;
+      const exceeded = normalizedMax < 999 && current >= normalizedMax;
+      return { ...item, current, exceeded };
+    });
+  };
+
+  const loadStatus = async (showLoading = false) => {
+    if (showLoading || status === null) {
+      setStatusLoading(true);
+    }
     try {
       const data = await stationApi.getLicenseStatus();
       setStatus(data);
+      sessionStorage.setItem(LICENSE_STATUS_CACHE_KEY, JSON.stringify(data));
     } catch {
-      setStatus({ activated: false });
+      const fallback = { activated: false };
+      setStatus(fallback);
+      sessionStorage.setItem(LICENSE_STATUS_CACHE_KEY, JSON.stringify(fallback));
+    } finally {
+      setStatusLoading(false);
     }
   };
 
-  const loadLimits = async () => {
+  const loadLimits = async (showLoading = false) => {
+    if (showLoading || limits.length === 0) {
+      setLimitsLoading(true);
+    }
     try {
-      const data = await stationApi.getLicenseLimits();
-      setLimits(data);
+      const [data, actualCounts] = await Promise.all([
+        stationApi.getLicenseLimits().catch(() => []),
+        getActualResourceCounts(),
+      ]);
+      const mergedLimits = data.length > 0 ? mergeActualCounts(data, actualCounts) : [
+        { resource: 'stations', current: actualCounts.stations, max: status?.maxStations && status.maxStations >= 999 ? -1 : (status?.maxStations ?? 10), exceeded: false },
+        { resource: 'cameras', current: actualCounts.cameras, max: status?.maxCameras && status.maxCameras >= 999 ? -1 : (status?.maxCameras ?? 10), exceeded: false },
+        { resource: 'roi_points', current: actualCounts.roi_points, max: status?.maxRoiPoints && status.maxRoiPoints >= 999 ? -1 : (status?.maxRoiPoints ?? 10), exceeded: false },
+        { resource: 'roi_regions', current: actualCounts.roi_regions, max: status?.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status?.maxRoiRegions ?? 10), exceeded: false },
+        { resource: 'pd_regions', current: actualCounts.pd_regions, max: status?.maxPdRegions && status.maxPdRegions >= 999 ? -1 : (status?.maxPdRegions ?? 10), exceeded: false },
+      ].map(item => ({
+        ...item,
+        exceeded: item.max !== -1 && item.max < 999 && item.current >= item.max,
+      }));
+
+      setLimits(mergedLimits);
+      sessionStorage.setItem(LICENSE_LIMITS_CACHE_KEY, JSON.stringify(mergedLimits));
     } catch {
       setLimits([]);
+      sessionStorage.removeItem(LICENSE_LIMITS_CACHE_KEY);
+    } finally {
+      setLimitsLoading(false);
     }
+  };
+
+  const refreshLicenseData = async (showLoading = false) => {
+    if (refreshInFlightRef.current) {
+      refreshQueuedRef.current = true;
+      return;
+    }
+
+    refreshInFlightRef.current = true;
+    try {
+      await Promise.allSettled([loadStatus(showLoading), loadLimits(showLoading)]);
+    } finally {
+      refreshInFlightRef.current = false;
+      if (refreshQueuedRef.current) {
+        refreshQueuedRef.current = false;
+        void refreshLicenseData(false);
+      }
+    }
+  };
+
+  const scheduleRefresh = () => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void refreshLicenseData(false);
+    }, 250);
   };
 
   useEffect(() => {
-    loadStatus();
-    loadLimits();
+    void refreshLicenseData(true);
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleRefresh();
+      }
+    };
+
+    const handleOnline = () => {
+      scheduleRefresh();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
+
+  useRealtime({
+    onStationListChanged: () => {
+      scheduleRefresh();
+    },
+    onDeviceListChanged: () => {
+      scheduleRefresh();
+    },
+    onUserStatusChange: () => {
+      scheduleRefresh();
+    },
   }, []);
 
   const handleActivate = async (e: React.FormEvent) => {
@@ -85,8 +311,7 @@ export default function LicensePage() {
       await stationApi.activateLicense(key.trim());
       setSuccessMsg('Kích hoạt thành công! Đang tải lại...');
       setKey('');
-      await loadStatus();
-      await loadLimits();
+      await refreshLicenseData(false);
       setTimeout(() => navigate('/dashboard'), 1500);
     } catch (err: any) {
       setErrorMsg(err?.message ?? 'Không thể kết nối backend');
@@ -107,7 +332,7 @@ export default function LicensePage() {
   };
 
   const renderStatusBox = () => {
-    if (!status) {
+    if (statusLoading && !status) {
       return <div style={{ color: 'var(--admin-text-muted)', fontSize: 13, textAlign: 'center', padding: 20 }}>Đang tải trạng thái...</div>;
     }
 
@@ -167,6 +392,17 @@ export default function LicensePage() {
   };
 
   const renderResourceLimits = () => {
+    if (statusLoading && limitsLoading && !status && limits.length === 0) {
+      return (
+        <div className="resource-limits-section">
+          <h3>Giới hạn tài nguyên</h3>
+          <div style={{ color: 'var(--admin-text-muted)', fontSize: 13, textAlign: 'center', padding: 20 }}>
+            Đang tải giới hạn tài nguyên...
+          </div>
+        </div>
+      );
+    }
+
     // Use limits from API if available, otherwise fall back to status fields
     const resourceData = limits.length > 0 ? limits : [
       { resource: 'stations',    current: 0, max: status?.maxStations   && status.maxStations >= 999   ? -1 : (status?.maxStations ?? 10),   exceeded: false },
@@ -179,7 +415,7 @@ export default function LicensePage() {
     return (
       <div className="resource-limits-section">
         <h3>Giới hạn tài nguyên</h3>
-        {!status?.activated && (
+        {!statusLoading && !status?.activated && (
           <div className="demo-limit-warning" style={{ 
             backgroundColor: 'rgba(255, 107, 107, 0.1)', 
             border: '1px solid rgba(255, 107, 107, 0.3)',

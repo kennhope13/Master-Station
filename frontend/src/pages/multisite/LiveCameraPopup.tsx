@@ -191,13 +191,14 @@ export default function LiveCameraPopup() {
       color: '#e2e8f0'
     }}>
       {/* Top bar */}
-      <div style={{
-        flexShrink: 0, height: 38,
-        background: 'rgba(15,23,42,0.95)',
-        borderBottom: '1px solid rgba(255,255,255,0.07)',
-        display: 'flex', alignItems: 'center',
-        padding: '0 12px', gap: 10
-      }}>
+      {!expandedId && (
+        <div style={{
+          flexShrink: 0, height: 38,
+          background: 'rgba(15,23,42,0.95)',
+          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          display: 'flex', alignItems: 'center',
+          padding: '0 12px', gap: 10
+        }}>
         {/* Status dot */}
         <span style={{
           width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
@@ -496,11 +497,12 @@ export default function LiveCameraPopup() {
           <RefreshCw size={11} />
         </button>
       </div>
+      )}
 
       {/* Main Area with Sidebar */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
         {/* Camera Sidebar */}
-        {!loading && cameras.length > 0 && (
+        {!loading && cameras.length > 0 && !expandedId && (
           <div style={{
             width: 200,
             flexShrink: 0,
@@ -571,7 +573,7 @@ export default function LiveCameraPopup() {
               </div>
               {cameras.map(c => {
                 const currentCellCamId = cellCameras[selectedCellIndex] || cameras[selectedCellIndex]?.id;
-                const active = currentCellCamId === c.id;
+                const active = expandedId ? expandedId === c.id : currentCellCamId === c.id;
                 return (
                   <div
                     key={c.id}
@@ -580,6 +582,7 @@ export default function LiveCameraPopup() {
                         ...prev,
                         [selectedCellIndex]: c.id
                       }));
+                      setExpandedId(c.id);
                     }}
                     style={{
                       padding: '10px 14px',
@@ -712,7 +715,8 @@ function CameraCell({ camera, go2rtcBase, isExpanded, onExpand, onCollapse }: {
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ position: 'relative', background: '#080d15', border: '1px solid rgba(255,255,255,0.04)', overflow: 'hidden', minHeight: 0 }}
+      onDoubleClick={isExpanded ? onCollapse : onExpand}
+      style={{ position: 'relative', background: '#080d15', border: '1px solid rgba(255,255,255,0.04)', overflow: 'hidden', minHeight: 0, width: '100%', height: '100%' }}
     >
       {go2rtcId ? (
         <iframe
@@ -761,7 +765,7 @@ function CameraCell({ camera, go2rtcBase, isExpanded, onExpand, onCollapse }: {
             display: 'flex', alignItems: 'center', gap: 4
           }}
         >
-          {isExpanded ? <><Minimize2 size={10} /> Thu lại</> : <><Maximize2 size={10} /> Phóng to</>}
+          {isExpanded ? <><Minimize2 size={10} /> Thu lại</> : <><Maximize2 size={10} /> Nhấn đúp vào</>}
         </button>
       </div>
     </div>

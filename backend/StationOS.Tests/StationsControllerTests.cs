@@ -24,16 +24,21 @@ public class StationsControllerTests
         return new AppDbContext(opts);
     }
 
-    private static StationsController CreateController(AppDbContext db, Guid adminUserId)
+    private static StationsController CreateController(AppDbContext db, User actingUser)
     {
+        var claims = new List<Claim>
+        {
+            new Claim(ClaimTypes.NameIdentifier, actingUser.Id.ToString()),
+            new Claim(ClaimTypes.Name, actingUser.Username),
+            new Claim(ClaimTypes.Role, actingUser.Role)
+        };
+
+        if (actingUser.TeamId.HasValue)
+            claims.Add(new Claim("teamId", actingUser.TeamId.Value.ToString()));
+
         var httpContext = new DefaultHttpContext
         {
-            User = new ClaimsPrincipal(new ClaimsIdentity(new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, adminUserId.ToString()),
-                new Claim(ClaimTypes.Name, "multi"),
-                new Claim(ClaimTypes.Role, "admin")
-            }, "TestAuth"))
+            User = new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"))
         };
 
         var httpAccessor = new HttpContextAccessor { HttpContext = httpContext };
@@ -99,7 +104,7 @@ public class StationsControllerTests
         db.Provinces.Add(province);
         await db.SaveChangesAsync();
 
-        var controller = CreateController(db, admin.Id);
+        var controller = CreateController(db, admin);
         var request = new StationRequest(
             Name: "Trạm Vĩnh Long 01",
             Code: "VL01",
@@ -165,7 +170,7 @@ public class StationsControllerTests
         db.Provinces.Add(province);
         await db.SaveChangesAsync();
 
-        var controller = CreateController(db, admin.Id);
+        var controller = CreateController(db, admin);
         var request = new StationRequest(
             Name: "Trạm Vĩnh Long 02",
             Code: "VL02",
@@ -217,7 +222,7 @@ public class StationsControllerTests
         db.Provinces.Add(province);
         await db.SaveChangesAsync();
 
-        var controller = CreateController(db, admin.Id);
+        var controller = CreateController(db, admin);
         var request = new StationRequest(
             Name: "Trạm Vĩnh Long 01",
             Code: "VL01",
@@ -241,5 +246,58 @@ public class StationsControllerTests
         Assert.Equal(2, stationAdmins.Count);
         Assert.Contains(stationAdmins, u => u.Username == "admintramvl01");
         Assert.Contains(stationAdmins, u => u.Username == "admintramvl012");
+    }
+
+    [Fact]
+    public async Task Create_WhenCallerIsTeamLeaderWithFixedProvince_ShouldAllowCreatingStationInOwnProvince()
+    {
+        using var db = CreateInMemoryDb();
+
+        var province = new Province
+        {
+            Id = Guid.NewGuid(),
+            Name = "Tỉnh Vĩnh Long",
+            Code = "VL",
+            Status = "active"
+        };
+        var team = new Team
+        {
+            Id = Guid.NewGuid(),
+            Name = "Tổ Vĩnh Long 1",
+            ProvinceId = province.Id,
+            StationIds = Array.Empty<Guid>()
+        };
+        var leader = new User
+        {
+            Id = Guid.NewGuid(),
+            Username = "teamleadervl1",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Demo@2024"),
+            Role = "team_leader",
+            TeamId = team.Id,
+            IsActive = true
+        };
+
+        db.Provinces.Add(province);
+        db.Teams.Add(team);
+        db.Users.Add(leader);
+        await db.SaveChangesAsync();
+
+        var controller = CreateController(db, leader);
+        var request = new StationRequest(
+            Name: "Trạm Vĩnh Long 03",
+            Code: "VL03",
+            Location: """{"lat":10.255,"lng":105.974,"address":"Phường 3, Tỉnh Vĩnh Long"}""",
+            Status: null,
+            ApiUrl: null,
+            ApiUsername: null,
+            ApiPassword: null,
+            WebUrl: null,
+            ProvinceId: province.Id);
+
+        var result = await controller.Create(request);
+
+        Assert.IsType<CreatedAtActionResult>(result);
+        var createdStation = await db.Stations.SingleAsync();
+        Assert.Equal(province.Id, createdStation.ProvinceId);
     }
 }

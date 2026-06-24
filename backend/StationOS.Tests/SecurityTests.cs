@@ -165,4 +165,51 @@ public class SecurityTests
             Assert.False(updatedUser.MustChangePassword);
         }
     }
+
+    [Fact]
+    public async Task SeedAdminIfNotExistsAsync_ShouldBackfillProvinceAndStationAccountsForExistingData()
+    {
+        using var db = CreateInMemoryDb();
+        var authConfig = new Mock<IConfiguration>();
+        authConfig.Setup(c => c["ConnectionStrings:Default"])
+            .Returns("Host=localhost;Port=6432;Database=StationOS_Central;Username=postgres;Password=postgres123");
+
+        var crypto = new CredentialEncryptionService(authConfig.Object, _mockLogger.Object);
+        var authService = new AuthService(db, authConfig.Object, crypto);
+
+        var province = new Province
+        {
+            Id = Guid.NewGuid(),
+            Name = "Tỉnh Tây Ninh",
+            Code = "TN",
+            Status = "active"
+        };
+        var station = new Station
+        {
+            Id = Guid.NewGuid(),
+            Name = "Trạm 110kV Tây Ninh",
+            Code = "TN01",
+            Location = """{"lat":11.36,"lng":106.11,"address":"Trảng Bàng, Tỉnh Tây Ninh"}""",
+            ProvinceId = province.Id,
+            Status = "active"
+        };
+
+        db.Provinces.Add(province);
+        db.Stations.Add(station);
+        await db.SaveChangesAsync();
+
+        await authService.SeedAdminIfNotExistsAsync();
+
+        var provinceAdmin = await db.Users.SingleAsync(u => u.Role == "admin_province" && u.ProvinceIds != null && u.ProvinceIds.Contains(province.Id));
+        Assert.Equal("admintinhtn", provinceAdmin.Username);
+        Assert.True(provinceAdmin.MustChangePassword);
+        Assert.StartsWith("enc:v1:", provinceAdmin.ProvisionedPassword);
+        Assert.True(BCrypt.Net.BCrypt.Verify("TinhTN@2026!", provinceAdmin.PasswordHash));
+
+        var stationAdmin = await db.Users.SingleAsync(u => u.Role == "admin_station" && u.StationIds != null && u.StationIds.Contains(station.Id));
+        Assert.Equal("admintramtn01", stationAdmin.Username);
+        Assert.True(stationAdmin.MustChangePassword);
+        Assert.StartsWith("enc:v1:", stationAdmin.ProvisionedPassword);
+        Assert.True(BCrypt.Net.BCrypt.Verify("TramTN01@26", stationAdmin.PasswordHash));
+    }
 }

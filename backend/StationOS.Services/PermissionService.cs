@@ -210,6 +210,29 @@ public class PermissionService
             return dbUser.ProvinceIds;
         }
 
+        if (dbUser.Role == "team_leader")
+        {
+            var teamId = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.Id == userId)
+                .Select(u => u.TeamId)
+                .FirstOrDefaultAsync();
+
+            if (teamId == null)
+                return Array.Empty<Guid>();
+
+            var provinceId = await _db.Teams
+                .AsNoTracking()
+                .Where(t => t.Id == teamId.Value)
+                .Select(t => t.ProvinceId)
+                .FirstOrDefaultAsync();
+
+            if (provinceId == null)
+                return Array.Empty<Guid>();
+
+            return new[] { provinceId.Value };
+        }
+
         return Array.Empty<Guid>(); // các role thấp hơn không quản lý tỉnh
     }
 
@@ -275,7 +298,7 @@ public class PermissionService
     // Tổ trưởng: quản lý tổ + nhân viên trong tổ + trạm của tổ
     private static readonly string[] TeamLeaderPermissions = new[]
     {
-        "station:view", "device:view", "device:manage",
+        "station:view", "station:manage", "device:view", "device:manage",
         "rule:view", "report:view",
         "user:view", "user:manage"
     };

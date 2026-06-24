@@ -10,6 +10,9 @@ public class MaintenanceTask
 
     public Guid? DeviceId { get; set; }
 
+    /// <summary>Tên thiết bị tại thời điểm tạo/sync task. Dùng fallback khi không map được DeviceId local.</summary>
+    public string? DeviceNameSnapshot { get; set; }
+
     /// <summary>Tên task bảo trì, vd "Kiểm tra MBA chính"</summary>
     [Required] public string Title { get; set; } = string.Empty;
 

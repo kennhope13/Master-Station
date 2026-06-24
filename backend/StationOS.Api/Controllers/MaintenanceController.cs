@@ -93,10 +93,18 @@ public class MaintenanceController : ControllerBase
         if (!await _permissions.CanAccessStationAsync(req.StationId))
             return Forbid();
 
+        string? deviceNameSnapshot = null;
+        if (req.DeviceId.HasValue)
+        {
+            var device = await _db.Devices.FindAsync(req.DeviceId.Value);
+            deviceNameSnapshot = device?.Name;
+        }
+
         var task = new MaintenanceTask
         {
             StationId     = req.StationId,
             DeviceId      = req.DeviceId,
+            DeviceNameSnapshot = deviceNameSnapshot,
             Title         = req.Title,
             Type          = req.Type ?? "inspection",
             ScheduledDate = req.ScheduledDate,
@@ -142,6 +150,11 @@ public class MaintenanceController : ControllerBase
         if (req.Notes != null)         task.Notes         = req.Notes;
         if (req.Checklist != null)     task.Checklist     = req.Checklist;
         if (req.Status != null)        task.Status        = req.Status;
+        if (task.DeviceId.HasValue)
+        {
+            var dev = await _db.Devices.FindAsync(task.DeviceId.Value);
+            task.DeviceNameSnapshot = dev?.Name ?? task.DeviceNameSnapshot;
+        }
 
         await _db.SaveChangesAsync();
         _ = _notifier.SendMaintenanceChangedAsync("updated", task.StationId);
@@ -260,6 +273,9 @@ public class MaintenanceController : ControllerBase
         {
             StationId     = alert.StationId,
             DeviceId      = alert.DeviceId,
+            DeviceNameSnapshot = alert.DeviceId.HasValue
+                ? await _db.Devices.Where(d => d.Id == alert.DeviceId.Value).Select(d => d.Name).FirstOrDefaultAsync()
+                : null,
             Title         = $"Bảo trì sau cảnh báo: {alert.Message?.Substring(0, Math.Min(80, alert.Message?.Length ?? 0)) ?? ""}",
             Type          = "repair",
             ScheduledDate = DateTime.UtcNow.Date.AddDays(7),
@@ -431,7 +447,7 @@ public class MaintenanceController : ControllerBase
     // ── Helper: Map entity → DTO ──────────────────────────────
     private static object MapTask(MaintenanceTask t, Dictionary<Guid, string> deviceNames)
     {
-        var devName = t.DeviceId.HasValue && deviceNames.TryGetValue(t.DeviceId.Value, out var n) ? n : null;
+        var devName = t.DeviceId.HasValue && deviceNames.TryGetValue(t.DeviceId.Value, out var n) ? n : t.DeviceNameSnapshot;
         return new
         {
             id            = t.Id,

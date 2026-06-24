@@ -9,7 +9,7 @@ import { useState, useEffect, ReactNode, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { stationApi, type AlertItem, type AlertHistoryEntry } from '@/services/StationApiService';
 import { useDeviceStore } from '@/store';
-import { fmtDateTime } from '@/utils/format';
+import { fmtDateTime, cleanAlertMessage } from '@/utils/format';
 import { showToast } from '@/utils/toast';
 import { API_BASE_URL } from '@/utils/env';
 
@@ -255,7 +255,7 @@ export default function AlertDetailPage() {
           }}
         ></div>
         <span style={{ fontSize: '1rem', fontWeight: 800, color: color }}>{levelText}</span>
-        <span style={{ opacity: .85, fontSize: '.9rem', color: 'var(--admin-text)' }}>{alert.message}</span>
+        <span style={{ opacity: .85, fontSize: '.9rem', color: 'var(--admin-text)' }}>{cleanAlertMessage(alert.message)}</span>
         <span style={{ marginLeft: 'auto', fontSize: '.8rem', color: 'var(--admin-text-muted)' }}>{fmt(alert.triggeredAt)}</span>
       </div>
 
@@ -516,7 +516,7 @@ export default function AlertDetailPage() {
               icon: '', color: color,
               time: fmt(alert.triggeredAt),
               actor: 'SYSTEM',
-              desc: `Cảnh báo phát sinh — ${levelText} — ${alert.message}`,
+              desc: `Cảnh báo phát sinh — ${levelText} — ${cleanAlertMessage(alert.message)}`,
               isFirst: true,
             }, -1)}
             {alert.history.map((h, idx) => timelineItem({

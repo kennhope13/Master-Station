@@ -1,24 +1,40 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, Play, Camera, Search, ChevronRight, ChevronLeft, Clock, ShieldAlert, CheckCircle2, History, User, ExternalLink } from 'lucide-react';
 import { stationApi, AlertItem, AlertHistoryEntry } from '@/services/StationApiService';
 import { useStationStore, useDeviceStore, useAlertStore } from '@/store';
 import { ALERT_STATUS, ALERT_LEVEL, alertStatusLabel, alertLevelLabel } from '@/types/enums';
 import { createRealtimeHub } from '@/services/realtime.service';
-import { fmtDateTime, fmtTimeRange } from '@/utils/format';
+import { fmtDateTime, fmtTimeRange, cleanAlertMessage } from '@/utils/format';
 import { confirmDialog } from '@/utils/confirm';
 import { GO2RTC_URL } from '@/utils/env';
+import { authService } from '@/services/AuthService';
 import './AlertsHistoryPage.css';
 
 type AlertDetail = AlertItem & { history: AlertHistoryEntry[] };
 
+const alertSourceLabel = (src: string): string => {
+  const sourceMap: Record<string, string> = {
+    rule_engine: 'NGƯỠNG ĐO',
+    ai_detection: 'NGƯỜI',
+    manual: 'THỦ CÔNG',
+    maintenance: 'BẢO TRÌ',
+    camera: 'CAMERA',
+    storage_monitor: 'GIÁM SÁT BỘ NHỚ',
+    system: 'HỆ THỐNG',
+  };
+  return sourceMap[src] || src?.toUpperCase() || 'HỆ THỐNG';
+};
+
 export default function AlertsHistoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const stationId = searchParams.get('stationId') || undefined;
   const [timeRange, setTimeRange] = useState('7d');
   const [customFrom, setCustomFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterSource, setFilterSource] = useState('');
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
@@ -76,10 +92,14 @@ export default function AlertsHistoryPage() {
   };
 
   const filtered = useMemo(() => {
-    if (!searchText) return alerts;
+    let list = alerts;
+    if (filterSource) {
+      list = list.filter(a => a.source === filterSource);
+    }
+    if (!searchText) return list;
     const q = searchText.toLowerCase();
-    return alerts.filter(a => a.message.toLowerCase().includes(q) || a.id.toLowerCase().includes(q));
-  }, [alerts, searchText]);
+    return list.filter(a => a.message.toLowerCase().includes(q) || a.id.toLowerCase().includes(q));
+  }, [alerts, searchText, filterSource]);
 
   const handleAck = async (id: string) => {
     await ackAlertInStore(id, 'Tiếp nhận qua hệ thống');
@@ -97,7 +117,40 @@ export default function AlertsHistoryPage() {
   return (
     <div className="rtm-page industrial-theme">
       <header className="rtm-bar">
-        <div className="rtm-title">NHẬT KÝ CẢNH BÁO</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 15, marginRight: 10 }}>
+          <span 
+            style={{ 
+              fontSize: '0.75rem', 
+              fontWeight: 900, 
+              color: 'var(--admin-accent, #00ebc7)', 
+              borderBottom: '2px solid var(--admin-accent, #00ebc7)', 
+              paddingBottom: 2, 
+              letterSpacing: '0.08em',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            NHẬT KÝ CẢNH BÁO
+          </span>
+          {authService.hasPermission('settings:manage') && (
+            <span 
+              onClick={() => navigate('/audit-log')}
+              style={{ 
+                fontSize: '0.75rem', 
+                fontWeight: 900, 
+                color: 'var(--admin-text-muted, #64748b)', 
+                cursor: 'pointer', 
+                paddingBottom: 2, 
+                letterSpacing: '0.08em',
+                whiteSpace: 'nowrap',
+                transition: 'color 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--admin-text, #f1f5f9)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--admin-text-muted, #64748b)'}
+            >
+              NHẬT KÝ HỆ THỐNG
+            </span>
+          )}
+        </div>
         <div className="rtm-sep" />
         <div className="nvr-stats">
           <div className="nvr-stat">SỰ KIỆN: <b>{filtered.length}</b></div>
@@ -116,6 +169,17 @@ export default function AlertsHistoryPage() {
               <option value="open">CHƯA XỬ LÝ</option>
               <option value="acked">ĐANG XỬ LÝ</option>
               <option value="closed">ĐÃ ĐÓNG</option>
+           </select>
+           <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>LOẠI:</span>
+           <select className="nvr-sel" value={filterSource} onChange={e => setFilterSource(e.target.value)}>
+              <option value="">TẤT CẢ</option>
+              <option value="rule_engine">NGƯỠNG ĐO</option>
+              <option value="ai_detection">NGƯỜI</option>
+              <option value="manual">THỦ CÔNG</option>
+              <option value="maintenance">BẢO TRÌ</option>
+              <option value="camera">CAMERA</option>
+              <option value="storage_monitor">GIÁM SÁT BỘ NHỚ</option>
+              <option value="system">HỆ THỐNG</option>
            </select>
            <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>HẠN:</span>
            <select className="nvr-sel" value={timeRange} onChange={e => setTimeRange(e.target.value)}>
@@ -155,7 +219,8 @@ export default function AlertsHistoryPage() {
                        <th style={{ width: 60, textAlign: 'center' }}>ẢNH</th>
                        <th style={{ width: 140 }}>THỜI GIAN</th>
                        <th style={{ width: 100 }}>MỨC ĐỘ</th>
-                       <th>NỘI DUNG</th>
+                       <th style={{ width: 120 }}>LOẠI</th>
+                        <th>NỘI DUNG</th>
                        <th style={{ width: 100 }}>TRẠNG THÁI</th>
                     </tr>
                  </thead>
@@ -170,7 +235,8 @@ export default function AlertsHistoryPage() {
                           </td>
                           <td className="mono">{fmtDateTime(a.triggeredAt)}</td>
                           <td><span className={'badge-' + a.level}>{alertLevelLabel(a.level).toUpperCase()}</span></td>
-                          <td><b className="act-bold">{a.message}</b></td>
+                          <td><span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>{alertSourceLabel(a.source)}</span></td>
+                           <td><b className="act-bold">{cleanAlertMessage(a.message)}</b></td>
                           <td><span className={'status-' + a.status}>{alertStatusLabel(a.status).toUpperCase()}</span></td>
                        </tr>
                     ))}
@@ -198,7 +264,7 @@ export default function AlertsHistoryPage() {
                            <img src={detailData.imageUrl} alt="" />
                          ) : <div className="no-media">KHÔNG CÓ DỮ LIỆU PHƯƠNG TIỆN</div>}
                       </div>
-                      <div className="detail-row"><span>THÔNG ĐIỆP</span><b className="highlight">{detailData.message}</b></div>
+                      <div className="detail-row"><span>THÔNG ĐIỆP</span><b className="highlight">{cleanAlertMessage(detailData.message)}</b></div>
                       <div className="detail-row"><span>THỜI GIAN</span><b>{fmtDateTime(detailData.triggeredAt)}</b></div>
                       <div className="detail-row"><span>MỨC ĐỘ</span><b className={'badge-' + detailData.level}>{alertLevelLabel(detailData.level).toUpperCase()}</b></div>
                       

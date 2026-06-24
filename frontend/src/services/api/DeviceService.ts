@@ -10,15 +10,29 @@ import type { Device, CameraDevice, RoiPoint, Boundary } from '@/types/api.types
 import { AI_ENGINE_URL } from '@/utils/env';
 
 export class DeviceService {
+  private devicesCache: Record<string, { data: Device[]; fetchedAt: number }> = {};
+  private CACHE_TTL = 30000; // 30 seconds
+
+  private clearCache() {
+    this.devicesCache = {};
+  }
+
   /** Lấy danh sách thiết bị của trạm. config JSON được parse tự động. */
-  async getDevices(stationId?: string, type?: string): Promise<Device[]> {
+  async getDevices(stationId?: string, type?: string, force = false): Promise<Device[]> {
+    const cacheKey = `${stationId || 'all'}_${type || 'all'}`;
+    const cached = this.devicesCache[cacheKey];
+    if (!force && cached && (Date.now() - cached.fetchedAt) < this.CACHE_TTL) {
+      return cached.data;
+    }
     const q = type ? `?type=${type}` : '';
     const url = stationId ? `/stations/${stationId}/devices${q}` : `/devices${q}`;
     const raw = await apiFetch<any[]>(url);
-    return raw.map(d => ({
+    const data = raw.map(d => ({
       ...d,
       config: typeof d.config === 'string' ? JSON.parse(d.config) : (d.config ?? {})
     })) as Device[];
+    this.devicesCache[cacheKey] = { data, fetchedAt: Date.now() };
+    return data;
   }
 
   /** Tạo thiết bị mới cho trạm. config là JSON string (stringify trước khi gửi). */
@@ -26,16 +40,19 @@ export class DeviceService {
     stationId: string; name: string; type: string;
     protocol?: string; config?: string;
   }): Promise<Device> {
+    this.clearCache();
     return apiMutate('POST', '/devices', data);
   }
 
   /** Cập nhật tên, cấu hình, hoặc trạng thái thiết bị. */
   async updateDevice(id: string, data: { name?: string; config?: string; status?: string }): Promise<Device> {
+    this.clearCache();
     return apiMutate('PUT', `/devices/${id}`, data);
   }
 
   /** Xóa thiết bị. Cẩn thận: xóa luôn lịch sử sensor liên quan. */
   async deleteDevice(id: string): Promise<void> {
+    this.clearCache();
     return apiMutate('DELETE', `/devices/${id}`);
   }
 
@@ -80,6 +97,7 @@ export class DeviceService {
     created: Array<{ id: string; name: string; type: string; streamId: string }>;
     capabilities: any;
   }> {
+    this.clearCache();
     return apiMutate('POST', '/devices/auto-configure', { stationId, ip, username, password, namePrefix });
   }
 

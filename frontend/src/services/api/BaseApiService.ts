@@ -3,8 +3,68 @@ import { useAuthStore } from '@/store/authStore';
 import { API_BASE_URL } from '@/utils/env';
 
 export const API_BASE = `${API_BASE_URL}/api/v1`;
+const GET_CACHE_PREFIX = 'api-get-cache:';
+const GET_CACHE_TTL_MS = 60_000;
 
 let refreshPromise: Promise<string | null> | null = null;
+const inflightGetRequests = new Map<string, Promise<any>>();
+
+type CachedGetRecord = {
+  ts: number;
+  data: unknown;
+};
+
+function getUserCacheScope(): string {
+  const user = useAuthStore.getState().user;
+  return user?.user_id || user?.username || 'anonymous';
+}
+
+function buildGetCacheKey(path: string): string {
+  return `${GET_CACHE_PREFIX}${getUserCacheScope()}:${path}`;
+}
+
+function readGetCache<T>(cacheKey: string): T | null {
+  try {
+    const raw = sessionStorage.getItem(cacheKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedGetRecord;
+    if (!parsed || typeof parsed.ts !== 'number') return null;
+    if (Date.now() - parsed.ts > GET_CACHE_TTL_MS) {
+      sessionStorage.removeItem(cacheKey);
+      return null;
+    }
+    return parsed.data as T;
+  } catch {
+    return null;
+  }
+}
+
+function writeGetCache(cacheKey: string, data: unknown) {
+  try {
+    const payload: CachedGetRecord = { ts: Date.now(), data };
+    sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+  } catch {
+    // sessionStorage may be unavailable or full
+  }
+}
+
+function clearGetCache() {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i += 1) {
+      const key = sessionStorage.key(i);
+      if (key?.startsWith(GET_CACHE_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      sessionStorage.removeItem(key);
+    }
+  } catch {
+    // ignore storage errors
+  }
+  inflightGetRequests.clear();
+}
 
 async function performRefresh(): Promise<string | null> {
   const store = useAuthStore.getState();
@@ -88,35 +148,62 @@ async function getValidToken(): Promise<string | null> {
 
 /** GET request với Bearer token tự động. Tự động tải lại và thử lại nếu token hết hạn. */
 export async function apiFetch<T>(path: string): Promise<T> {
-  let token = await getValidToken();
-  let res = await fetch(`${API_BASE}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  });
-
-  if (res.status === 401) {
-    if (!refreshPromise) {
-      refreshPromise = performRefresh().finally(() => {
-        refreshPromise = null;
-      });
-    }
-    token = await refreshPromise;
-    if (token) {
-      res = await fetch(`${API_BASE}${path}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-    }
+  const cacheKey = buildGetCacheKey(path);
+  const cached = readGetCache<T>(cacheKey);
+  if (cached !== null) {
+    return cached;
   }
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    let message = '';
-    try {
-      const parsed = JSON.parse(errText);
-      message = parsed.message || parsed.error || '';
-    } catch {}
-    throw new Error(message || `API ${path} → ${res.status}`);
+  const inflight = inflightGetRequests.get(cacheKey);
+  if (inflight) {
+    return inflight as Promise<T>;
   }
-  return res.json() as Promise<T>;
+
+  const request = (async () => {
+    let token = await getValidToken();
+    let res = await fetch(`${API_BASE}${path}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+
+    if (res.status === 401) {
+      if (!refreshPromise) {
+        refreshPromise = performRefresh().finally(() => {
+          refreshPromise = null;
+        });
+      }
+      token = await refreshPromise;
+      if (token) {
+        res = await fetch(`${API_BASE}${path}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      }
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      let message = '';
+      try {
+        const parsed = JSON.parse(errText);
+        message = parsed.message || parsed.error || '';
+      } catch {}
+      throw new Error(message || `API ${path} → ${res.status}`);
+    }
+
+    if (res.status === 204) {
+      return null as T;
+    }
+
+    const data = await res.json() as T;
+    writeGetCache(cacheKey, data);
+    return data;
+  })();
+
+  inflightGetRequests.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    inflightGetRequests.delete(cacheKey);
+  }
 }
 
 /** POST/PUT/PATCH/DELETE với JSON body và Bearer token. Tự động tải lại và thử lại nếu token hết hạn. */
@@ -159,6 +246,11 @@ export async function apiMutate<T = any>(method: string, path: string, body?: ob
     } catch {}
     throw new Error(message || errText || `${method} ${path} → ${res.status}`);
   }
-  if (res.status === 204) return null as T;
-  return res.json();
+  if (res.status === 204) {
+    clearGetCache();
+    return null as T;
+  }
+  const data = await res.json();
+  clearGetCache();
+  return data;
 }

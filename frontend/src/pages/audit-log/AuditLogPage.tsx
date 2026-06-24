@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, ChevronRight, ChevronLeft, LayoutGrid, Database } from 'lucide-react';
 import { stationApi, Station } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
@@ -102,6 +102,7 @@ function formatActionLabel(type: string, action: string, entity?: string) {
 
 export default function AuditLogPage({ embeddedMode = 'default', stationIdOverride = null }: AuditLogPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const activeTab = (searchParams.get('auditTab') as TabId) || 'all';
   const [timeRange, setTimeRange] = useState('today');
   const [customFrom, setCustomFrom] = useState(new Date().toISOString().slice(0, 10));
@@ -224,7 +225,38 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   return (
     <div className="rtm-page industrial-theme">
       <header className="rtm-bar">
-        <div className="rtm-title">NHẬT KÝ HỆ THỐNG</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 15, marginRight: 10 }}>
+          <span 
+            onClick={() => navigate('/alerts-history')}
+            style={{ 
+              fontSize: '0.75rem', 
+              fontWeight: 900, 
+              color: 'var(--admin-text-muted, #64748b)', 
+              cursor: 'pointer', 
+              paddingBottom: 2, 
+              letterSpacing: '0.08em',
+              whiteSpace: 'nowrap',
+              transition: 'color 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--admin-text, #f1f5f9)'}
+            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--admin-text-muted, #64748b)'}
+          >
+            NHẬT KÝ CẢNH BÁO
+          </span>
+          <span 
+            style={{ 
+              fontSize: '0.75rem', 
+              fontWeight: 900, 
+              color: 'var(--admin-accent, #00ebc7)', 
+              borderBottom: '2px solid var(--admin-accent, #00ebc7)', 
+              paddingBottom: 2, 
+              letterSpacing: '0.08em',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            NHẬT KÝ HỆ THỐNG
+          </span>
+        </div>
         <div className="rtm-sep" />
         <div className="nvr-stats">
           <div className="nvr-stat">TỔNG: <b>{filtered.length}</b></div>

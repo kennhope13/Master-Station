@@ -8,12 +8,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle, ArrowUpDown, CheckSquare, ChevronDown, ChevronLeft,
-  ChevronRight, ChevronUp, Copy, Cpu, Download, Edit3,
+  AlertCircle, CheckSquare, ChevronDown, ChevronLeft,
+  ChevronRight, ChevronUp, Copy, Cpu, Download, Edit3, FileSpreadsheet, FileText,
   List, Plus, RefreshCw,
   RotateCw, Search, Server, Thermometer, Trash2, Video, Wifi, X, Zap,
 } from 'lucide-react';
-import type { Station, Device } from '@/types/api.types';
+import type { Station, Device, Province } from '@/types/api.types';
 import { DEVICE_TYPE_LABELS, DEV_CAM_TYPES } from '@/constants/devices';
 import { stationApi } from '@/services/StationApiService';
 import { confirmDialog } from '@/utils/confirm';
@@ -27,6 +27,7 @@ type ViewMode = 'grouped' | 'table' | 'cards';
 
 interface Props {
   stations: Station[];
+  provinces: Province[];
   devicesByStation: Record<string, Device[]>;
   selectedStationId: string | null;
   onSelectStation: (id: string | null) => void;
@@ -39,6 +40,7 @@ interface StationSummary {
   id: string;
   name: string;
   code: string;
+  provinceName: string;
   total: number;
   online: number;
   offline: number;
@@ -55,6 +57,24 @@ interface DeviceGroup {
   devices: Device[];
   online: number;
   total: number;
+}
+
+interface ProvinceSummary {
+  name: string;
+  stationCount: number;
+  total: number;
+  online: number;
+  offline: number;
+  maintenance: number;
+  filteredTotal: number;
+  topTypes: [string, number][];
+  healthPct: number;
+  alertCount: number;
+}
+
+interface ProvinceStationGroup {
+  summary: ProvinceSummary;
+  stations: StationSummary[];
 }
 
 interface TestResult {
@@ -102,55 +122,6 @@ const SORT_FIELD_LABELS: Record<SortField, string> = {
 
 const AUTO_REFRESH_SEC = 30;
 
-// ── Fleet Donut Chart ──────────────────────────────────────────
-function FleetDonut({ online, maintenance, offline, total, size = 72 }: {
-  online: number; maintenance: number; offline: number; total: number; size?: number;
-}) {
-  const r = 18;
-  const onlinePct  = total ? (online      / total) * 100 : 0;
-  const maintPct   = total ? (maintenance / total) * 100 : 0;
-  const offlinePct = total ? (offline     / total) * 100 : 0;
-
-  const segments = [
-    { pct: onlinePct,  color: 'var(--admin-success)', acc: 0 },
-    { pct: maintPct,   color: 'var(--admin-warning)', acc: onlinePct },
-    { pct: offlinePct, color: 'var(--admin-danger)',  acc: onlinePct + maintPct },
-  ];
-
-  return (
-    <svg width={size} height={size} viewBox="0 0 44 44" style={{ flexShrink: 0, display: 'block' }}>
-      <circle cx={22} cy={22} r={r} fill="none" stroke="var(--admin-border)" strokeWidth="5" />
-      {total === 0 ? (
-        <text x={22} y={22} textAnchor="middle" dominantBaseline="middle"
-          style={{ fontSize: 7, fontWeight: 900, fill: 'var(--admin-text-muted)', fontFamily: 'inherit' }}>—</text>
-      ) : (
-        <>
-          {segments.map(({ pct, color, acc }, i) => pct > 0 && (
-            <circle
-              key={i}
-              cx={22} cy={22} r={r} fill="none"
-              stroke={color} strokeWidth="5"
-              pathLength="100"
-              strokeDasharray={`${pct} ${100 - pct}`}
-              strokeDashoffset={-acc}
-              strokeLinecap="butt"
-              transform="rotate(-90 22 22)"
-            />
-          ))}
-          <text x={22} y={21} textAnchor="middle" dominantBaseline="middle"
-            style={{ fontSize: 8, fontWeight: 900, fill: 'var(--admin-text)', fontFamily: 'inherit' }}>
-            {Math.round(onlinePct)}%
-          </text>
-          <text x={22} y={29} textAnchor="middle" dominantBaseline="middle"
-            style={{ fontSize: 5.5, fontWeight: 700, fill: 'var(--admin-text-muted)', fontFamily: 'inherit' }}>
-            online
-          </text>
-        </>
-      )}
-    </svg>
-  );
-}
-
 // ── Helper: icon & color ──────────────────────────────────────
 function deviceIcon(type: string, size = 14): React.ReactElement {
   const fn = TYPE_ICONS[type];
@@ -189,9 +160,38 @@ function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(() => {});
 }
 
+function parseStationAddress(location?: string): string {
+  if (!location) return '';
+  try {
+    const parsed = JSON.parse(location);
+    return typeof parsed?.address === 'string' ? parsed.address : '';
+  } catch {
+    return '';
+  }
+}
+
+function extractProvinceName(address: string): string {
+  const rawAddress = address.trim();
+  if (!rawAddress) return 'Chưa phân tỉnh';
+
+  const segments = rawAddress
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+
+  if (segments.length === 0) return 'Chưa phân tỉnh';
+
+  const preferred = [...segments].reverse().find(part =>
+    /^(Tỉnh|Thành phố|TP\.?|TP )/i.test(part)
+  );
+
+  return preferred || segments[segments.length - 1] || 'Chưa phân tỉnh';
+}
+
 // ── Component ─────────────────────────────────────────────────
 export default function CentralDeviceView({
   stations,
+  provinces,
   devicesByStation,
   selectedStationId,
   onSelectStation,
@@ -236,6 +236,23 @@ export default function CentralDeviceView({
 
   // Toast notification
   const [toast, setToast] = useState<string | null>(null);
+  const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
+  const [expandedProvinces, setExpandedProvinces] = useState<Set<string>>(new Set());
+
+  // Export dropdown
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const downloadDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!downloadDropdownOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (downloadDropdownRef.current && !downloadDropdownRef.current.contains(event.target as Node)) {
+        setDownloadDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [downloadDropdownOpen]);
 
   const isDrilldown = Boolean(selectedStationId);
 
@@ -283,10 +300,15 @@ export default function CentralDeviceView({
     devices.forEach(d => { typeCounts[d.type] = (typeCounts[d.type] || 0) + 1; });
     const topTypes = Object.entries(typeCounts).sort(([, a], [, b]) => b - a).slice(0, 4);
 
+    const provinceName =
+      (s.provinceId ? provinces.find(p => p.id === s.provinceId)?.name : undefined) ||
+      extractProvinceName(parseStationAddress(s.location));
+
     return {
       id: s.id,
       name: s.name,
       code: s.code || s.id.slice(0, 8).toUpperCase(),
+      provinceName,
       total: devices.length,
       online,
       offline,
@@ -302,13 +324,107 @@ export default function CentralDeviceView({
       return s.filteredTotal > 0;
     }
     return true;
-  }), [stations, devicesByStation, searchQuery, statusFilter, typeFilter, isDrilldown, alertsByStation]);
+  }), [stations, devicesByStation, searchQuery, statusFilter, typeFilter, isDrilldown, alertsByStation, provinces]);
+
+  const provinceSummaries = useMemo<ProvinceSummary[]>(() => {
+    const groups = new Map<string, StationSummary[]>();
+    stationSummaries.forEach(summary => {
+      const list = groups.get(summary.provinceName) || [];
+      list.push(summary);
+      groups.set(summary.provinceName, list);
+    });
+
+    return [...groups.entries()]
+      .map(([name, group]) => {
+        const typeCounts: Record<string, number> = {};
+        group.forEach(summary => {
+          const devices = devicesByStation[summary.id] ?? [];
+          devices.forEach(device => {
+            if (searchQuery.trim()) {
+              const q = searchQuery.trim().toLowerCase();
+              const matchesQuery =
+                device.name.toLowerCase().includes(q) ||
+                (device.config?.ip || '').toLowerCase().includes(q);
+              if (!matchesQuery) return;
+            }
+            if (statusFilter === 'online' && device.status !== 'online') return;
+            if (statusFilter === 'offline' && (device.status === 'online' || device.status === 'maintenance')) return;
+            if (statusFilter === 'maintenance' && device.status !== 'maintenance') return;
+            if (typeFilter && device.type !== typeFilter) return;
+            typeCounts[device.type] = (typeCounts[device.type] || 0) + 1;
+          });
+        });
+
+        const total = group.reduce((sum, summary) => sum + summary.total, 0);
+        const online = group.reduce((sum, summary) => sum + summary.online, 0);
+        const offline = group.reduce((sum, summary) => sum + summary.offline, 0);
+        const maintenance = group.reduce((sum, summary) => sum + summary.maintenance, 0);
+        const filteredTotal = group.reduce((sum, summary) => sum + summary.filteredTotal, 0);
+        const alertCount = group.reduce((sum, summary) => sum + summary.alertCount, 0);
+
+        return {
+          name,
+          stationCount: group.length,
+          total,
+          online,
+          offline,
+          maintenance,
+          filteredTotal,
+          topTypes: Object.entries(typeCounts).sort(([, a], [, b]) => b - a).slice(0, 4),
+          healthPct: total ? Math.round((online / total) * 100) : 0,
+          alertCount,
+        };
+      })
+      .filter(group => {
+        if (searchQuery || statusFilter !== 'all' || typeFilter) {
+          return group.filteredTotal > 0;
+        }
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  }, [stationSummaries, devicesByStation, searchQuery, statusFilter, typeFilter]);
+
+  const provinceStationGroups = useMemo<ProvinceStationGroup[]>(() => {
+    return provinceSummaries.map(summary => ({
+      summary,
+      stations: stationSummaries
+        .filter(station => station.provinceName === summary.name)
+        .sort((a, b) => a.name.localeCompare(b.name, 'vi')),
+    }));
+  }, [provinceSummaries, stationSummaries]);
 
   // ── Derived: current station ───────────────────────────────
   const currentStation = useMemo(
     () => stationSummaries.find(s => s.id === selectedStationId) || null,
     [selectedStationId, stationSummaries]
   );
+
+  useEffect(() => {
+    if (selectedStationId && currentStation?.provinceName) {
+      setSelectedProvince(currentStation.provinceName);
+    }
+  }, [selectedStationId, currentStation]);
+
+  useEffect(() => {
+    if (!selectedProvince) return;
+    if (!provinceSummaries.some(summary => summary.name === selectedProvince)) {
+      setSelectedProvince(null);
+    }
+  }, [provinceSummaries, selectedProvince]);
+
+  useEffect(() => {
+    setExpandedProvinces(prev => {
+      const available = new Set(provinceSummaries.map(summary => summary.name));
+      const next = new Set([...prev].filter(name => available.has(name)));
+      if (searchQuery || statusFilter !== 'all' || typeFilter) {
+        return new Set(provinceSummaries.map(summary => summary.name));
+      }
+      if (next.size === 0 && provinceSummaries[0]) {
+        next.add(provinceSummaries[0].name);
+      }
+      return next;
+    });
+  }, [provinceSummaries, searchQuery, statusFilter, typeFilter]);
 
   // ── Derived: filtered & sorted devices for drilldown ───────
   const drilldownDevices = useMemo(() => {
@@ -415,6 +531,14 @@ export default function CentralDeviceView({
     setExpandedGroups(prev => {
       const next = new Set(prev);
       next.has(type) ? next.delete(type) : next.add(type);
+      return next;
+    });
+  };
+
+  const toggleProvince = (name: string) => {
+    setExpandedProvinces(prev => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
       return next;
     });
   };
@@ -592,6 +716,80 @@ export default function CentralDeviceView({
     showToast('Đã xuất CSV');
   };
 
+  const handleExportPDF = () => {
+    const devices = isDrilldown ? drilldownDevices : allDevices.map(x => x.device);
+    if (devices.length === 0) {
+      alert('Không có dữ liệu để xuất PDF');
+      return;
+    }
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return;
+
+    const rowsHtml = devices.map(d => {
+      const stationName = isDrilldown ? (currentStation?.name || '') : (stations.find(s => s.id === d.stationId)?.name || '');
+      const statusText = statusLabel(d.status);
+      const ipText = d.config?.ip || '—';
+      const portText = d.config?.port || '—';
+      return `
+        <tr>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-weight:bold;">${d.name}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${TYPE_LABELS[d.type] || d.type}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-family:monospace;">${ipText}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${portText}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${statusText}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;">${stationName}</td>
+          <td style="padding:6px 8px;border:1px solid #e5e7eb;font-family:monospace;font-size:11px;">${new Date(d.createdAt).toLocaleDateString('vi-VN')}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Danh sách thiết bị</title>
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; color: #111; background: #fff; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th { background: #f3f4f6; padding: 8px; font-size: 11px; text-transform: uppercase; font-weight: bold; border: 1px solid #e5e7eb; text-align: left; }
+          h2 { color: #1a56db; margin: 0 0 10px 0; }
+          .meta { font-size: 11px; color: #6b7280; margin-bottom: 15px; }
+        </style>
+      </head>
+      <body>
+        <h2>DANH SÁCH THIẾT BỊ</h2>
+        <div class="meta">
+          Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> &nbsp;|&nbsp;
+          Trạm: <b>${isDrilldown ? currentStation?.name || 'Chi tiết' : 'Đa trạm'}</b> &nbsp;|&nbsp;
+          Số lượng: <b>${devices.length} thiết bị</b>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Tên thiết bị</th>
+              <th>Loại</th>
+              <th>IP</th>
+              <th>Cổng</th>
+              <th>Trạng thái</th>
+              <th>Trạm</th>
+              <th>Ngày tạo</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => {
+      win.print();
+    }, 400);
+  };
+
   // Toast
   const showToast = (msg: string) => {
     setToast(msg);
@@ -700,11 +898,13 @@ export default function CentralDeviceView({
         <div className="cdv-toolbar-left">
           {isDrilldown && (
             <button className="cdv-back-btn" onClick={handleBackToStations}>
-              <ChevronLeft size={14} /> Tất cả trạm
+              <ChevronLeft size={14} /> {selectedProvince || 'Tất cả trạm'}
             </button>
           )}
           <h2 className="cdv-title">
-            {isDrilldown ? currentStation?.name || 'Chi tiết' : 'Thiết bị đa trạm'}
+            {isDrilldown
+              ? currentStation?.name || 'Chi tiết'
+              : 'Thiết bị đa trạm'}
           </h2>
 
           {/* Auto-refresh indicator */}
@@ -773,9 +973,83 @@ export default function CentralDeviceView({
           )}
 
           {/* Export */}
-          <button className="cdv-chip" onClick={handleExportCSV} title="Xuất CSV">
-            <Download size={11} /> CSV
-          </button>
+          <div ref={downloadDropdownRef} style={{ position: 'relative', display: 'inline-block' }}>
+            <button
+              className="cdv-chip"
+              onClick={() => setDownloadDropdownOpen(v => !v)}
+              title="Xuất dữ liệu"
+            >
+              <Download size={11} />
+              <span>Xuất</span>
+              <span style={{ fontSize: '.5rem', opacity: 0.7, marginLeft: 2 }}>▼</span>
+            </button>
+
+            {downloadDropdownOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 4px)',
+                  right: 0,
+                  background: '#0b0f14',
+                  border: '1px solid var(--admin-border)',
+                  borderRadius: 3,
+                  boxShadow: '0 4px 12px rgba(0,0,0,.5)',
+                  padding: '4px 0',
+                  zIndex: 30,
+                  minWidth: 120,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    handleExportCSV();
+                    setDownloadDropdownOpen(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--admin-text)',
+                    padding: '6px 12px',
+                    fontSize: '.65rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <FileSpreadsheet size={12} style={{ color: 'var(--admin-success)' }} />
+                  <span>Tải file CSV</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleExportPDF();
+                    setDownloadDropdownOpen(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--admin-text)',
+                    padding: '6px 12px',
+                    fontSize: '.65rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <FileText size={12} style={{ color: 'var(--admin-warning)' }} />
+                  <span>Tải file PDF</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Add device */}
           {onAddDevice && (
@@ -795,7 +1069,7 @@ export default function CentralDeviceView({
         <span>
           {isDrilldown
             ? `${drilldownDevices.length} thiết bị`
-            : `${stationSummaries.length} trạm hiển thị`}
+            : `${stationSummaries.length} trạm hiển thị / ${provinceSummaries.length} tỉnh`}
         </span>
 
         {/* Bulk actions */}
@@ -826,92 +1100,67 @@ export default function CentralDeviceView({
         {/* ══════ DASHBOARD: All stations overview ══════ */}
         {!isDrilldown && stations.length > 0 && (
           <div className="cdv-dashboard">
-            {stationSummaries.length === 0 ? (
+            {provinceStationGroups.length === 0 ? (
               <div className="cdv-empty">
-                <span>Không có trạm nào khớp với bộ lọc</span>
+                <span>Không có dữ liệu nào khớp với bộ lọc</span>
               </div>
             ) : (
-              <div className="cdv-dashboard-grid">
-                {stationSummaries.map(s => {
-                  const hc = healthColor(s.healthPct);
+              <div className="cdv-hierarchy">
+                {provinceStationGroups.map(({ summary, stations: provinceStations }) => {
+                  const expanded = expandedProvinces.has(summary.name);
                   return (
-                    <div
-                      key={s.id}
-                      className="cdv-station-card"
-                      onClick={() => { onSelectStation(s.id); setViewMode('table'); }}
-                    >
-                      {/* Top: name + health ring */}
-                      <div className="cdv-station-top">
-                        <div className="cdv-station-info">
-                          <code>{s.code}</code>
-                          <h3>{s.name}</h3>
-                        </div>
-                        <div className="cdv-health-ring">
-                          <svg viewBox="0 0 52 52">
-                            <circle cx="26" cy="26" r="22" fill="none" stroke="var(--admin-border)" strokeWidth="3" />
-                            <circle
-                              cx="26" cy="26" r="22" fill="none"
-                              stroke={hc} strokeWidth="3" strokeLinecap="round"
-                              pathLength="100"
-                              strokeDasharray={`${s.healthPct} 100`}
-                              transform="rotate(-90 26 26)"
-                            />
-                          </svg>
-                          <strong>{s.healthPct}%</strong>
-                        </div>
-                      </div>
-
-                      {/* Online / Offline bars */}
-                      <div className="cdv-station-bars">
-                        <div className="cdv-bar-row">
-                          <span>Online</span>
-                          <div className="cdv-bar-track">
-                            <div style={{
-                              width: `${s.total ? (s.online / s.total) * 100 : 0}%`,
-                              background: 'var(--admin-success)',
-                            }} />
-                          </div>
-                          <b>{s.online}</b>
-                        </div>
-                        <div className="cdv-bar-row">
-                          <span>Offline</span>
-                          <div className="cdv-bar-track">
-                            <div style={{
-                              width: `${s.total ? (s.offline / s.total) * 100 : 0}%`,
-                              background: 'var(--admin-danger)',
-                            }} />
-                          </div>
-                          <b>{s.offline}</b>
-                        </div>
-                      </div>
-
-                      {/* Device type badges */}
-                      <div className="cdv-station-types">
-                        {s.topTypes.map(([type, count]) => (
-                          <span
-                            key={type}
-                            className="cdv-type-badge"
-                            style={{
-                              color: deviceColor(type),
-                              borderColor: deviceColor(type) + '44',
-                              background: deviceColor(type) + '10',
-                            }}
-                          >
-                            {deviceIcon(type, 9)} {TYPE_LABELS[type] || type} <b>{count}</b>
+                    <div key={summary.name} className="cdv-province-block">
+                      <button
+                        type="button"
+                        className="cdv-province-row"
+                        onClick={() => toggleProvince(summary.name)}
+                      >
+                        <span className="cdv-province-left">
+                          <span className="cdv-province-chevron">
+                            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                           </span>
-                        ))}
-                      </div>
+                          <span className="cdv-province-label">{summary.name}</span>
+                        </span>
+                        <span className="cdv-province-meta">
+                          <span>{summary.stationCount} trạm</span>
+                          <span className="cdv-meta-online">{summary.online} online</span>
+                          <span>{summary.total} thiết bị</span>
+                        </span>
+                      </button>
 
-                      {/* Footer */}
-                      <div className="cdv-station-footer">
-                        <span>{s.total} thiết bị</span>
-                        {s.alertCount > 0 && (
-                          <span className="cdv-alert-count">
-                            <AlertCircle size={11} /> {s.alertCount} cảnh báo
-                          </span>
-                        )}
-                        <span className="cdv-station-arrow"><ChevronRight size={14} /></span>
-                      </div>
+                      {expanded && (
+                        <div className="cdv-station-list">
+                          {provinceStations.map(station => (
+                            <button
+                              key={station.id}
+                              type="button"
+                              className="cdv-station-row"
+                              onClick={() => {
+                                setSelectedProvince(station.provinceName);
+                                onSelectStation(station.id);
+                                setViewMode('table');
+                              }}
+                            >
+                              <span className="cdv-station-main">
+                                <span
+                                  className={`cdv-station-status ${station.online > 0 ? 'online' : 'offline'}`}
+                                />
+                                <span className="cdv-station-code">{station.code}</span>
+                                <span className="cdv-station-name">{station.name}</span>
+                              </span>
+                              <span className="cdv-station-side">
+                                <span className="cdv-station-count">{station.online}/{station.total}</span>
+                                {station.alertCount > 0 && (
+                                  <span className="cdv-station-alert">
+                                    <AlertCircle size={11} /> {station.alertCount}
+                                  </span>
+                                )}
+                                <span className="cdv-station-arrow"><ChevronRight size={13} /></span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

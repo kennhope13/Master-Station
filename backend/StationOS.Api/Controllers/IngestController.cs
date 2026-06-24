@@ -363,6 +363,9 @@ public class IngestController : ControllerBase
                         existing.CompletedAt = cav2;
                     updated++;
                 }
+                var incomingDeviceName = StrMT(elem, "deviceName");
+                if (!string.IsNullOrWhiteSpace(incomingDeviceName) && existing.DeviceNameSnapshot != incomingDeviceName)
+                    existing.DeviceNameSnapshot = incomingDeviceName;
                 continue;
             }
 
@@ -372,6 +375,7 @@ public class IngestController : ControllerBase
             task.Status = StrMT(elem, "status") ?? "pending";
             task.AssignedTo = StrMT(elem, "assignedTo");
             task.Notes      = StrMT(elem, "notes");
+            task.DeviceNameSnapshot = StrMT(elem, "deviceName");
             if (TryPropMT(elem, "scheduledDate", out var sd) && sd.ValueKind != System.Text.Json.JsonValueKind.Null && sd.TryGetDateTime(out var sdv)) task.ScheduledDate = sdv;
             if (TryPropMT(elem, "completedAt",   out var ca) && ca.ValueKind != System.Text.Json.JsonValueKind.Null && ca.TryGetDateTime(out var cav)) task.CompletedAt   = cav;
 
@@ -398,9 +402,22 @@ public class IngestController : ControllerBase
             .Where(t => t.StationId == station.Id && (t.SyncSource == null || t.SyncSource == "central"));
 
         if (since.HasValue)
-            q = q.Where(t => t.CreatedAt > since.Value || (t.CompletedAt == null && t.Status != "completed"));
+            q = q.Where(t =>
+                t.CreatedAt > since.Value ||
+                (t.CompletedAt == null && t.Status != "completed") ||
+                (t.CompletedAt != null && t.CompletedAt > since.Value));
 
         var tasks = await q.OrderByDescending(t => t.CreatedAt).Take(100).ToListAsync(ct);
+
+        var deviceIds = tasks
+            .Where(t => t.DeviceId.HasValue)
+            .Select(t => t.DeviceId!.Value)
+            .Distinct()
+            .ToList();
+
+        var deviceNames = await _db.Devices
+            .Where(d => deviceIds.Contains(d.Id))
+            .ToDictionaryAsync(d => d.Id, d => d.Name, ct);
 
         // Đánh dấu đã sync xuống trạm (ghi nhận thời điểm)
         var now = DateTime.UtcNow;
@@ -412,6 +429,7 @@ public class IngestController : ControllerBase
 
         return Ok(tasks.Select(t => new {
             t.Id, t.StationId, t.DeviceId, t.Title, t.Type, t.Status,
+            DeviceName = t.DeviceId.HasValue && deviceNames.TryGetValue(t.DeviceId.Value, out var dn) ? dn : t.DeviceNameSnapshot,
             t.AssignedTo, t.Notes, t.Checklist,
             ScheduledDate = t.ScheduledDate,
             CreatedAt     = t.CreatedAt,
@@ -421,6 +439,49 @@ public class IngestController : ControllerBase
 
     // ── GET /api/v1/ingest/ping ──────────────────────────────
     /// <summary>Trạm con kiểm tra kết nối đến trạm tổng.</summary>
+    [HttpPost("devices")]
+    public async Task<IActionResult> IngestDevices([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
+    {
+        var station = await AuthenticateStationAsync();
+        if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
+
+        int upserted = 0;
+        foreach (var item in items)
+        {
+            if (!item.TryGetProperty("id", out var idProp)) continue;
+            if (!Guid.TryParse(idProp.GetString(), out var deviceId)) continue;
+
+            var name = item.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+            var type = item.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            var status = item.TryGetProperty("status", out var s) ? s.GetString() ?? "online" : "online";
+
+            var existing = await _db.Devices.FindAsync(new object[] { deviceId }, ct);
+            if (existing != null)
+            {
+                existing.Name = name;
+                existing.Type = type;
+                existing.Status = status;
+                existing.StationId = station.Id;
+            }
+            else
+            {
+                _db.Devices.Add(new Device
+                {
+                    Id = deviceId,
+                    StationId = station.Id,
+                    Name = name,
+                    Type = type,
+                    Status = status,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+            upserted++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return Ok(new { upserted });
+    }
+
     [HttpGet("ping")]
     public async Task<IActionResult> Ping()
     {

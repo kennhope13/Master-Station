@@ -740,6 +740,7 @@ public class StationsController : ControllerBase
         try
         {
             var loginClient = _httpClientFactory.CreateClient("station-ping");
+            loginClient.Timeout = TimeSpan.FromSeconds(2);
             _internalAuth.ApplyHeaders(loginClient);
             var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/internal-token", JsonContent.Create(new { }));
             if (loginRes.IsSuccessStatusCode)
@@ -779,6 +780,7 @@ public class StationsController : ControllerBase
             if (!string.IsNullOrEmpty(username))
             {
                 var loginClient = _httpClientFactory.CreateClient("station-ping");
+                loginClient.Timeout = TimeSpan.FromSeconds(2);
                 var loginRes = await loginClient.PostAsync($"{apiBase}/api/v1/auth/login", JsonContent.Create(new
                 {
                     username = username,
@@ -819,13 +821,20 @@ public class StationsController : ControllerBase
     {
         var station = await _db.Stations.FindAsync(id);
         if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
-            return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), go2rtcBase = (string?)null, rtspBase = (string?)null, webUiUrl = (string?)null, error = "no_url" });
+            return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), boundaries = Array.Empty<object>(), roiPoints = Array.Empty<object>(), go2rtcBase = (string?)null, rtspBase = (string?)null, webUiUrl = (string?)null, error = "no_url" });
 
         var apiBase    = station.ApiUrl.TrimEnd('/');
         var apiUri     = new Uri(apiBase);
         var go2rtcBase = $"{apiUri.Scheme}://{apiUri.Host}:1984";
         var rtspBase   = $"rtsp://{apiUri.Host}:8554";
         var webUiUrl   = $"{apiUri.Scheme}://{apiUri.Host}:4173";
+
+        var threshold = DateTime.UtcNow.AddMinutes(-5);
+        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+        if (!isOnline)
+        {
+            return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), boundaries = Array.Empty<object>(), roiPoints = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = "station_offline" });
+        }
 
         try
         {
@@ -841,7 +850,7 @@ public class StationsController : ControllerBase
             await _db.SaveChangesAsync();
 
             // 2. Gọi song song 4 endpoint trạm con
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             var devicesTask = client.GetAsync($"{apiBase}/api/v1/devices");
@@ -859,7 +868,7 @@ public class StationsController : ControllerBase
             {
                 token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
                 if (string.IsNullOrEmpty(token))
-                    return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = "auth_failed" });
+                    return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), boundaries = Array.Empty<object>(), roiPoints = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = "auth_failed" });
 
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 devicesTask = client.GetAsync($"{apiBase}/api/v1/devices");
@@ -870,8 +879,9 @@ public class StationsController : ControllerBase
             }
 
             int devicesTotal = 0, devicesOnline = 0, alertsCount = 0;
-            var pointsList  = new List<object>();
-            var healthList  = new List<object>();
+            var pointsList      = new List<object>();
+            var healthList      = new List<object>();
+            var cameraDeviceIds = new List<string>();
 
             if (devicesTask.Result.IsSuccessStatusCode)
             {
@@ -884,8 +894,20 @@ public class StationsController : ControllerBase
                 {
                     devicesTotal = arr.GetArrayLength();
                     foreach (var d in arr.EnumerateArray())
+                    {
                         if (d.TryGetProperty("status", out var s) && s.GetString() == "online")
                             devicesOnline++;
+                        // Thu thập ID của camera thermal/pd để sau lấy boundaries
+                        if (d.TryGetProperty("type", out var t))
+                        {
+                            var dtype = t.GetString() ?? "";
+                            if (dtype.StartsWith("camera_thermal") || dtype.StartsWith("camera_pd") || dtype.StartsWith("camera_dual"))
+                            {
+                                if (d.TryGetProperty("id", out var did))
+                                    cameraDeviceIds.Add(did.GetString() ?? "");
+                            }
+                        }
+                    }
                 }
             }
 
@@ -916,11 +938,55 @@ public class StationsController : ControllerBase
                         healthList.Add(h);
             }
 
-            return Ok(new { devicesOnline, devicesTotal, alertsCount, points = pointsList, healthScores = healthList, go2rtcBase, rtspBase, webUiUrl });
+            // Wave 2: lấy boundaries (vùng ROI + PD) và roi-points cho từng camera
+            var boundariesList = new List<object>();
+            var roiPointsList  = new List<object>();
+            var validCameraIds = cameraDeviceIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().Take(15).ToList();
+            if (validCameraIds.Count > 0)
+            {
+                try
+                {
+                    // boundaries: AllowAnonymous — dùng client không cần token
+                    using var boundaryClient = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+                    var bTasks = validCameraIds
+                        .Select(id => boundaryClient.GetAsync($"{apiBase}/api/v1/devices/{id}/boundaries"))
+                        .ToList();
+                    // roi-points: yêu cầu auth — dùng client có token
+                    var rTasks = validCameraIds
+                        .Where(id => !string.IsNullOrWhiteSpace(id))
+                        .Select(id => client.GetAsync($"{apiBase}/api/v1/devices/{id}/roi-points"))
+                        .ToList();
+                    await Task.WhenAll(bTasks.Cast<Task>().Concat(rTasks.Cast<Task>()));
+
+                    foreach (var bt in bTasks)
+                    {
+                        if (bt.IsCompletedSuccessfully && bt.Result.IsSuccessStatusCode)
+                        {
+                            var bJson = await bt.Result.Content.ReadFromJsonAsync<JsonElement>();
+                            if (bJson.ValueKind == JsonValueKind.Array)
+                                foreach (var b in bJson.EnumerateArray())
+                                    boundariesList.Add(b);
+                        }
+                    }
+                    foreach (var rt in rTasks)
+                    {
+                        if (rt.IsCompletedSuccessfully && rt.Result.IsSuccessStatusCode)
+                        {
+                            var rJson = await rt.Result.Content.ReadFromJsonAsync<JsonElement>();
+                            if (rJson.ValueKind == JsonValueKind.Array)
+                                foreach (var r in rJson.EnumerateArray())
+                                    roiPointsList.Add(r);
+                        }
+                    }
+                }
+                catch { /* best-effort — không fail toàn bộ KPI vì boundaries/roiPoints */ }
+            }
+
+            return Ok(new { devicesOnline, devicesTotal, alertsCount, points = pointsList, healthScores = healthList, boundaries = boundariesList, roiPoints = roiPointsList, go2rtcBase, rtspBase, webUiUrl });
         }
         catch (Exception ex)
         {
-            return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = ex.Message });
+            return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), boundaries = Array.Empty<object>(), roiPoints = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = ex.Message });
         }
     }
 
@@ -942,6 +1008,13 @@ public class StationsController : ControllerBase
         var go2rtcBase = $"{uri.Scheme}://{uri.Host}:1984";
         var rtspBase   = $"rtsp://{uri.Host}:8554";
 
+        var threshold = DateTime.UtcNow.AddMinutes(-5);
+        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+        if (!isOnline)
+        {
+            return Ok(new { go2rtcBase, rtspBase, cameras = Array.Empty<object>(), error = "station_offline" });
+        }
+
         try
         {
             var token = await GetOrFetchTokenAsync(station, apiBase);
@@ -952,7 +1025,7 @@ public class StationsController : ControllerBase
             station.LastContactAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
 
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             // Lấy tất cả devices vì filter type=camera không đồng nhất giữa các phiên bản trạm con
@@ -1044,6 +1117,13 @@ public class StationsController : ControllerBase
             return NotFound(new { error = "no_url" });
 
         var apiBase = station.ApiUrl.TrimEnd('/');
+        var threshold = DateTime.UtcNow.AddMinutes(-5);
+        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+        if (!isOnline)
+        {
+            return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến." });
+        }
+
         try
         {
             var token = await GetOrFetchTokenAsync(station, apiBase);
