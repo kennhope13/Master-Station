@@ -4751,7 +4751,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
               </div>
 
               {/* Nội dung */}
-              <div style={{ textAlign: 'center', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 14 }}>
+              <div style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 14 }}>
                 <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6 }}>NỘI DUNG</div>
                 <div style={{ fontSize: '.75rem', fontWeight: 800, color: 'var(--admin-text)', lineHeight: 1.5 }}>{cleanAlertMessage(selectedAlert.message)}</div>
               </div>
