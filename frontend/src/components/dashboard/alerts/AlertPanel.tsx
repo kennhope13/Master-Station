@@ -22,6 +22,9 @@ const getCategory = (msg: string) => {
   if (m.includes('nhiệt') || m.includes('roi') || m.includes('thermal') || m.includes('quá nhiệt') || m.includes('temp')) {
     return { text: 'NHIỆT', color: '#f97316', bg: 'rgba(249,115,22,0.12)', border: 'rgba(249,115,22,0.2)' };
   }
+  if (m.includes('bảo trì') || m.includes('maintenance') || m.includes('maint') || m.includes('scheduled')) {
+    return { text: 'BẢO TRÌ', color: '#eab308', bg: 'rgba(234,179,8,0.12)', border: 'rgba(234,179,8,0.2)' };
+  }
   return { text: 'HỆ THỐNG', color: '#64748b', bg: 'rgba(100,116,139,0.12)', border: 'rgba(100,116,139,0.2)' };
 };
 

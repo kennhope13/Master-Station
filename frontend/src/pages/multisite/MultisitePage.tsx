@@ -3546,31 +3546,10 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     calendarFooter: { display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 6 },
   };
 
-  const LogTypeIcon = ({ type }: { type: LogType }) => {
-    switch (type) {
-      case 'audit': return <FileText size={12} />;
-      case 'login': return <LogIn size={12} />;
-      case 'notify': return <Bell size={12} />;
-      case 'rule': return <Zap size={12} />;
-      default: return <FileText size={12} />;
-    }
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--admin-bg)' }}>
       {/* ── Toolbar ─────────────────────────────────────────── */}
       <div style={S.toolbar}>
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>LOẠI</span>
-        {(Object.keys(LOG_TYPE_LABELS) as LogType[]).map(t => (
-          <button key={t} style={logType === t ? S.btnActive(LOG_TYPE_COLORS[t]) : S.btn}
-            onClick={() => setLogType(t)}>
-            <LogTypeIcon type={t} />
-            {LOG_TYPE_LABELS[t]}
-          </button>
-        ))}
-
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
-
         <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
           <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>NGÀY</span>
           <Calendar size={12} style={S.muted} />
@@ -3665,10 +3644,9 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
           )}
         </div>
 
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
-
         {visibleProvinces.length > 0 && (
           <>
+            <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
             <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TỈNH</span>
             <InlineDarkDropdown
               value={filterProvince}
@@ -3684,6 +3662,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
 
         {visibleTeams.length > 0 && (
           <>
+            <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
             <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TỔ</span>
             <InlineDarkDropdown
               value={filterTeam}
@@ -3700,6 +3679,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
           </>
         )}
 
+        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
         <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>TRẠM</span>
         <InlineDarkDropdown
           value={scopeStationId}
@@ -3712,6 +3692,19 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
               : visibleStations
             ).map(s => ({ value: s.id, label: `${s.code ? `${s.code} · ` : ''}${s.name}` }))
           ]}
+        />
+
+        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 4px' }} />
+
+        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>LOẠI</span>
+        <InlineDarkDropdown
+          value={logType}
+          onChange={value => setLogType(value as LogType)}
+          minWidth={140}
+          options={(Object.keys(LOG_TYPE_LABELS) as LogType[]).map(type => ({
+            value: type,
+            label: LOG_TYPE_LABELS[type],
+          }))}
         />
 
         <div style={{ flex: 1 }} />

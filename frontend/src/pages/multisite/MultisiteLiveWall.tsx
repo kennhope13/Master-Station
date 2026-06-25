@@ -160,6 +160,7 @@ function PresetList({
 }) {
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [deleteTarget, setDeleteTarget] = useState<WallPreset | null>(null);
 
   const openDd = (id: string, btn: HTMLElement) => {
     const rect = btn.getBoundingClientRect();
@@ -178,7 +179,7 @@ function PresetList({
         <span style={{ fontSize: '0.6rem', color: 'var(--admin-text-muted)' }}>— Cấu hình đã lưu</span>
         <button
           onClick={onNew}
-          style={{ marginLeft: 'auto', height: 28, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-accent)', border: 'none', borderRadius: 3, color: '#fff', fontSize: '0.62rem', fontWeight: 800, cursor: 'pointer', letterSpacing: '0.04em' }}
+          style={{ marginLeft: 'auto', height: 28, padding: '0 12px', display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-accent)', border: 'none', borderRadius: 0, color: '#fff', fontSize: '0.62rem', fontWeight: 800, cursor: 'pointer', letterSpacing: '0.04em' }}
         >
           <Plus size={11} /> TẠO CẤU HÌNH MỚI
         </button>
@@ -192,7 +193,7 @@ function PresetList({
             <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>Chưa có cấu hình nào</span>
             <button
               onClick={onNew}
-              style={{ padding: '8px 20px', background: 'var(--admin-accent)', border: 'none', borderRadius: 4, color: '#fff', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
+              style={{ padding: '8px 20px', background: 'var(--admin-accent)', border: 'none', borderRadius: 0, color: '#fff', fontSize: '0.68rem', fontWeight: 800, cursor: 'pointer' }}
             >
               Tạo cấu hình đầu tiên
             </button>
@@ -206,7 +207,7 @@ function PresetList({
             return (
               <div
                 key={p.id}
-                style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 6, overflow: 'hidden', display: 'flex', flexDirection: 'column', transition: 'border-color 0.15s' }}
+                style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', transition: 'border-color 0.15s' }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--admin-accent)'}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--admin-border)'}
               >
@@ -218,7 +219,7 @@ function PresetList({
                   {Array.from({ length: maxCells }, (_, i) => {
                     const c = p.cells[i];
                     return (
-                      <div key={i} style={{ background: c ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${c ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.06)'}`, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div key={i} style={{ background: c ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${c ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.06)'}`, borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {c ? <Video size={8} style={{ color: '#f59e0b', opacity: 0.7 }} /> : null}
                       </div>
                     );
@@ -267,7 +268,7 @@ function PresetList({
                     <Edit2 size={12} />
                   </button>
                   <button
-                    onClick={e => { e.stopPropagation(); if (confirm(`Xóa cấu hình "${p.name}"?`)) onDelete(p.id); }}
+                    onClick={e => { e.stopPropagation(); setDeleteTarget(p); }}
                     style={{ width: 44, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer' }}
                     title="Xóa"
                     onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = 'var(--admin-danger)'}
@@ -286,7 +287,7 @@ function PresetList({
       {openDropdown && (
         <div
           onClick={e => e.stopPropagation()}
-          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 4, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', minWidth: 200, zIndex: 9999 }}
+          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', minWidth: 200, zIndex: 9999 }}
         >
           {(() => {
             const p = presets.find(x => x.id === openDropdown);
@@ -317,6 +318,45 @@ function PresetList({
               </>
             );
           })()}
+        </div>
+      )}
+
+      {/* Delete confirm modal */}
+      {deleteTarget && (
+        <div
+          onClick={() => setDeleteTarget(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: '24px 28px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <Trash2 size={16} style={{ color: 'var(--admin-danger)', flexShrink: 0 }} />
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--admin-text)' }}>Xóa cấu hình</span>
+            </div>
+            <p style={{ fontSize: '0.7rem', color: 'var(--admin-text-muted)', margin: '0 0 20px', lineHeight: 1.5 }}>
+              Bạn có chắc muốn xóa cấu hình <strong style={{ color: 'var(--admin-text)' }}>"{deleteTarget.name}"</strong>? Hành động này không thể hoàn tác.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                style={{ padding: '7px 18px', background: 'var(--admin-layer-4)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--admin-layer-3)'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'var(--admin-layer-4)'}
+              >
+                Hủy
+              </button>
+              <button
+                onClick={() => { onDelete(deleteTarget.id); setDeleteTarget(null); }}
+                style={{ padding: '7px 18px', background: 'var(--admin-danger)', border: 'none', borderRadius: 0, color: '#fff', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer' }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = '0.85'}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
+              >
+                Xóa
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -750,7 +790,7 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
     <div style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen(o => !o)}
-        style={{ height: 26, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 5, background: open ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '10px', fontWeight: 700, cursor: 'pointer', borderRadius: 2 }}
+        style={{ height: 26, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 5, background: open ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '10px', fontWeight: 700, cursor: 'pointer', borderRadius: 0 }}
       >
         <Grid size={11} style={{ color: '#f59e0b' }} />
         {layout.cols}×{layout.rows}
@@ -760,7 +800,7 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
       {open && (
         <>
           <div onClick={() => { setOpen(false); setHoverGrid(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#0f172a', border: '1px solid rgba(255,255,255,0.12)', padding: 12, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)', borderRadius: 2, width: 240 }}>
+          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'rgba(15,23,42,0.98)', border: '1px solid rgba(255,255,255,0.1)', padding: 12, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.6)', borderRadius: 0, width: 240 }}>
 
             {/* Quick presets */}
             <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nhanh</div>
@@ -769,7 +809,7 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
                 const active = layout.cols === c && layout.rows === r;
                 return (
                   <button key={`${c}-${r}`} onClick={() => apply(c, r)}
-                    style={{ background: active ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${active ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)'}`, color: active ? '#f59e0b' : '#fff', fontSize: '9px', fontWeight: 600, padding: '4px 2px', cursor: 'pointer', borderRadius: 2 }}>
+                    style={{ background: active ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${active ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)'}`, color: active ? '#f59e0b' : '#fff', fontSize: '9px', fontWeight: 600, padding: '4px 2px', cursor: 'pointer', borderRadius: 0 }}>
                     {c}×{r}
                   </button>
                 );
@@ -811,7 +851,7 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
                 onChange={e => setCustomCols(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && applyCustom()}
                 placeholder="Cột"
-                style={{ width: 52, height: 26, padding: '0 6px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, color: '#fff', fontSize: '11px', fontWeight: 700, outline: 'none', textAlign: 'center' }}
+                style={{ width: 52, height: 26, padding: '0 6px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 0, color: '#fff', fontSize: '11px', fontWeight: 700, outline: 'none', textAlign: 'center' }}
               />
               <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>×</span>
               <input
@@ -820,11 +860,11 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
                 onChange={e => setCustomRows(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && applyCustom()}
                 placeholder="Hàng"
-                style={{ width: 52, height: 26, padding: '0 6px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, color: '#fff', fontSize: '11px', fontWeight: 700, outline: 'none', textAlign: 'center' }}
+                style={{ width: 52, height: 26, padding: '0 6px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 0, color: '#fff', fontSize: '11px', fontWeight: 700, outline: 'none', textAlign: 'center' }}
               />
               <button
                 onClick={applyCustom}
-                style={{ flex: 1, height: 26, background: '#f59e0b', border: 'none', borderRadius: 2, color: '#000', fontSize: '10px', fontWeight: 900, cursor: 'pointer' }}
+                style={{ flex: 1, height: 26, background: '#f59e0b', border: 'none', borderRadius: 0, color: '#000', fontSize: '10px', fontWeight: 900, cursor: 'pointer' }}
               >
                 ÁP DỤNG
               </button>
