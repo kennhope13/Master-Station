@@ -495,33 +495,7 @@ function WallView({
 
         {/* Layout picker (edit only) */}
         {isEditing && (
-          <div style={{ position: 'relative' }}>
-            <button
-              onClick={() => setLayoutOpen(o => !o)}
-              style={{ height: 26, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 5, background: layoutOpen ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '10px', fontWeight: 700, cursor: 'pointer', borderRadius: 2 }}
-            >
-              <Grid size={11} style={{ color: '#f59e0b' }} /> {working.layout.cols}×{working.layout.rows} <ChevronDown size={9} style={{ opacity: 0.6 }} />
-            </button>
-            {layoutOpen && (
-              <>
-                <div onClick={() => setLayoutOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
-                <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#0f172a', border: '1px solid rgba(255,255,255,0.12)', padding: 10, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)', borderRadius: 2 }}>
-                  <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bố cục</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4 }}>
-                    {[{c:1,r:1},{c:2,r:2},{c:3,r:2},{c:3,r:3},{c:4,r:3},{c:4,r:4},{c:5,r:4},{c:6,r:4}].map(({c,r}) => {
-                      const active = working.layout.cols === c && working.layout.rows === r;
-                      return (
-                        <button key={`${c}-${r}`} onClick={() => updateLayout({ cols: c, rows: r })}
-                          style={{ background: active ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${active ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)'}`, color: active ? '#f59e0b' : '#fff', fontSize: '9px', fontWeight: 600, padding: '4px 2px', cursor: 'pointer', borderRadius: 2 }}>
-                          {c}×{r}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          <LayoutPicker layout={working.layout} onChange={updateLayout} />
         )}
 
         {/* Action buttons */}
@@ -741,6 +715,122 @@ function WallView({
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   LAYOUT PICKER — nhập số hoặc chọn ô lưới
+═══════════════════════════════════════════════════════════════════ */
+function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: number }; onChange: (l: { cols: number; rows: number }) => void }) {
+  const [open, setOpen]           = useState(false);
+  const [hoverGrid, setHoverGrid] = useState<{ cols: number; rows: number } | null>(null);
+  const [customCols, setCustomCols] = useState(String(layout.cols));
+  const [customRows, setCustomRows] = useState(String(layout.rows));
+
+  const apply = (cols: number, rows: number) => {
+    const c = Math.max(1, Math.min(20, cols));
+    const r = Math.max(1, Math.min(20, rows));
+    onChange({ cols: c, rows: r });
+    setCustomCols(String(c));
+    setCustomRows(String(r));
+    setOpen(false);
+    setHoverGrid(null);
+  };
+
+  const applyCustom = () => {
+    const c = parseInt(customCols, 10);
+    const r = parseInt(customRows, 10);
+    if (!isNaN(c) && !isNaN(r)) apply(c, r);
+  };
+
+  const previewLayout = hoverGrid ?? layout;
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{ height: 26, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 5, background: open ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '10px', fontWeight: 700, cursor: 'pointer', borderRadius: 2 }}
+      >
+        <Grid size={11} style={{ color: '#f59e0b' }} />
+        {layout.cols}×{layout.rows}
+        <ChevronDown size={9} style={{ opacity: 0.6 }} />
+      </button>
+
+      {open && (
+        <>
+          <div onClick={() => { setOpen(false); setHoverGrid(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
+          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#0f172a', border: '1px solid rgba(255,255,255,0.12)', padding: 12, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.5)', borderRadius: 2, width: 240 }}>
+
+            {/* Quick presets */}
+            <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nhanh</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4, marginBottom: 12 }}>
+              {[{c:1,r:1},{c:2,r:2},{c:3,r:2},{c:3,r:3},{c:4,r:3},{c:4,r:4},{c:5,r:4},{c:6,r:4}].map(({c,r}) => {
+                const active = layout.cols === c && layout.rows === r;
+                return (
+                  <button key={`${c}-${r}`} onClick={() => apply(c, r)}
+                    style={{ background: active ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', border: `1px solid ${active ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)'}`, color: active ? '#f59e0b' : '#fff', fontSize: '9px', fontWeight: 600, padding: '4px 2px', cursor: 'pointer', borderRadius: 2 }}>
+                    {c}×{r}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Hover grid */}
+            <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between' }}>
+              <span>Chọn ô lưới</span>
+              <span style={{ color: '#f59e0b' }}>{previewLayout.cols}×{previewLayout.rows} ({previewLayout.cols * previewLayout.rows} ô)</span>
+            </div>
+            <div
+              onMouseLeave={() => setHoverGrid(null)}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 2, background: 'rgba(0,0,0,0.2)', padding: 4, border: '1px solid rgba(255,255,255,0.05)', marginBottom: 12 }}
+            >
+              {Array.from({ length: 10 }).map((_, r) =>
+                Array.from({ length: 10 }).map((_, c) => {
+                  const lit = hoverGrid
+                    ? (r < hoverGrid.rows && c < hoverGrid.cols)
+                    : (r < layout.rows && c < layout.cols);
+                  return (
+                    <div
+                      key={`${r}-${c}`}
+                      onMouseEnter={() => setHoverGrid({ rows: r + 1, cols: c + 1 })}
+                      onClick={() => apply(c + 1, r + 1)}
+                      style={{ width: 16, height: 16, background: lit ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.04)', border: `1px solid ${lit ? 'rgba(245,158,11,0.8)' : 'rgba(255,255,255,0.08)'}`, cursor: 'pointer', transition: 'all 0.08s' }}
+                    />
+                  );
+                })
+              )}
+            </div>
+
+            {/* Custom number input */}
+            <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nhập tùy chỉnh</div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="number" min={1} max={20} value={customCols}
+                onChange={e => setCustomCols(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && applyCustom()}
+                placeholder="Cột"
+                style={{ width: 52, height: 26, padding: '0 6px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, color: '#fff', fontSize: '11px', fontWeight: 700, outline: 'none', textAlign: 'center' }}
+              />
+              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>×</span>
+              <input
+                type="number" min={1} max={20} value={customRows}
+                onChange={e => setCustomRows(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && applyCustom()}
+                placeholder="Hàng"
+                style={{ width: 52, height: 26, padding: '0 6px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, color: '#fff', fontSize: '11px', fontWeight: 700, outline: 'none', textAlign: 'center' }}
+              />
+              <button
+                onClick={applyCustom}
+                style={{ flex: 1, height: 26, background: '#f59e0b', border: 'none', borderRadius: 2, color: '#000', fontSize: '10px', fontWeight: 900, cursor: 'pointer' }}
+              >
+                ÁP DỤNG
+              </button>
+            </div>
+
+          </div>
+        </>
+      )}
     </div>
   );
 }

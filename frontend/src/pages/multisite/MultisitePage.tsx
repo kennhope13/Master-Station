@@ -1805,7 +1805,7 @@ export default function MultisitePage() {
             padding: 0
           }}
         >
-          <CentralAlertsHistoryView stations={stations} provinces={provinces} />
+          <CentralAlertsHistoryView stations={stations} provinces={provinces} teams={teams} />
         </div>
       )}
 
@@ -1893,7 +1893,7 @@ export default function MultisitePage() {
           {/* Sub-tab Content */}
           <div style={{ flex: 1, position: 'relative', overflow: 'auto' }}>
             {subLogTab === 'system' ? (
-              <CentralAlertsHistoryView stations={stations} provinces={provinces} />
+              <CentralAlertsHistoryView stations={stations} provinces={provinces} teams={teams} />
             ) : (
               <CentralLogView stations={stations} provinces={provinces} teams={teams} />
             )}
@@ -4027,11 +4027,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]; provinces: Province[] }) {
+function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: Station[]; provinces: Province[]; teams: Team[] }) {
   const [selectedDate, setSelectedDate] = useState('');
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => parseIsoDate(formatIsoDate(new Date())));
   const [provinceId, setProvinceId] = useState('');
+  const [filterTeam, setFilterTeam] = useState('');
   const [stationId, setStationId] = useState('');
   const [status, setStatus] = useState('');
   const [filterSource, setFilterSource] = useState('');
@@ -4081,14 +4082,74 @@ function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
   const todayIso = useMemo(() => formatIsoDate(new Date()), []);
 
-  const stationsByProvince = useMemo(
-    () => provinceId ? stations.filter(s => s.provinceId === provinceId) : stations,
-    [stations, provinceId]
-  );
+  // Phạm vi hiển thị theo role của user hiện tại
+  const currentUser = authService.getUser();
+  const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
+    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+
+    // admin toàn cục / multi → thấy hết
+    if (currentUser.role === 'admin' && (!currentUser.station_ids?.length)) {
+      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    }
+
+    // admin_province / operator_province → chỉ tỉnh được gán
+    if (currentUser.role === 'admin_province' || currentUser.role === 'operator_province') {
+      const pIds = new Set(currentUser.province_ids || []);
+      const vProvinces = provinces.filter(p => pIds.has(p.id));
+      const vStations = stations.filter(s => s.provinceId && pIds.has(s.provinceId));
+      const vStationIds = new Set(vStations.map(s => s.id));
+      const vTeams = teams.filter(t => t.stationIds?.some(id => vStationIds.has(id)));
+      return { visibleProvinces: vProvinces, visibleTeams: vTeams, visibleStations: vStations };
+    }
+
+    // team_leader / team_member → chỉ trạm của tổ
+    if (currentUser.role === 'team_leader' || currentUser.role === 'team_member') {
+      const userTeam = teams.find(t => t.id === currentUser.team_id);
+      const teamStIds = new Set(userTeam?.stationIds || []);
+      const vStations = stations.filter(s => teamStIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return {
+        visibleProvinces: provinces.filter(p => pIds.has(p.id)),
+        visibleTeams: userTeam ? [userTeam] : [],
+        visibleStations: vStations,
+      };
+    }
+
+    // station user → chỉ trạm được gán
+    if (currentUser.station_ids?.length) {
+      const sIds = new Set(currentUser.station_ids);
+      const vStations = stations.filter(s => sIds.has(s.id));
+      const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return {
+        visibleProvinces: provinces.filter(p => pIds.has(p.id)),
+        visibleTeams: teams.filter(t => t.stationIds?.some(id => sIds.has(id))),
+        visibleStations: vStations,
+      };
+    }
+
+    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+  }, [currentUser, provinces, teams, stations]);
+
+  // Stations có sẵn sau khi lọc theo tỉnh/tổ (giới hạn trong phạm vi role của user)
+  const availableStationIds = useMemo<Set<string> | null>(() => {
+    if (!provinceId && !filterTeam) return null;
+    let ids = visibleStations.map(s => s.id);
+    if (provinceId) ids = ids.filter(id => visibleStations.find(s => s.id === id)?.provinceId === provinceId);
+    if (filterTeam) {
+      const team = visibleTeams.find(t => t.id === filterTeam);
+      if (team?.stationIds?.length) ids = ids.filter(id => team.stationIds!.includes(id));
+    }
+    return new Set(ids);
+  }, [visibleStations, visibleTeams, provinceId, filterTeam]);
 
   useEffect(() => {
-    if (stationId && !stationsByProvince.some(s => s.id === stationId)) setStationId('');
-  }, [stationId, stationsByProvince]);
+    if (stationId) {
+      const isValid = availableStationIds
+        ? availableStationIds.has(stationId)
+        : visibleStations.some(s => s.id === stationId);
+      if (!isValid) setStationId('');
+    }
+  }, [stationId, availableStationIds, visibleStations]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -4096,16 +4157,32 @@ function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]
       const from = dates.from ? new Date(dates.from).toISOString() : undefined;
       const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
       const data = await stationApi.getAlerts(status || undefined, from, to, 500, stationId || undefined);
-      const filteredByProvince = provinceId
-        ? data.filter(a => stations.find(s => s.id === a.stationId)?.provinceId === provinceId)
-        : data;
-      setAlerts(filteredByProvince);
+      
+      let filteredData = data;
+      // Filter by role-based visible stations
+      const visibleStationIds = new Set(visibleStations.map(s => s.id));
+      filteredData = filteredData.filter(a => a.stationId && visibleStationIds.has(a.stationId));
+
+      // Filter by selected province/team
+      if (!stationId) {
+        if (provinceId) {
+          filteredData = filteredData.filter(a => stations.find(s => s.id === a.stationId)?.provinceId === provinceId);
+        }
+        if (filterTeam) {
+          const team = visibleTeams.find(t => t.id === filterTeam);
+          if (team?.stationIds?.length) {
+            const teamStIds = new Set(team.stationIds);
+            filteredData = filteredData.filter(a => a.stationId && teamStIds.has(a.stationId));
+          }
+        }
+      }
+      setAlerts(filteredData);
     } catch {
       setAlerts([]);
     } finally {
       setLoading(false);
     }
-  }, [dates, status, stationId, provinceId, stations]);
+  }, [dates, status, stationId, provinceId, filterTeam, stations, visibleStations, visibleTeams]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -4402,16 +4479,52 @@ function CentralAlertsHistoryView({ stations, provinces }: { stations: Station[]
           )}
         </div>
         <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tỉnh</span>
-        <InlineDarkDropdown value={provinceId} onChange={v => { setProvinceId(v); setStationId(''); }} minWidth={95} options={[
-          { value: '', label: 'Tất cả' },
-          ...provinces.map(p => ({ value: p.id, label: p.name }))
-        ]} />
+        {visibleProvinces.length > 0 && (
+          <>
+            <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tỉnh</span>
+            <InlineDarkDropdown
+              value={provinceId}
+              onChange={v => { setProvinceId(v); setFilterTeam(''); setStationId(''); }}
+              minWidth={95}
+              options={[
+                { value: '', label: 'Tất cả' },
+                ...visibleProvinces.map(p => ({ value: p.id, label: p.name }))
+              ]}
+            />
+          </>
+        )}
+
+        {visibleTeams.length > 0 && (
+          <>
+            <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tổ</span>
+            <InlineDarkDropdown
+              value={filterTeam}
+              onChange={v => { setFilterTeam(v); setStationId(''); }}
+              minWidth={95}
+              options={[
+                { value: '', label: 'Tất cả' },
+                ...(provinceId
+                  ? visibleTeams.filter(t => t.provinceId === provinceId)
+                  : visibleTeams
+                ).map(t => ({ value: t.id, label: t.name }))
+              ]}
+            />
+          </>
+        )}
+
         <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạm</span>
-        <InlineDarkDropdown value={stationId} onChange={setStationId} minWidth={110} options={[
-          { value: '', label: 'Tất cả' },
-          ...stationsByProvince.map(s => ({ value: s.id, label: s.name }))
-        ]} />
+        <InlineDarkDropdown
+          value={stationId}
+          onChange={setStationId}
+          minWidth={110}
+          options={[
+            { value: '', label: 'Tất cả' },
+            ...(availableStationIds
+              ? visibleStations.filter(s => availableStationIds.has(s.id))
+              : visibleStations
+            ).map(s => ({ value: s.id, label: s.name }))
+          ]}
+        />
         <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
         <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạng thái</span>
         <InlineDarkDropdown value={status} onChange={setStatus} minWidth={105} options={[
