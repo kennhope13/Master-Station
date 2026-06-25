@@ -3140,6 +3140,9 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   status: 'Trạng thái',
   stationId: 'Trạm',
   provinceId: 'Tỉnh',
+  to: 'Đến ngày',
+  from: 'Từ ngày',
+  type: 'Loại',
 };
 
 function safeParseJson(value?: string | null): Record<string, unknown> | null {
@@ -3191,6 +3194,9 @@ function formatValue(value: unknown, field?: string, stations?: Station[], provi
   }
   if (Array.isArray(value)) return value.length ? value.join(', ') : 'Không có';
   if (typeof value === 'boolean') return value ? 'Bật' : 'Tắt';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(value)) {
+    return fmtDateTime(value);
+  }
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
@@ -3966,28 +3972,42 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                 )}
 
                 {/* Thay đổi */}
-                {(selectedLog.oldValue || selectedLog.newValue) && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>THAY ĐỔI CẤU HÌNH</div>
-                    {buildChangeRows(selectedLog, stations, provinces).map((row, index) => (
-                      <div key={`${row.label}-${index}`} style={{ padding: 12, background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0 }}>
-                        <div style={{ fontSize: '.6rem', fontWeight: 900, color: 'var(--admin-text)', marginBottom: 8, borderBottom: '1px solid var(--admin-border)', paddingBottom: 4 }}>{row.label}</div>
-                        {row.before !== undefined && (
-                          <div style={{ marginBottom: row.after !== undefined ? 8 : 0 }}>
-                            <span style={{ fontSize: '.5rem', color: '#ef4444', fontWeight: 700 }}>TRƯỚC:</span>
-                            <div style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)', marginTop: 2, wordBreak: 'break-word', fontFamily: 'monospace' }}>{row.before}</div>
-                          </div>
-                        )}
-                        {row.after !== undefined && (
-                          <div>
-                            <span style={{ fontSize: '.5rem', color: '#22c55e', fontWeight: 700 }}>SAU:</span>
-                            <div style={{ fontSize: '.58rem', color: 'var(--admin-text)', marginTop: 2, wordBreak: 'break-word', fontFamily: 'monospace' }}>{row.after}</div>
-                          </div>
-                        )}
+                {/* Thay đổi */}
+                {(selectedLog.oldValue || selectedLog.newValue) && (() => {
+                  const rows = buildChangeRows(selectedLog, stations, provinces);
+                  if (rows.length === 0) return null;
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>THAY ĐỔI CẤU HÌNH</div>
+                      <div style={{ border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', overflow: 'hidden' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.6rem' }}>
+                          <thead>
+                            <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '25%' }}>TRƯỜNG</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '37.5%' }}>TRƯỚC</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '37.5%' }}>SAU</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((row, idx) => (
+                              <tr key={idx} style={{ borderBottom: idx === rows.length - 1 ? 'none' : '1px solid var(--admin-border)' }}>
+                                <td style={{ padding: '8px', fontWeight: 700, color: 'var(--admin-text)', verticalAlign: 'top' }}>
+                                  {row.label}
+                                </td>
+                                <td style={{ padding: '8px', color: '#ef4444', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
+                                  {row.before !== undefined ? row.before : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
+                                </td>
+                                <td style={{ padding: '8px', color: '#22c55e', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
+                                  {row.after !== undefined ? row.after : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
