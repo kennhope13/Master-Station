@@ -4666,38 +4666,106 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
       return (
         <div 
           onClick={() => setSelectedAlert(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            background: 'rgba(10, 15, 30, 0.75)', 
+            backdropFilter: 'blur(6px)', 
+            WebkitBackdropFilter: 'blur(6px)',
+            zIndex: 10000, 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center' 
+          }}
         >
           <div 
             onClick={e => e.stopPropagation()}
-            style={{ width: 420, maxHeight: '85vh', border: '1px solid var(--admin-border)', background: 'var(--admin-panel)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}
+            style={{ 
+              width: 500, 
+              maxHeight: '85vh', 
+              border: '1px solid rgba(255, 255, 255, 0.08)', 
+              background: 'linear-gradient(to bottom, #1e293b, #0f172a)', 
+              borderRadius: 8,
+              display: 'flex', 
+              flexDirection: 'column', 
+              overflow: 'hidden', 
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)' 
+            }}
           >
             {/* Header */}
-            <div style={{ flexShrink: 0, height: 38, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 8, borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)' }}>
-              <span style={{ fontSize: '.6rem', fontWeight: 900, letterSpacing: '.08em', color: 'var(--admin-text)', flex: 1 }}>CHI TIẾT CẢNH BÁO</span>
+            <div style={{ flexShrink: 0, height: 48, display: 'flex', alignItems: 'center', padding: '0 20px', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+              <span style={{ fontSize: '.75rem', fontWeight: 900, letterSpacing: '.08em', color: '#fff', flex: 1 }}>CHI TIẾT CẢNH BÁO</span>
               <button
                 onClick={() => setSelectedAlert(null)}
-                style={{ width: 20, height: 20, background: 'transparent', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', lineHeight: 1 }}
+                style={{ 
+                  width: 24, 
+                  height: 24, 
+                  background: 'rgba(255,255,255,0.05)', 
+                  border: 'none', 
+                  borderRadius: '50%',
+                  color: 'rgba(255,255,255,0.6)', 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.15)';
+                  (e.currentTarget as HTMLElement).style.color = '#fff';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)';
+                  (e.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,0.6)';
+                }}
                 title="Đóng"
-              >×</button>
+              >
+                <X size={12} />
+              </button>
             </div>
 
             {/* Body */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
               {/* Badges */}
-              <div style={{ display: 'flex', gap: 6 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${lv.color}18`, border: `1px solid ${lv.color}40`, color: lv.color, fontSize: '.58rem', fontWeight: 900 }}>{lv.label}</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${st.color}18`, border: `1px solid ${st.color}40`, color: st.color, fontSize: '.58rem', fontWeight: 900 }}>{st.label}</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <span style={{ 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  padding: '4px 12px', 
+                  background: `${lv.color}15`, 
+                  border: `1px solid ${lv.color}35`, 
+                  color: lv.color, 
+                  fontSize: '.62rem', 
+                  fontWeight: 800,
+                  borderRadius: 4,
+                  letterSpacing: '0.03em'
+                }}>
+                  {lv.label}
+                </span>
+                <span style={{ 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  padding: '4px 12px', 
+                  background: `${st.color}15`, 
+                  border: `1px solid ${st.color}35`, 
+                  color: st.color, 
+                  fontSize: '.62rem', 
+                  fontWeight: 800,
+                  borderRadius: 4,
+                  letterSpacing: '0.03em'
+                }}>
+                  {st.label}
+                </span>
               </div>
 
               {/* Nội dung */}
-              <div>
-                <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>NỘI DUNG</div>
-                <div style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--admin-text)', lineHeight: 1.5 }}>{cleanAlertMessage(selectedAlert.message)}</div>
+              <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: 4, padding: 12 }}>
+                <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'rgba(255, 255, 255, 0.4)', letterSpacing: '.08em', marginBottom: 6 }}>NỘI DUNG</div>
+                <div style={{ fontSize: '.72rem', fontWeight: 700, color: '#fff', lineHeight: 1.5 }}>{cleanAlertMessage(selectedAlert.message)}</div>
               </div>
 
               {/* Info rows */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: 'rgba(255, 255, 255, 0.01)', border: '1px solid rgba(255, 255, 255, 0.03)', borderRadius: 4, padding: 12 }}>
                 <AlertDetailRow label="THỜI GIAN" value={fmtDateTime(selectedAlert.triggeredAt)} mono />
                 <AlertDetailRow label="TỈNH / TP" value={selProvince} />
                 <AlertDetailRow label="TRẠM" value={selectedAlert.stationName || selStation?.name || '—'} />
@@ -4727,9 +4795,13 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
 
 function AlertDetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div>
-      <div style={{ fontSize: '.5rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: '.63rem', fontWeight: 600, color: 'var(--admin-text)', fontFamily: mono ? 'monospace' : undefined, wordBreak: 'break-all' }}>{value}</div>
+    <div style={{ display: 'flex', borderBottom: '1px solid rgba(255, 255, 255, 0.04)', paddingBottom: 6, paddingTop: 2, gap: 12 }}>
+      <div style={{ width: 120, flexShrink: 0, fontSize: '.55rem', fontWeight: 800, color: 'rgba(255, 255, 255, 0.4)', letterSpacing: '.05em', textTransform: 'uppercase' }}>
+        {label}
+      </div>
+      <div style={{ flex: 1, fontSize: '.65rem', fontWeight: 600, color: '#e2e8f0', fontFamily: mono ? 'monospace' : undefined, wordBreak: 'break-all' }}>
+        {value}
+      </div>
     </div>
   );
 }
