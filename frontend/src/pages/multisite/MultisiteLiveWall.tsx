@@ -334,7 +334,7 @@ function PresetList({
             onClick={e => e.stopPropagation()}
             style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: '24px 28px', width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}>
               <Trash2 size={16} style={{ color: 'var(--admin-danger)', flexShrink: 0 }} />
               <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--admin-text)' }}>Xóa cấu hình</span>
             </div>
