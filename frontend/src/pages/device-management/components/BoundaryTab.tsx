@@ -117,7 +117,7 @@ export default function BoundaryTab({ cameras, initialCamera }: Props) {
 
         // Label
         ctx.fillStyle = '#fff';
-        ctx.font = '10px Inter, sans-serif';
+        ctx.font = '10px Verdana, Segoe UI, Arial, sans-serif';
         ctx.fillText(b.name.replace(/Vùng\s*/g, 'V'), startPt[0] * w, startPt[1] * h - 5);
       });
 

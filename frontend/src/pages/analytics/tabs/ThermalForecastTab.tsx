@@ -344,7 +344,7 @@ targets.forEach(t => {
   if (loading) return (
     <div style={{ display: 'flex', flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--admin-text-muted)', gap: 10, background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)' }}>
       <RotateCw size={18} className="animate-spin" color="var(--admin-accent)" />
-      <span style={{ fontSize: '.8rem', fontFamily: 'monospace' }}>ĐANG ĐỒNG BỘ CẤU HÌNH AI...</span>
+      <span style={{ fontSize: '.8rem', fontFamily: 'var(--admin-font-mono)' }}>ĐANG ĐỒNG BỘ CẤU HÌNH AI...</span>
       <style dangerouslySetInnerHTML={{ __html: `.animate-spin { animation: spin 1.2s linear infinite; } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }` }} />
     </div>
   );
@@ -499,8 +499,8 @@ targets.forEach(t => {
               })}
             </div>
             <div style={{ padding: '8px 12px', background: 'var(--admin-layer-2)', borderTop: '1px solid var(--admin-border)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.58rem', fontFamily: 'monospace' }}><span style={{ color: 'var(--admin-text-muted)', fontWeight: 600 }}>GIỜ THỰC TẾ:</span> <span style={{ color: 'var(--admin-success)', fontWeight: 800 }}>{liveTime || '--:--:--'}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.58rem', fontFamily: 'monospace' }}><span style={{ color: 'var(--admin-text-muted)', fontWeight: 600 }}>GIỜ DỰ BÁO:</span> <span style={{ color: 'var(--admin-accent)', fontWeight: 800 }}>{forecastTime || '--:--:--'}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.58rem', fontFamily: 'var(--admin-font-mono)' }}><span style={{ color: 'var(--admin-text-muted)', fontWeight: 600 }}>GIỜ THỰC TẾ:</span> <span style={{ color: 'var(--admin-success)', fontWeight: 800 }}>{liveTime || '--:--:--'}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.58rem', fontFamily: 'var(--admin-font-mono)' }}><span style={{ color: 'var(--admin-text-muted)', fontWeight: 600 }}>GIỜ DỰ BÁO:</span> <span style={{ color: 'var(--admin-accent)', fontWeight: 800 }}>{forecastTime || '--:--:--'}</span></div>
             </div>
           </div>
         </div>

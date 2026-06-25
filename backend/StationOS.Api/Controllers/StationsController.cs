@@ -931,12 +931,17 @@ public class StationsController : ControllerBase
                     alertsCount = arr.GetArrayLength();
             }
 
+            var existingPointKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (pointsTask.Result.IsSuccessStatusCode)
             {
                 var ptJson = await pointsTask.Result.Content.ReadFromJsonAsync<JsonElement>();
                 if (ptJson.ValueKind == JsonValueKind.Array)
                     foreach (var p in ptJson.EnumerateArray())
+                    {
                         pointsList.Add(p);
+                        if (p.TryGetProperty("deviceId", out var did) && p.TryGetProperty("pointId", out var pid))
+                            existingPointKeys.Add($"{did.GetString()}_{pid.GetString()}");
+                    }
             }
 
             if (healthTask.Result.IsSuccessStatusCode)
@@ -965,7 +970,11 @@ public class StationsController : ControllerBase
                         .Where(id => !string.IsNullOrWhiteSpace(id))
                         .Select(id => client.GetAsync($"{apiBase}/api/v1/devices/{id}/roi-points"))
                         .ToList();
-                    await Task.WhenAll(bTasks.Cast<Task>().Concat(rTasks.Cast<Task>()));
+                    // thermal-readings: lấy nhiệt độ tức thời của từng điểm ROI trên camera nhiệt
+                    var tTasks = validCameraIds
+                        .Select(id => client.GetAsync($"{apiBase}/api/v1/devices/{id}/thermal-readings"))
+                        .ToList();
+                    await Task.WhenAll(bTasks.Cast<Task>().Concat(rTasks.Cast<Task>()).Concat(tTasks.Cast<Task>()));
 
                     foreach (var bt in bTasks)
                     {
@@ -987,8 +996,31 @@ public class StationsController : ControllerBase
                                     roiPointsList.Add(r);
                         }
                     }
+                    // Merge thermal readings vào pointsList, bỏ qua các điểm đã có từ /points
+                    foreach (var (camId, tt) in validCameraIds.Zip(tTasks))
+                    {
+                        if (!tt.IsCompletedSuccessfully || !tt.Result.IsSuccessStatusCode) continue;
+                        var trJson = await tt.Result.Content.ReadFromJsonAsync<JsonElement>();
+                        if (trJson.ValueKind != JsonValueKind.Object) continue;
+                        foreach (var prop in trJson.EnumerateObject())
+                        {
+                            if (prop.Value.ValueKind != JsonValueKind.Number) continue;
+                            var dedupeKey = $"{camId}_{prop.Name}";
+                            if (existingPointKeys.Contains(dedupeKey)) continue;
+                            pointsList.Add(new
+                            {
+                                deviceId = camId,
+                                pointId  = prop.Name,
+                                value    = Math.Round(prop.Value.GetDouble(), 2),
+                                unit     = "°C",
+                                quality  = 0,
+                                time     = DateTime.UtcNow
+                            });
+                            existingPointKeys.Add(dedupeKey);
+                        }
+                    }
                 }
-                catch { /* best-effort — không fail toàn bộ KPI vì boundaries/roiPoints */ }
+                catch { /* best-effort — không fail toàn bộ KPI vì boundaries/roiPoints/thermalReadings */ }
             }
 
             return Ok(new { devicesOnline, devicesTotal, alertsCount, points = pointsList, healthScores = healthList, boundaries = boundariesList, roiPoints = roiPointsList, go2rtcBase, rtspBase, webUiUrl });
@@ -997,6 +1029,116 @@ public class StationsController : ControllerBase
         {
             return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), boundaries = Array.Empty<object>(), roiPoints = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Proxy danh sách cảnh báo từ trạm con — hỗ trợ lọc status, from, to, limit.
+    /// Trả về mảng AlertItem với stationId gắn vào để frontend phân biệt nguồn.
+    /// </summary>
+    [HttpGet("{id}/remote-alerts")]
+    public async Task<IActionResult> GetRemoteAlerts(
+        Guid id,
+        [FromQuery] string? status,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] int limit = 200)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return Ok(Array.Empty<object>());
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+
+        var threshold = DateTime.UtcNow.AddMinutes(-5);
+        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+        if (!isOnline)
+            return Ok(Array.Empty<object>());
+
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return Ok(Array.Empty<object>());
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var qp = new System.Collections.Specialized.NameValueCollection();
+            if (!string.IsNullOrEmpty(status)) qp["status"] = status;
+            if (from.HasValue)  qp["from"]  = from.Value.ToString("o");
+            if (to.HasValue)    qp["to"]    = to.Value.ToString("o");
+            qp["limit"] = limit.ToString();
+            var qs = string.Join("&", Array.ConvertAll(qp.AllKeys!, k => $"{k}={Uri.EscapeDataString(qp[k]!)}"));
+
+            var res = await client.GetAsync($"{apiBase}/api/v1/alerts?{qs}");
+
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token)) return Ok(Array.Empty<object>());
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                res = await client.GetAsync($"{apiBase}/api/v1/alerts?{qs}");
+            }
+
+            if (!res.IsSuccessStatusCode) return Ok(Array.Empty<object>());
+
+            var json = await res.Content.ReadFromJsonAsync<JsonElement>();
+            var arr = json.ValueKind == JsonValueKind.Array ? json
+                    : json.TryGetProperty("items", out var items) ? items
+                    : json.TryGetProperty("data",  out var data)  ? data
+                    : default;
+
+            if (arr.ValueKind != JsonValueKind.Array) return Ok(Array.Empty<object>());
+
+            // Gắn thêm stationId và stationName vào mỗi alert để frontend nhận biết nguồn
+            string? ResolveUrl(string? path)
+            {
+                if (string.IsNullOrEmpty(path)) return null;
+                if (path.StartsWith("http://") || path.StartsWith("https://") || path.StartsWith("data:")) return path;
+                return $"{apiBase}{(path.StartsWith("/") ? "" : "/")}{path}";
+            }
+
+            var result = arr.EnumerateArray().Select(a => new
+            {
+                id           = GetProp(a, "id"),
+                source       = GetProp(a, "source"),
+                level        = GetProp(a, "level"),
+                status       = GetProp(a, "status"),
+                message      = GetProp(a, "message"),
+                value        = GetDoubleProp(a, "value"),
+                deviceId     = GetProp(a, "deviceId"),
+                ruleId       = GetProp(a, "ruleId"),
+                stationId    = id,
+                stationName  = station.Name,
+                triggeredAt  = GetProp(a, "triggeredAt"),
+                ackedAt      = GetProp(a, "ackedAt"),
+                closedAt     = GetProp(a, "closedAt"),
+                ackNote      = GetProp(a, "ackNote"),
+                imageUrl     = ResolveUrl(GetProp(a, "imageUrl")),
+                videoUrl     = ResolveUrl(GetProp(a, "videoUrl")),
+                thumbnailUrl = ResolveUrl(GetProp(a, "thumbnailUrl")),
+            }).ToList();
+
+            return Ok(result);
+        }
+        catch
+        {
+            return Ok(Array.Empty<object>());
+        }
+    }
+
+    private static string? GetProp(JsonElement el, string name)
+    {
+        if (el.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null)
+            return v.ToString();
+        return null;
+    }
+
+    private static double? GetDoubleProp(JsonElement el, string name)
+    {
+        if (el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number)
+            return v.GetDouble();
+        return null;
     }
 
     /// <summary>

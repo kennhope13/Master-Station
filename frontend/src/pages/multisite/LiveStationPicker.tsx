@@ -250,7 +250,7 @@ function StationRow({ v, indent, last }: { v: StationView; indent: number; last:
               : <WifiOff size={11} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} />}
 
       {/* Code */}
-      <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.63rem', color: 'var(--admin-accent)', flexShrink: 0, width: 80 }}>
+      <span style={{ fontFamily: 'var(--admin-font-mono)', fontWeight: 900, fontSize: '0.63rem', color: 'var(--admin-accent)', flexShrink: 0, width: 80 }}>
         {v.station.code || v.station.id.slice(0, 8).toUpperCase()}
       </span>
 
@@ -276,7 +276,7 @@ function MiniKpi({ icon, value, muted, warn, danger }: { icon: ReactNode; value:
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, color }}>
       {icon}
-      <span style={{ fontFamily: 'monospace', fontSize: '0.62rem', fontWeight: 700 }}>{value}</span>
+      <span style={{ fontFamily: 'var(--admin-font-mono)', fontSize: '0.62rem', fontWeight: 700 }}>{value}</span>
     </div>
   );
 }
@@ -332,11 +332,11 @@ function ListView({ views }: { views: StationView[] }) {
                   <span style={{ fontWeight: 800, fontSize: '0.6rem', color: online ? 'var(--admin-success)' : 'var(--admin-text-muted)' }}>{online ? 'ONLINE' : 'OFFLINE'}</span>
                 </div>
               </td>
-              <td style={{ ...td, fontFamily: 'monospace', fontWeight: 900, fontSize: '0.65rem', color: 'var(--admin-accent)' }}>{v.station.code || v.station.id.slice(0, 8)}</td>
+              <td style={{ ...td, fontFamily: 'var(--admin-font-mono)', fontWeight: 900, fontSize: '0.65rem', color: 'var(--admin-accent)' }}>{v.station.code || v.station.id.slice(0, 8)}</td>
               <td style={{ ...td, fontWeight: 600, color: 'var(--admin-text)' }} title={v.station.name}>{v.station.name}</td>
-              <td style={{ ...td, textAlign: 'center', fontFamily: 'monospace', fontWeight: 800, color: v.kpi.devicesOnline > 0 ? 'var(--admin-text)' : 'var(--admin-text-muted)' }}>{v.kpi.devicesOnline}<span style={{ color: 'var(--admin-text-muted)', fontWeight: 400 }}>/{v.kpi.devicesTotal}</span></td>
-              <td style={{ ...td, textAlign: 'center', fontFamily: 'monospace', fontWeight: 800, color: v.kpi.alerts > 0 ? 'var(--admin-warning)' : 'var(--admin-text-muted)' }}>{v.kpi.alerts > 0 ? `⚠ ${v.kpi.alerts}` : '—'}</td>
-              <td style={{ ...td, textAlign: 'center', fontFamily: 'monospace', fontWeight: 800, color: v.kpi.alarmsCount > 0 ? 'var(--admin-danger)' : 'var(--admin-text-muted)' }}>{v.kpi.alarmsCount > 0 ? `● ${v.kpi.alarmsCount}` : '—'}</td>
+              <td style={{ ...td, textAlign: 'center', fontFamily: 'var(--admin-font-mono)', fontWeight: 800, color: v.kpi.devicesOnline > 0 ? 'var(--admin-text)' : 'var(--admin-text-muted)' }}>{v.kpi.devicesOnline}<span style={{ color: 'var(--admin-text-muted)', fontWeight: 400 }}>/{v.kpi.devicesTotal}</span></td>
+              <td style={{ ...td, textAlign: 'center', fontFamily: 'var(--admin-font-mono)', fontWeight: 800, color: v.kpi.alerts > 0 ? 'var(--admin-warning)' : 'var(--admin-text-muted)' }}>{v.kpi.alerts > 0 ? `⚠ ${v.kpi.alerts}` : '—'}</td>
+              <td style={{ ...td, textAlign: 'center', fontFamily: 'var(--admin-font-mono)', fontWeight: 800, color: v.kpi.alarmsCount > 0 ? 'var(--admin-danger)' : 'var(--admin-text-muted)' }}>{v.kpi.alarmsCount > 0 ? `● ${v.kpi.alarmsCount}` : '—'}</td>
               <td style={{ ...td, textAlign: 'center', padding: '8px 6px' }}><ArrowRight size={13} style={{ color: 'var(--admin-text-muted)', opacity: 0.5 }} /></td>
             </tr>
           );
@@ -371,7 +371,7 @@ function GridView({ views }: { views: StationView[] }) {
               <ArrowRight size={12} style={{ color: 'var(--admin-text-muted)', opacity: 0.6 }} />
             </div>
             <div>
-              <div style={{ fontSize: '0.62rem', fontWeight: 900, fontFamily: 'monospace', color: 'var(--admin-accent)', marginBottom: 3 }}>{v.station.code || v.station.id.slice(0, 8)}</div>
+              <div style={{ fontSize: '0.62rem', fontWeight: 900, fontFamily: 'var(--admin-font-mono)', color: 'var(--admin-accent)', marginBottom: 3 }}>{v.station.code || v.station.id.slice(0, 8)}</div>
               <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--admin-text)', lineHeight: 1.3 }}>{v.station.name}</div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -399,7 +399,7 @@ function KpiChip({ icon, label, value, ok, danger }: { icon: ReactNode; label: s
         {icon}
         <span style={{ fontSize: '0.48rem', fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>{label.toUpperCase()}</span>
       </div>
-      <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'monospace', color }}>{value}</span>
+      <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'var(--admin-font-mono)', color }}>{value}</span>
     </div>
   );
 }

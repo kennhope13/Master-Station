@@ -55,7 +55,7 @@ export default function LiveWallPopup() {
 
   if (!authReady || !preset) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: '#070c14', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
+      <div style={{ position: 'fixed', inset: 0, background: '#070c14', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'rgba(255,255,255,0.3)', fontFamily: 'var(--admin-font-mono)' }}>
         <Monitor size={32} style={{ opacity: 0.2 }} />
         <span style={{ fontSize: '0.75rem' }}>{!authReady ? 'Đang kết nối...' : 'Không tìm thấy cấu hình'}</span>
       </div>
@@ -66,7 +66,7 @@ export default function LiveWallPopup() {
   const maxCells = layout.cols * layout.rows;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#070c14', display: 'flex', flexDirection: 'column', fontFamily: 'monospace', color: '#e2e8f0' }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#070c14', display: 'flex', flexDirection: 'column', fontFamily: 'var(--admin-font-mono)', color: '#e2e8f0' }}>
       {/* Top bar */}
       <div style={{ flexShrink: 0, height: 34, background: 'rgba(15,23,42,0.97)', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10 }}>
         <Monitor size={11} style={{ color: '#f59e0b' }} />

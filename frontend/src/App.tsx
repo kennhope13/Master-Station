@@ -88,7 +88,7 @@ const ScreenLoader = () => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      fontFamily: 'monospace',
+      fontFamily: 'var(--admin-font-mono)',
       fontSize: '14px',
       fontWeight: 'bold',
       zIndex: 9999

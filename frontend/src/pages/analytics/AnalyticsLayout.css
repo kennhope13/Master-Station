@@ -1,4 +1,59 @@
 /* AnalyticsLayout.css – Shared styles for Analytics pages, reusing AlertsHistory styles */
 @import "../alerts-history/AlertsHistoryPage.css";
 
-/* If any Analytics-specific overrides needed, add below */
+/* Province & Station Hierarchy Styles */
+.province-group-header {
+  border-left: 2px solid transparent;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.province-group-header:hover {
+  border-left-color: var(--admin-accent);
+}
+
+.province-stations-container {
+  border-left: 1px solid var(--admin-border);
+  margin-left: 16px;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Styled dropdown options to match dark theme */
+.central-analytics-left select option {
+  background-color: #0b0f14;
+  color: var(--admin-text);
+}
+
+/* Pulsating status dot animation */
+.status-pulse-dot {
+  position: relative;
+}
+.status-pulse-dot::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 50%;
+  background: inherit;
+  animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}

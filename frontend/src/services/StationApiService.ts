@@ -53,6 +53,7 @@ class StationApiService {
   getRemoteKpi = stationService.getRemoteKpi.bind(stationService);
   getRemoteCameras = stationService.getRemoteCameras.bind(stationService);
   getRemoteToken = stationService.getRemoteToken.bind(stationService);
+  getRemoteAlerts = stationService.getRemoteAlerts.bind(stationService);
 
   // ── Devices ───────────────────────────────────────────────
   getDevices = deviceService.getDevices.bind(deviceService);

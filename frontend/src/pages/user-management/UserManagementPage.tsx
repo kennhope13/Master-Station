@@ -134,7 +134,7 @@ function FilterDropdown({
         onClick={() => setOpen(prev => !prev)}
         style={{
           width: '100%',
-          height: 32,
+          height: 28,
           padding: '0 10px',
           border: '1px solid var(--admin-border)',
           background: 'var(--admin-layer-2)',
@@ -937,7 +937,9 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', minHeight: 0, width: '100%', overflow: 'hidden' }}>
       
       <div style={{
-        padding: '8px 12px',
+        height: 40,
+        padding: '0 12px',
+        boxSizing: 'border-box',
         borderBottom: '1px solid var(--admin-border)',
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap',
         background: 'var(--admin-panel)',
@@ -1016,7 +1018,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                 value={teamProvinceFilter}
                 placeholder="Tất cả tỉnh"
                 onChange={setTeamProvinceFilter}
-                width={146}
+                width={160}
                 options={[
                   { value: '', label: 'Tất cả tỉnh' },
                   ...provincesList.map(p => ({ value: p.id, label: p.name }))
@@ -1036,7 +1038,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   setTeamFilter('');
                   setUserStationFilter('');
                 }}
-                width={126}
+                width={160}
                 options={[
                   { value: '', label: 'Tất cả tỉnh' },
                   ...provincesList.map(p => ({ value: p.id, label: p.name }))
@@ -1051,7 +1053,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   setTeamFilter(value);
                   setUserStationFilter('');
                 }}
-                width={156}
+                width={180}
                 options={[
                   { value: '', label: 'Tất cả tổ' },
                   ...teamsList
@@ -1065,7 +1067,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                 value={userStationFilter}
                 placeholder="Tất cả trạm"
                 onChange={setUserStationFilter}
-                width={146}
+                width={200}
                 options={[
                   { value: '', label: 'Tất cả trạm' },
                   ...stationsList
@@ -1086,7 +1088,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                     value={roleFilter}
                     placeholder="Tất cả vai trò"
                     onChange={setRoleFilter}
-                    width={132}
+                    width={160}
                     options={[
                       { value: '', label: 'Tất cả vai trò' },
                       ...Object.entries(ROLE_CFG).map(([key, cfg]) => ({ value: key, label: cfg.label }))
@@ -1099,21 +1101,21 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           )}
 
           {activeTab === 'teams' && (
-            <button onClick={openAddTeamModal} className="btn-industrial btn-primary" style={{ height: 32, minWidth: 128, padding: '0 14px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '.72rem', whiteSpace: 'nowrap', lineHeight: 1 }}>
-              <Plus size={14} /> THÊM TỔ MỚI
+            <button onClick={openAddTeamModal} className="btn-industrial btn-primary" style={{ height: 28, minWidth: 130, padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '.68rem', whiteSpace: 'nowrap', lineHeight: 1 }}>
+              <Plus size={12} /> THÊM TỔ MỚI
             </button>
           )}
 
           {(activeTab === 'users' || filterStationId) && (
-            <button onClick={openAddModal} className="btn-industrial btn-primary" style={{ height: 32, minWidth: 136, padding: '0 14px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '.72rem', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>
-              <UserPlus size={14} /> THÊM TÀI KHOẢN
+            <button onClick={openAddModal} className="btn-industrial btn-primary" style={{ height: 28, minWidth: 140, padding: '0 12px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: '.68rem', whiteSpace: 'nowrap', lineHeight: 1, flexShrink: 0 }}>
+              <UserPlus size={12} /> THÊM TÀI KHOẢN
             </button>
           )}
 
           <div ref={downloadDropdownRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
               onClick={() => setDownloadDropdownOpen(v => !v)}
-              style={{ height: 32, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
+              style={{ height: 28, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
             >
               <Download size={12} />
               <span>XUẤT</span>
@@ -1201,7 +1203,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
         </div>
       )}
 
-      <div className="custom-hud-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: (activeTab === 'stations' && filterStationId) ? 0 : 20 }}>
+      <div className="custom-hud-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: 20 }}>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--admin-text-muted)' }}>
             <Activity className="animate-spin" style={{ margin: '0 auto 10px' }} /> Đang tải dữ liệu...
@@ -1234,7 +1236,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   style={{ 
                     padding: 0, display: 'flex', flexDirection: 'column', 
                     border: '1px solid var(--admin-border)', background: 'rgba(255,255,255,0.02)',
-                    borderRadius: 4
+                    borderRadius: 0
                   }}
                 >
                   <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)' }}>
@@ -1263,7 +1265,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                         {teamStations.map(s => (
-                          <span key={s!.id} style={{ fontSize: '.62rem', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', padding: '2px 6px', border: '1px solid var(--admin-border)', borderRadius: 2 }}>
+                          <span key={s!.id} style={{ fontSize: '.62rem', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', padding: '2px 6px', border: '1px solid var(--admin-border)', borderRadius: 0 }}>
                             {s!.code || s!.name}
                           </span>
                         ))}
@@ -1281,11 +1283,11 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                         {teamMembers.map(m => {
                           const role = ROLE_CFG[m.role as keyof typeof ROLE_CFG] ?? ROLE_CFG.operator;
                           return (
-                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'rgba(255,255,255,0.01)', padding: '4px 8px', borderRadius: 2, border: '1px solid rgba(255,255,255,0.02)' }}>
+                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'rgba(255,255,255,0.01)', padding: '4px 8px', borderRadius: 0, border: '1px solid rgba(255,255,255,0.02)' }}>
                               <span style={{ flex: 1, minWidth: 0, fontSize: '.72rem', color: 'var(--admin-text)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {m.fullName || m.username} <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 'normal' }}>@{m.username}</span>
                               </span>
-                              <span style={{ flexShrink: 0, fontSize: '.58rem', fontWeight: 900, padding: '1px 8px', background: role.bg, color: role.color, borderRadius: 2, border: `1px solid ${role.color}40`, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', minHeight: 22 }}>
+                              <span style={{ flexShrink: 0, fontSize: '.58rem', fontWeight: 900, padding: '1px 8px', background: role.bg, color: role.color, borderRadius: 0, border: `1px solid ${role.color}40`, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', minHeight: 22 }}>
                                 {role.label}
                               </span>
                             </div>
@@ -1302,7 +1304,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
             })}
           </div>
         ) : (
-          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 4, overflowX: 'auto', overflowY: 'hidden' }}>
+          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, overflowX: 'auto', overflowY: 'hidden' }}>
 	            <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', textAlign: 'left' }}>
 	              <thead>
 	                <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
@@ -1326,7 +1328,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                     <tr key={u.id} className="table-row-hover" style={{ borderBottom: '1px solid var(--admin-border)', opacity: u.isActive ? 1 : 0.5 }}>
 	                      <td style={TD_STYLE}>
 	                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-	                          <div style={{ width: 32, height: 32, borderRadius: 4, background: 'var(--admin-layer-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-accent)', border: '1px solid var(--admin-border)' }}>
+	                          <div style={{ width: 32, height: 32, borderRadius: 0, background: 'var(--admin-layer-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-accent)', border: '1px solid var(--admin-border)' }}>
 	                            {u.username.slice(0, 2).toUpperCase()}
 	                          </div>
 	                          <div>
@@ -1335,7 +1337,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 	                        </div>
 	                      </td>
 	                      <td style={TD_STYLE}>
-	                        <span style={{ fontSize: '.6rem', fontWeight: 900, padding: '2px 8px', background: role.bg, color: role.color, borderRadius: 2, border: `1px solid ${role.color}40` }}>
+	                        <span style={{ fontSize: '.6rem', fontWeight: 900, padding: '2px 8px', background: role.bg, color: role.color, borderRadius: 0, border: `1px solid ${role.color}40` }}>
 	                          {role.label}
                         </span>
                       </td>
@@ -1348,7 +1350,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                               <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Chưa gán tỉnh</span>
                             ) : (
                               assignedProvinces.map(p => (
-                                <span key={p!.id} style={{ fontSize: '.6rem', background: 'rgba(13,148,136,0.1)', color: '#0d9488', padding: '1px 5px', border: '1px solid rgba(13,148,136,0.2)', borderRadius: 2 }}>
+                                <span key={p!.id} style={{ fontSize: '.6rem', background: 'rgba(13,148,136,0.1)', color: '#0d9488', padding: '1px 5px', border: '1px solid rgba(13,148,136,0.2)', borderRadius: 0 }}>
                                   {p!.name}
                                 </span>
                               ))
@@ -1356,7 +1358,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                           ) : (
                             <>
                               {u.teamId && (
-                                <span style={{ fontSize: '.6rem', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', padding: '1px 5px', border: '1px solid rgba(245,158,11,0.22)', borderRadius: 2, fontWeight: 700 }}>
+                                <span style={{ fontSize: '.6rem', background: 'rgba(245,158,11,0.12)', color: '#f59e0b', padding: '1px 5px', border: '1px solid rgba(245,158,11,0.22)', borderRadius: 0, fontWeight: 700 }}>
                                   👥 {teamsList.find(t => t.id === u.teamId)?.name || 'Tổ thao tác'}
                                 </span>
                               )}
@@ -1364,7 +1366,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                                 !u.teamId && <span style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Chưa gán trạm</span>
                               ) : (
                                 assignedStations.map(s => (
-                                  <span key={s!.id} style={{ fontSize: '.6rem', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', padding: '1px 5px', border: '1px solid var(--admin-border)', borderRadius: 2 }}>
+                                  <span key={s!.id} style={{ fontSize: '.6rem', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', padding: '1px 5px', border: '1px solid var(--admin-border)', borderRadius: 0 }}>
                                     {s!.code || s!.name}
                                   </span>
                                 ))
@@ -1375,7 +1377,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                       </td>
                       <td style={TD_STYLE}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 6, height: 6, borderRadius: 1, background: isOnline ? 'var(--admin-success)' : 'var(--admin-text-muted)' }} />
+                          <div style={{ width: 6, height: 6, borderRadius: 0, background: isOnline ? 'var(--admin-success)' : 'var(--admin-text-muted)' }} />
                           <span style={{ fontSize: '.7rem', fontWeight: 700, color: isOnline ? 'var(--admin-success)' : 'var(--admin-text-muted)' }}>
                             {isOnline ? 'ĐANG TRỰC' : 'NGOẠI TUYẾN'}
                           </span>
@@ -1437,7 +1439,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 	                          className="form-input"
 	                          value={editingUser ? (deriveDisplayedPassword(editingUser) || 'Không hiển thị') : 'Không hiển thị'}
 	                          disabled
-	                          style={{ opacity: 0.8, cursor: 'not-allowed', fontFamily: 'monospace' }}
+	                          style={{ opacity: 0.8, cursor: 'not-allowed', fontFamily: 'var(--admin-font-mono)' }}
 	                        />
 	                      </div>
 	                    </>
@@ -1505,7 +1507,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                         className="form-input" 
                         value={formData.teamId} 
                         onChange={e => setFormData({...formData, teamId: e.target.value})}
-                        style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 4, width: '100%', height: 32, colorScheme: 'dark' }}
+                        style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 0, width: '100%', height: 32, colorScheme: 'dark' }}
                       >
                         <option value="" style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>-- Không tham gia tổ nào --</option>
                         {teamsList.map(t => (
@@ -1523,7 +1525,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   {['admin_province', 'operator_province'].includes(formData.role) && (
                     <div className="form-group">
                       <label>Tỉnh được phân công</label>
-                      <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
+                      <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 0 }}>
                         {provincesList.map(p => (
                           <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
                             <input type="checkbox" disabled={isProvinceAdmin} checked={formData.province_ids.includes(p.id)} onChange={() => {
@@ -1544,7 +1546,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   {['admin_station', 'manager', 'operator', 'team_leader', 'team_member'].includes(formData.role) && (
                     <div className="form-group">
                       <label>Trạm được phân công riêng</label>
-                      <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
+                      <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 0 }}>
                         {stationsList.map(s => (
                           <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
                             <input type="checkbox" checked={formData.station_ids.includes(s.id)} onChange={() => {
@@ -1558,7 +1560,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   )}
 
                   {formData.role === 'admin' && (
-                    <div style={{ padding: 10, background: 'rgba(239,68,68,0.1)', border: '1px dashed var(--admin-danger)', color: 'var(--admin-danger)', fontSize: '.7rem', fontWeight: 700, borderRadius: 4 }}>
+                    <div style={{ padding: 10, background: 'rgba(239,68,68,0.1)', border: '1px dashed var(--admin-danger)', color: 'var(--admin-danger)', fontSize: '.7rem', fontWeight: 700, borderRadius: 0 }}>
                       ⚡ Tài khoản ADMIN mặc định có toàn bộ quyền hệ thống và bỏ qua các bộ lọc giới hạn trạm.
                     </div>
                   )}
@@ -1569,7 +1571,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                     Quyền hạn chi tiết
                   </div>
                   {formData.role === 'admin' ? (
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 30, border: '1px dashed var(--admin-border)', borderRadius: 4, background: 'var(--admin-layer-2)' }}>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 30, border: '1px dashed var(--admin-border)', borderRadius: 0, background: 'var(--admin-layer-2)' }}>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '2rem', marginBottom: 8 }}>🔓</div>
                         <div style={{ fontSize: '.75rem', fontWeight: 700, color: 'var(--admin-danger)' }}>FULL QUYỀN</div>
@@ -1586,19 +1588,19 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                       flexDirection: 'column', 
                       gap: 14, 
                       background: 'var(--admin-layer-2)',
-                      borderRadius: 4
+                      borderRadius: 0
                     }}>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button 
                           type="button"
                           className="btn-industrial" 
-                          style={{ fontSize: '.6rem', padding: '3px 10px', borderRadius: 4 }}
+                          style={{ fontSize: '.6rem', padding: '3px 10px', borderRadius: 0 }}
                           onClick={() => setFormData({...formData, permissions: availablePermissions.map(p => p.key)})}
                         >✓ Chọn tất cả</button>
                         <button 
                           type="button"
                           className="btn-industrial" 
-                          style={{ fontSize: '.6rem', padding: '3px 10px', borderRadius: 4 }}
+                          style={{ fontSize: '.6rem', padding: '3px 10px', borderRadius: 0 }}
                           onClick={() => setFormData({...formData, permissions: []})}
                         >✕ Bỏ tất cả</button>
                       </div>
@@ -1611,7 +1613,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                       ).map(([groupName, groupPerms]) => (
                         <div key={groupName}>
                           <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-accent)', textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 4, height: 14, background: 'var(--admin-accent)', borderRadius: 2, display: 'inline-block' }} />
+                            <span style={{ width: 4, height: 14, background: 'var(--admin-accent)', borderRadius: 0, display: 'inline-block' }} />
                             {groupName}
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
@@ -1628,7 +1630,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                                   }} 
                                 /> 
                                 <span>{p.name}</span>
-                                <span style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)', fontFamily: 'monospace', marginLeft: 'auto', opacity: 0.7 }}>({p.key})</span>
+                                <span style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)', marginLeft: 'auto', opacity: 0.7 }}>({p.key})</span>
                               </label>
                             ))}
                           </div>
@@ -1640,8 +1642,8 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn-industrial" style={{ borderRadius: 4 }} onClick={() => setIsUserModalOpen(false)}>Hủy</button>
-              <button className="btn-industrial btn-primary" style={{ borderRadius: 4 }} onClick={saveUser}>Lưu dữ liệu</button>
+              <button className="btn-industrial" style={{ borderRadius: 0 }} onClick={() => setIsUserModalOpen(false)}>Hủy</button>
+              <button className="btn-industrial btn-primary" style={{ borderRadius: 0 }} onClick={saveUser}>Lưu dữ liệu</button>
             </div>
           </div>
         </div>
@@ -1684,7 +1686,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                   onChange={e => {
                     setTeamFormData({ ...teamFormData, provinceId: e.target.value, stationIds: [] });
                   }}
-                  style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 4, width: '100%', height: 32, colorScheme: 'dark' }}
+                  style={{ background: 'var(--admin-layer-2)', color: 'var(--admin-text)', border: '1px solid var(--admin-border)', borderRadius: 0, width: '100%', height: 32, colorScheme: 'dark' }}
                 >
                   <option value="" style={{ background: 'var(--admin-panel)', color: 'var(--admin-text)' }}>-- Chọn Tỉnh --</option>
                   {provincesList.map(p => (
@@ -1695,7 +1697,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
 
               <div className="form-group">
                 <label>Trạm giám sát thuộc tổ (chỉ hiển thị theo Tỉnh đã chọn)</label>
-                <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 4 }}>
+                <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--admin-border)', padding: 10, marginTop: 5, display: 'flex', flexDirection: 'column', gap: 5, background: 'var(--admin-layer-2)', borderRadius: 0 }}>
                   {stationsList.filter(s => s.provinceId === teamFormData.provinceId).map(s => (
                     <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.7rem', cursor: 'pointer' }}>
                       <input 
@@ -1720,8 +1722,8 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn-industrial" style={{ borderRadius: 4 }} onClick={() => setIsTeamModalOpen(false)}>Hủy</button>
-              <button className="btn-industrial btn-primary" style={{ borderRadius: 4 }} onClick={saveTeam}>Lưu tổ</button>
+              <button className="btn-industrial" style={{ borderRadius: 0 }} onClick={() => setIsTeamModalOpen(false)}>Hủy</button>
+              <button className="btn-industrial btn-primary" style={{ borderRadius: 0 }} onClick={saveTeam}>Lưu tổ</button>
             </div>
           </div>
         </div>
@@ -1778,7 +1780,7 @@ function ActionIcon({ icon, onClick, danger, title }: any) {
       onClick={onClick} 
       title={title}
       style={{
-        width: 28, height: 28, borderRadius: 4, border: '1px solid var(--admin-border)',
+        width: 28, height: 28, borderRadius: 0, border: '1px solid var(--admin-border)',
         background: 'var(--admin-layer-3)', color: danger ? 'var(--admin-danger)' : 'var(--admin-text-muted)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
         transition: 'all 0.2s'
@@ -1864,7 +1866,7 @@ function StationGroupedView({
         });
 
         return (
-          <div key={pid} style={{ border: '1px solid var(--admin-border)', borderRadius: 6, overflow: 'hidden' }}>
+          <div key={pid} style={{ border: '1px solid var(--admin-border)', borderRadius: 0, overflow: 'hidden' }}>
             {/* Province header */}
             <div onClick={() => toggleSP(pid)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', cursor: 'pointer', background: 'var(--admin-layer-2)', borderBottom: pCollapsed ? 'none' : '1px solid var(--admin-border)', userSelect: 'none' }}>
               <span style={{ fontSize: 12, color: 'var(--admin-text-muted)', flexShrink: 0 }}>{pCollapsed ? '▸' : '▾'}</span>
@@ -1917,11 +1919,11 @@ function StationGroupedView({
                             {/* Connection status dot */}
                             <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: isOnline ? 'var(--admin-success)' : 'var(--admin-danger)', boxShadow: isOnline ? '0 0 5px var(--admin-success)' : 'none' }} />
                             <span style={{ fontSize: '0.58rem', fontWeight: 800, color: isOnline ? 'var(--admin-success)' : 'var(--admin-danger)', flexShrink: 0, letterSpacing: '0.04em' }}>{isOnline ? 'ONLINE' : 'OFFLINE'}</span>
-                            <span style={{ fontFamily: 'monospace', fontWeight: 900, fontSize: '0.63rem', color: 'var(--admin-accent)', flexShrink: 0, width: 90 }}>{s.code || s.id.slice(0, 8).toUpperCase()}</span>
+                            <span style={{ fontFamily: 'var(--admin-font-mono)', fontWeight: 900, fontSize: '0.63rem', color: 'var(--admin-accent)', flexShrink: 0, width: 90 }}>{s.code || s.id.slice(0, 8).toUpperCase()}</span>
                             <span style={{ fontWeight: 600, fontSize: '0.68rem', color: 'var(--admin-text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                               <Users size={10} style={{ color: 'var(--admin-text-muted)' }} />
-                              <span style={{ fontSize: '0.6rem', fontWeight: 700, color: onDutyCount > 0 ? 'var(--admin-text)' : 'var(--admin-text-muted)', fontFamily: 'monospace' }}>
+                              <span style={{ fontSize: '0.6rem', fontWeight: 700, color: onDutyCount > 0 ? 'var(--admin-text)' : 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)' }}>
                                 {onDutyCount}/{stationUsers.length} TRỰC
                               </span>
                             </div>

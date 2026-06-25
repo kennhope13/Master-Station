@@ -737,7 +737,7 @@ export default function DeviceManagementPage({
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <b style={{ fontSize: '.8rem', color: 'var(--admin-text)', marginBottom: 2 }}>{device.name}</b>
-                          <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontFamily: 'monospace' }}>IP: {device.config?.ip || 'Không khai báo'}</div>
+                          <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)' }}>IP: {device.config?.ip || 'Không khai báo'}</div>
                           {device.config?.cabinetId && (
                             <span style={{ marginTop: 4, display: 'inline-block', fontSize: '.6rem', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', padding: '2px 6px', borderRadius: 4, border: '1px solid var(--admin-border)' }}>
                               Tủ liên kết: {device.config.cabinetId}

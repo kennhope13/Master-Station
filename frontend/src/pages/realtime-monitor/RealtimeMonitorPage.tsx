@@ -753,7 +753,7 @@ export default function RealtimeMonitorPage({
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: 4, height: 4, borderRadius: '50%', background: '#fff', boxShadow: `0 0 4px ${color}` }} />
           </div>
           {/* Label badge — y hệt ThermalConfigTab */}
-          <div style={{ position: 'absolute', ...labelStyle, background: 'rgba(8,8,8,.88)', border: `1px solid ${color}55`, borderRadius: 3, padding: '1px 6px', fontSize: 9, fontFamily: 'monospace', whiteSpace: 'nowrap', color: '#fff' }}>
+          <div style={{ position: 'absolute', ...labelStyle, background: 'rgba(8,8,8,.88)', border: `1px solid ${color}55`, borderRadius: 3, padding: '1px 6px', fontSize: 9, fontFamily: 'var(--admin-font-mono)', whiteSpace: 'nowrap', color: '#fff' }}>
              <span style={{ color: '#ccc' }}>{(pid || nm).replace(/Điểm\s*/gi, 'D').replace(/P\s*/g, 'D')}</span>
             {temp != null && <span style={{ fontWeight: 800, color, marginLeft: 4 }}>{temp.toFixed(1)}°C</span>}
           </div>

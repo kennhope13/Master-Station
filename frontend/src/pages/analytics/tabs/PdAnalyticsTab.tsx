@@ -231,7 +231,7 @@ export default function PdAnalyticsTab() {
   if (loading) return (
     <div style={{ display: 'flex', flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--admin-text-muted)', gap: 10, background: 'var(--admin-card-bg)', borderRadius: 0, border: '1px solid var(--admin-border)' }}>
       <RotateCw size={18} className="animate-spin" color="var(--admin-accent)" />
-      <span style={{ fontSize: '.8rem', fontFamily: 'monospace' }}>ĐANG TẢI DỮ LIỆU...</span>
+      <span style={{ fontSize: '.8rem', fontFamily: 'var(--admin-font-mono)' }}>ĐANG TẢI DỮ LIỆU...</span>
       <style>{`.animate-spin { animation: spin 1.2s linear infinite; } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -312,7 +312,7 @@ export default function PdAnalyticsTab() {
                             <div style={{ 
                               color: isActive ? color : 'rgba(255,255,255,0.7)', 
                               fontSize: '9px', 
-                              fontFamily: 'monospace', 
+                              fontFamily: 'var(--admin-font-mono)', 
                               borderTop: '1px solid rgba(255,255,255,0.1)', 
                               paddingTop: 0, 
                               marginTop: 0, 

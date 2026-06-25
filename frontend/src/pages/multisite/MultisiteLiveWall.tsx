@@ -655,7 +655,7 @@ function WallView({
                         <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: online ? '#10b981' : '#6b7280', boxShadow: online ? '0 0 4px #10b981' : 'none' }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: '0.62rem', fontWeight: checked ? 700 : 500, color: checked ? '#f59e0b' : (online ? '#e2e8f0' : '#6b7280'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.station.name}</div>
-                          <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>{v.station.code || v.station.id.slice(0, 6)}</div>
+                          <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)', fontFamily: 'var(--admin-font-mono)' }}>{v.station.code || v.station.id.slice(0, 6)}</div>
                         </div>
                         {v.kpi.alarmsCount > 0 && <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#ef4444' }}>●{v.kpi.alarmsCount}</span>}
                       </div>

@@ -356,7 +356,7 @@ export default function PdRegionTab({ initialCamera: cam }: Props) {
                   {/* dB — số lớn */}
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
                     <span style={{
-                      fontSize: isActive ? 20 : 14, fontWeight: 900, fontFamily: 'monospace', lineHeight: 1,
+                      fontSize: isActive ? 20 : 14, fontWeight: 900, fontFamily: 'var(--admin-font-mono)', lineHeight: 1,
                       color: isActive ? statusColor : 'rgba(255,255,255,0.55)',
                     }}>
                       {displayDb != null ? displayDb.toFixed(1) : '--'}
@@ -365,7 +365,7 @@ export default function PdRegionTab({ initialCamera: cam }: Props) {
                   </div>
                   {/* Hz */}
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 3 }}>
-                    <span style={{ fontSize: 10, fontWeight: 800, fontFamily: 'monospace', color: 'rgba(255,255,255,0.7)' }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, fontFamily: 'var(--admin-font-mono)', color: 'rgba(255,255,255,0.7)' }}>
                       {displayHz != null ? (displayHz / 1000).toFixed(1) : '--'}
                     </span>
                     <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.35)' }}>kHz</span>
@@ -438,7 +438,7 @@ export default function PdRegionTab({ initialCamera: cam }: Props) {
                   </div>
                 </div>
                 <div style={{ fontSize:10, marginTop:12, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', color:'var(--admin-text-muted)' }}>
-                  Giá trị hiện tại: <b style={{color:'var(--admin-accent)', fontFamily: 'monospace'}}>{aiStats.db?.toFixed(1) ?? '--'} dB</b>
+                  Giá trị hiện tại: <b style={{color:'var(--admin-accent)', fontFamily: 'var(--admin-font-mono)'}}>{aiStats.db?.toFixed(1) ?? '--'} dB</b>
                 </div>
               </div>
 

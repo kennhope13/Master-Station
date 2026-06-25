@@ -19,7 +19,7 @@ export default class ErrorBoundary extends React.Component<{ children: React.Rea
         <div style={{
           position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
-          background: '#0a0a0a', color: '#e0e0e0', fontFamily: 'monospace', padding: 32, zIndex: 99999
+          background: '#0a0a0a', color: '#e0e0e0', fontFamily: 'var(--admin-font-mono)', padding: 32, zIndex: 99999
         }}>
           <div style={{ color: '#ef4444', fontSize: '1.2rem', fontWeight: 700, marginBottom: 12 }}>
             ⚠ Lỗi giao diện

@@ -99,22 +99,37 @@ public class AlertsController : ControllerBase
             })
             .ToListAsync();
 
-        // Lấy tên trạm để trả về cho frontend trạm tổng
+        // Lấy thông tin trạm để trả về cho frontend trạm tổng và phân giải URL ảnh/video
         var stationIds = alertsRaw.Select(a => a.StationId).Distinct().ToList();
-        var stationNames = await _db.Stations
+        var stationsMap = await _db.Stations
             .Where(s => stationIds.Contains(s.Id))
-            .ToDictionaryAsync(s => s.Id, s => s.Name);
+            .ToDictionaryAsync(s => s.Id, s => s);
 
-        var alerts = alertsRaw.Select(x => new {
-            x.Id, x.Source, x.Level, x.Status,
-            x.Message, x.Value,
-            x.DeviceId, x.RuleId,
-            x.StationId,
-            stationName = stationNames.TryGetValue(x.StationId, out var sn) ? sn : null,
-            x.TriggeredAt, x.AckedAt, x.ClosedAt,
-            x.AckNote,
-            x.ImageUrl, x.VideoUrl, x.ThumbnailUrl,
-            x.metadata
+        var alerts = alertsRaw.Select(x => {
+            var station = stationsMap.TryGetValue(x.StationId, out var s) ? s : null;
+            var apiUrl = station?.ApiUrl?.TrimEnd('/');
+
+            string? ResolveUrl(string? path)
+            {
+                if (string.IsNullOrEmpty(path)) return null;
+                if (path.StartsWith("http://") || path.StartsWith("https://") || path.StartsWith("data:")) return path;
+                if (string.IsNullOrEmpty(apiUrl)) return path;
+                return $"{apiUrl}{(path.StartsWith("/") ? "" : "/")}{path}";
+            }
+
+            return new {
+                x.Id, x.Source, x.Level, x.Status,
+                x.Message, x.Value,
+                x.DeviceId, x.RuleId,
+                x.StationId,
+                stationName = station?.Name,
+                x.TriggeredAt, x.AckedAt, x.ClosedAt,
+                x.AckNote,
+                ImageUrl = ResolveUrl(x.ImageUrl),
+                VideoUrl = ResolveUrl(x.VideoUrl),
+                ThumbnailUrl = ResolveUrl(x.ThumbnailUrl),
+                x.metadata
+            };
         });
 
         return Ok(alerts);
@@ -147,19 +162,28 @@ public class AlertsController : ControllerBase
                 .Select(h => new { h.Status, h.ChangedAt, h.Note, h.ChangedBy })
                 .ToListAsync();
 
-            var stationName2 = await _db.Stations
-                .Where(s => s.Id == alertData.Alert.StationId)
-                .Select(s => s.Name)
-                .FirstOrDefaultAsync();
+            var station = await _db.Stations
+                .FirstOrDefaultAsync(s => s.Id == alertData.Alert.StationId);
+            var apiUrl = station?.ApiUrl?.TrimEnd('/');
+
+            string? ResolveUrl(string? path)
+            {
+                if (string.IsNullOrEmpty(path)) return null;
+                if (path.StartsWith("http://") || path.StartsWith("https://") || path.StartsWith("data:")) return path;
+                if (string.IsNullOrEmpty(apiUrl)) return path;
+                return $"{apiUrl}{(path.StartsWith("/") ? "" : "/")}{path}";
+            }
 
             return Ok(new {
                 alertData.Alert.Id, alertData.Alert.Source, alertData.Alert.Level, alertData.Alert.Status,
                 alertData.Alert.Message, alertData.Alert.Value,
                 alertData.Alert.DeviceId, alertData.Alert.RuleId,
                 alertData.Alert.StationId,
-                stationName = stationName2,
+                stationName = station?.Name,
                 alertData.Alert.TriggeredAt, alertData.Alert.AckedAt, alertData.Alert.ClosedAt, alertData.Alert.AckNote,
-                alertData.Alert.ImageUrl, alertData.Alert.VideoUrl, alertData.Alert.ThumbnailUrl,
+                ImageUrl = ResolveUrl(alertData.Alert.ImageUrl),
+                VideoUrl = ResolveUrl(alertData.Alert.VideoUrl),
+                ThumbnailUrl = ResolveUrl(alertData.Alert.ThumbnailUrl),
                 metadata = alertData.Detection?.Metadata,
                 History = history
             });

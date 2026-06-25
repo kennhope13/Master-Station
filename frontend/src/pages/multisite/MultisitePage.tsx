@@ -16,6 +16,7 @@ import {
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { fmtDateTime, cleanAlertMessage, fmtTimeRange } from '@/utils/format';
+import { isCentralUser } from '@/utils/centralAccess';
 import DateFilterButton from '@/components/ui/DateFilterButton';
 import { createRealtimeHub } from '@/services/realtime.service';
 import { showToast } from '@/utils/toast';
@@ -74,7 +75,7 @@ function InlineDarkDropdown({
           height: 28,
           minWidth,
           padding: '0 8px',
-          borderRadius: 3,
+          borderRadius: 0,
           border: '1px solid var(--admin-border)',
           background: 'var(--admin-layer-2)',
           color: 'var(--admin-text)',
@@ -357,32 +358,53 @@ export default function MultisitePage() {
   ) => {
     setActiveTab(tab);
     setDevicePanelAction(options?.deviceAction ?? null);
-    if (!options?.preserveStation) {
-      setSelectedStationId(null);
-      setViewingStation(null);
-    }
   };
 
   useEffect(() => {
     if (activeTab === 'overview') {
       setMapHostKey(k => k + 1);
-      setShowLeftPanel(false);
-      setShowRightPanel(false);
-      setSelectedStationId(null);
-      setSelectedProvince(null);
+      if (selectedStationId) {
+        setShowRightPanel(true);
+        setShowLeftPanel(false);
+      } else if (selectedProvince) {
+        setShowLeftPanel(true);
+        setShowRightPanel(false);
+      } else {
+        setShowLeftPanel(false);
+        setShowRightPanel(false);
+      }
     }
-  }, [activeTab, location.key]);
+  }, [activeTab, location.key, selectedStationId, selectedProvince]);
 
   useEffect(() => {
-    if (!stationIdFromQuery) return;
     setSelectedStationId(stationIdFromQuery);
-    if (activeTab === 'overview') {
-      setShowRightPanel(true);
-    }
-    if (activeTab === 'devices') {
-      setDevicesSubTab('overview');
+    if (stationIdFromQuery) {
+      if (activeTab === 'overview') {
+        setShowRightPanel(true);
+      }
+      if (activeTab === 'devices') {
+        setDevicesSubTab('overview');
+      }
     }
   }, [activeTab, stationIdFromQuery]);
+
+  // Đồng bộ selectedStationId lên URL query params để tránh lưu giữ khi đóng hoặc đổi tab
+  useEffect(() => {
+    setSearchParams(prev => {
+      const current = prev.get('stationId');
+      if (selectedStationId) {
+        if (current !== selectedStationId) {
+          prev.set('stationId', selectedStationId);
+        }
+        localStorage.setItem('selected_station_id', selectedStationId);
+      } else {
+        if (prev.has('stationId')) {
+          prev.delete('stationId');
+        }
+      }
+      return prev;
+    }, { replace: true });
+  }, [selectedStationId, setSearchParams]);
 
   useEffect(() => {
     overviewFittedRef.current = false;
@@ -477,6 +499,8 @@ export default function MultisitePage() {
   const stations = useStationStore(s => s.stations);
   const fetchStations = useStationStore(s => s.fetch);
   const setViewingStation = useStationStore(s => s.setViewingStation);
+  const isLoadingStations = useStationStore(s => s.isLoading);
+  const user = useAuthStore(s => s.user);
   const alertsByFilter = useAlertStore(s => s.alertsByFilter);
   const fetchAlerts = useAlertStore(s => s.fetch);
   const devicesByStation = useDeviceStore(s => s.devicesByStation);
@@ -892,12 +916,13 @@ export default function MultisitePage() {
     return views.find(v => v.station.id === selectedStationId) || null;
   }, [views, selectedStationId]);
 
-  // Auto-select single station chỉ ở tab overview
+  // Auto-select single station chỉ ở tab overview cho người dùng bị giới hạn trạm con (không phải trạm tổng) sau khi load xong
+  const isCentral = useMemo(() => isCentralUser(user), [user]);
   useEffect(() => {
-    if (activeTab === 'overview' && views.length === 1 && views[0] && !selectedStationId) {
+    if (!isCentral && !isLoadingStations && activeTab === 'overview' && views.length === 1 && views[0] && !selectedStationId) {
       setSelectedStationId(views[0].station.id);
     }
-  }, [views, selectedStationId, activeTab]);
+  }, [views, selectedStationId, activeTab, isCentral, isLoadingStations]);
 
   // Reset devices sub-tab when leaving devices tab
   useEffect(() => {
@@ -1126,7 +1151,7 @@ export default function MultisitePage() {
   if (!isAuthReady) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: '#1a1c1e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.1em', fontFamily: 'monospace' }}>
+        <div style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.1em', fontFamily: 'var(--admin-font-mono)' }}>
           MASTERSTATION ĐANG KẾT NỐI...
         </div>
       </div>
@@ -1362,13 +1387,13 @@ export default function MultisitePage() {
       {/* TOP FLOATING HEADER HUD */}
       <div className="multisite-hud-panel multisite-hud-row" style={{
         position: 'absolute', top: 0, left: 0, height: 40,
-        borderRadius: '0 0 4px 0', width: '100%', zIndex: 1010,
+        borderRadius: 0, width: '100%', zIndex: 1010,
         padding: '0 12px', display: 'flex', alignItems: 'center',
         overflow: 'visible'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, borderRight: '1px solid var(--admin-border)', paddingRight: 12, flexShrink: 0 }}>
           {/* Accent Bar */}
-          <div style={{ width: 4, height: 24, background: 'var(--admin-accent)', borderRadius: '2px' }} />
+          <div style={{ width: 4, height: 24, background: 'var(--admin-accent)', borderRadius: 0 }} />
 
           <img
             alt="StationOS"
@@ -1694,7 +1719,7 @@ export default function MultisitePage() {
           height: 34,
           background: 'var(--admin-bg)',
           borderBottom: '1px solid var(--admin-border)',
-          zIndex: 100,
+          zIndex: 1005,
           display: 'flex',
           alignItems: 'center',
           padding: '0 16px',
@@ -1956,7 +1981,7 @@ export default function MultisitePage() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 pointerEvents: 'all',
-                borderRadius: showLeftPanel ? '0 0 0 4px' : '0 4px 4px 0',
+                borderRadius: 0,
                 boxShadow: '-2px 0 10px rgba(0,0,0,0.1)',
                 zIndex: 1002
               }}
@@ -1971,7 +1996,7 @@ export default function MultisitePage() {
                 height: 'auto',
                 maxHeight: '100%',
                 padding: showLeftPanel ? '6px 0 0 0' : '0',
-                borderRadius: showLeftPanel ? '0 0 0 4px' : 0,
+                borderRadius: 0,
                 pointerEvents: 'all',
                 overflow: 'hidden',
                 opacity: showLeftPanel ? 1 : 0,
@@ -2056,7 +2081,7 @@ export default function MultisitePage() {
                                     <span style={{
                                       fontSize: '0.68rem', fontWeight: 800, color: 'var(--admin-text)',
                                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.2,
-                                      fontFamily: 'monospace'
+                                      fontFamily: 'var(--admin-font-mono)'
                                     }}>
                                       {v.station.code || v.station.id.slice(0, 8).toUpperCase()}
                                     </span>
@@ -2078,7 +2103,7 @@ export default function MultisitePage() {
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
                                     paddingLeft: 22,
-                                    fontFamily: 'monospace'
+                                    fontFamily: 'var(--admin-font-mono)'
                                   }}>
                                     {endpoint.host} | {endpoint.ip} | {endpoint.port}
                                   </span>
@@ -2265,7 +2290,7 @@ export default function MultisitePage() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   pointerEvents: 'all',
-                  borderRadius: showRightPanel ? '4px 0 0 4px' : '0 4px 4px 0',
+                  borderRadius: 0,
                   boxShadow: '2px 0 10px rgba(0,0,0,0.1)',
                   zIndex: 1002
                 }}
@@ -2281,7 +2306,7 @@ export default function MultisitePage() {
                   maxHeight: '100%',
                   margin: showRightPanel ? '0 0 0 0' : '0',
                   padding: showRightPanel ? '8px 10px' : '0',
-                  borderRadius: 4, pointerEvents: 'all',
+                  borderRadius: 0, pointerEvents: 'all',
                   overflow: 'hidden',
                   opacity: showRightPanel ? 1 : 0,
                   transition: 'opacity 0.2s ease'
@@ -2358,7 +2383,7 @@ export default function MultisitePage() {
                         <div style={{ fontSize: '0.5rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em', marginBottom: 2 }}>
                           HOST / IP / PORT
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr', gap: '2px 6px', fontSize: '0.58rem', color: 'var(--admin-text)', fontFamily: 'monospace' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr', gap: '2px 6px', fontSize: '0.58rem', color: 'var(--admin-text)', fontFamily: 'var(--admin-font-mono)' }}>
                           <span style={{ color: 'var(--admin-text-muted)' }}>HOST</span>
                           <span style={{ overflowWrap: 'anywhere' }}>{endpoint.host}</span>
                           <span style={{ color: 'var(--admin-text-muted)' }}>IP</span>
@@ -2374,13 +2399,13 @@ export default function MultisitePage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                     <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
                       <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em' }}>THIẾT BỊ</div>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 900, color: 'var(--admin-text)', fontFamily: 'monospace', marginTop: 1 }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 900, color: 'var(--admin-text)', fontFamily: 'var(--admin-font-mono)', marginTop: 1 }}>
                         {selectedView.kpi.devicesOnline}<span style={{ color: 'var(--admin-text-muted)', fontWeight: 400 }}>/{selectedView.kpi.devicesTotal}</span>
                       </div>
                     </div>
                     <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
                       <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em' }}>CẢNH BÁO</div>
-                      <div style={{ fontSize: '0.82rem', fontWeight: 900, fontFamily: 'monospace', marginTop: 1, color: selectedView.kpi.alarmsCount > 0 ? 'var(--admin-danger)' : selectedView.kpi.warningsCount > 0 ? 'var(--admin-accent)' : 'var(--admin-text)' }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 900, fontFamily: 'var(--admin-font-mono)', marginTop: 1, color: selectedView.kpi.alarmsCount > 0 ? 'var(--admin-danger)' : selectedView.kpi.warningsCount > 0 ? 'var(--admin-accent)' : 'var(--admin-text)' }}>
                         {selectedView.kpi.alerts}
                       </div>
                     </div>
@@ -2410,7 +2435,7 @@ export default function MultisitePage() {
                               {thermalPts.slice(0, 6).map(p => (
                                 <div key={`${p.deviceId}_${p.pointId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   <span style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{p.pointId}</span>
-                                  <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'monospace', color: p.value > 80 ? 'var(--admin-danger)' : p.value > 60 ? 'var(--admin-warning)' : 'var(--admin-text)', flexShrink: 0 }}>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'var(--admin-font-mono)', color: p.value > 80 ? 'var(--admin-danger)' : p.value > 60 ? 'var(--admin-warning)' : 'var(--admin-text)', flexShrink: 0 }}>
                                     {p.value?.toFixed(1)}{p.unit || '°C'}
                                   </span>
                                 </div>
@@ -2429,7 +2454,7 @@ export default function MultisitePage() {
                               {pdPts.slice(0, 4).map(p => (
                                 <div key={`${p.deviceId}_${p.pointId}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                   <span style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '55%' }}>{p.pointId}</span>
-                                  <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'monospace', color: p.value > 0 ? 'var(--admin-warning)' : 'var(--admin-text)', flexShrink: 0 }}>
+                                  <span style={{ fontSize: '0.72rem', fontWeight: 900, fontFamily: 'var(--admin-font-mono)', color: p.value > 0 ? 'var(--admin-warning)' : 'var(--admin-text)', flexShrink: 0 }}>
                                     {p.value?.toFixed(2)}{p.unit || ''}
                                   </span>
                                 </div>
@@ -2600,7 +2625,7 @@ export default function MultisitePage() {
               position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
               zIndex: 1000, color: 'var(--admin-text-muted)', textAlign: 'center',
               background: 'var(--admin-overlay)', padding: '24px 36px', border: '1px solid var(--admin-border)',
-              boxShadow: '0 10px 40px rgba(0,0,0,0.5)', borderRadius: 4, backdropFilter: 'blur(10px)'
+              boxShadow: '0 10px 40px rgba(0,0,0,0.5)', borderRadius: 0, backdropFilter: 'blur(10px)'
             }}>
               <AlertTriangle size={36} style={{ color: 'var(--admin-warning)', marginBottom: 12, display: 'inline-block' }} />
               <h3 style={{ color: 'var(--admin-text)', margin: '0 0 6px 0', fontSize: '0.85rem' }}>Chưa Cập Nhật Trạm Biến Áp</h3>
@@ -2821,7 +2846,7 @@ export default function MultisitePage() {
                   border: '1px solid var(--admin-border)',
                   fontSize: '0.72rem',
                   color: 'var(--admin-text-muted)',
-                  fontFamily: 'monospace'
+                  fontFamily: 'var(--admin-font-mono)'
                 }}>
                   Tài khoản dùng cố định: stationadmin
                 </div>
@@ -2897,7 +2922,7 @@ export default function MultisitePage() {
                 <div style={{
                   padding: '7px 10px', background: 'var(--admin-layer-1)',
                   border: '1px solid var(--admin-border)', fontSize: '0.75rem',
-                  color: 'var(--admin-text-muted)', fontFamily: 'monospace'
+                  color: 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)'
                 }}>
                   {editingStation.apiUrl || '(chưa cấu hình)'}
                 </div>
@@ -2929,7 +2954,7 @@ export default function MultisitePage() {
                 <div style={{
                   padding: '7px 10px', background: 'var(--admin-layer-1)',
                   border: '1px solid var(--admin-border)', fontSize: '0.75rem',
-                  color: 'var(--admin-text-muted)', fontFamily: 'monospace'
+                  color: 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)'
                 }}>
                   {editingStation.apiUsername || 'stationadmin'}
                 </div>
@@ -3010,7 +3035,7 @@ export default function MultisitePage() {
                 {selectedView.station.name}
               </p>
               {selectedView.station.code && (
-                <p style={{ margin: '0 0 12px', fontSize: '.72rem', color: 'var(--admin-accent)', fontFamily: 'monospace', fontWeight: 800 }}>
+                <p style={{ margin: '0 0 12px', fontSize: '.72rem', color: 'var(--admin-accent)', fontFamily: 'var(--admin-font-mono)', fontWeight: 800 }}>
                   [{selectedView.station.code}]
                 </p>
               )}
@@ -3531,16 +3556,16 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
   }, [logs, logType, searchText, scopeStationId, availableStationIds]);
   const S = {
     toolbar: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', flexShrink: 0, flexWrap: 'wrap' as const },
-    btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
-    btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 3, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
-    dropdown: { height: 28, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 160 } as React.CSSProperties,
-    input: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', minWidth: 160 } as React.CSSProperties,
-    dateButton: { height: 26, padding: '0 8px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', width: 100, fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' } as React.CSSProperties,
+    btn: { height: 26, padding: '0 10px', borderRadius: 0, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
+    btnActive: (c: string) => ({ height: 26, padding: '0 10px', borderRadius: 0, border: `1px solid ${c}`, background: `${c}18`, color: c, fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties),
+    dropdown: { height: 28, padding: '0 8px', borderRadius: 0, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.65rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 160 } as React.CSSProperties,
+    input: { height: 26, padding: '0 8px', borderRadius: 0, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', minWidth: 160 } as React.CSSProperties,
+    dateButton: { height: 26, padding: '0 8px', borderRadius: 0, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 600, outline: 'none', width: 100, fontFamily: 'var(--admin-font-mono)', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' } as React.CSSProperties,
     th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
     tdNoWrap: { whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' },
     pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 6 } as React.CSSProperties),
-    pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 1, background: c, flexShrink: 0 } as React.CSSProperties),
+    pillBar: (c: string) => ({ width: 3, height: 12, borderRadius: 0, background: c, flexShrink: 0 } as React.CSSProperties),
     pillLbl: { fontSize: '.7rem', fontWeight: 600 } as React.CSSProperties,
     muted: { color: 'var(--admin-text-muted)' } as React.CSSProperties,
     empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, height: '100%', color: 'var(--admin-text-muted)', opacity: 0.5 } as React.CSSProperties,
@@ -3625,7 +3650,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setDownloadDropdownOpen(v => !v)}
-            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
+            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
           >
             <Download size={12} />
             <span>XUẤT</span>
@@ -3640,7 +3665,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                 right: 0,
                 background: '#0b0f14',
                 border: '1px solid var(--admin-border)',
-                borderRadius: 3,
+                borderRadius: 0,
                 boxShadow: '0 4px 12px rgba(0,0,0,.5)',
                 padding: '4px 0',
                 zIndex: 30,
@@ -3735,7 +3760,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
       {/* ── Body: table + detail panel ──────────────────────── */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Table */}
-        <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minWidth: 0 }}>
+        <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, minWidth: 0 }}>
           {loading ? (
             <div style={S.empty}><Loader2 size={22} style={{ ...S.spin, color: 'var(--admin-accent)', opacity: 1 }} /><p>Đang tải nhật ký...</p></div>
           ) : filtered.length === 0 ? (
@@ -3762,7 +3787,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                         cursor: 'pointer',
                         background: isSelected ? 'var(--admin-layer-2)' : 'transparent',
                       }}>
-                      <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'monospace', fontSize: '.62rem', ...S.muted }} title={fmtDateTime(l.ts)}>
+                      <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'var(--admin-font-mono)', fontSize: '.62rem', ...S.muted }} title={fmtDateTime(l.ts)}>
                         {fmtDateTime(l.ts)}
                       </td>
                       <td style={{ ...S.td, ...S.tdNoWrap }} title={provinceName}>
@@ -3789,7 +3814,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                           {l.detail && <span style={{ ...S.muted, fontSize: '.58rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summarizeAuditDetail(l)}</span>}
                         </div>
                       </td>
-                      <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'monospace', fontSize: '.6rem', ...S.muted }} title={l.user.toUpperCase()}>
+                      <td style={{ ...S.td, ...S.tdNoWrap, fontFamily: 'var(--admin-font-mono)', fontSize: '.6rem', ...S.muted }} title={l.user.toUpperCase()}>
                         {l.user.toUpperCase()}
                       </td>
                     </tr>
@@ -3916,12 +3941,12 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                                   {row.label}
                                 </td>
                                 {!isCreate && (
-                                  <td style={{ padding: '8px', color: '#ef4444', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
+                                  <td style={{ padding: '8px', color: '#ef4444', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'var(--admin-font-mono)', fontSize: '.58rem' }}>
                                     {row.before !== undefined ? row.before : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
                                   </td>
                                 )}
                                 {!isDelete && (
-                                  <td style={{ padding: '8px', color: '#22c55e', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
+                                  <td style={{ padding: '8px', color: '#22c55e', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'var(--admin-font-mono)', fontSize: '.58rem' }}>
                                     {row.after !== undefined ? row.after : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
                                   </td>
                                 )}
@@ -4414,7 +4439,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setDownloadDropdownOpen(v => !v)}
-            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
+            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
           >
             <Download size={12} />
             <span>XUẤT</span>
@@ -4429,7 +4454,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
                 right: 0,
                 background: '#0b0f14',
                 border: '1px solid var(--admin-border)',
-                borderRadius: 3,
+                borderRadius: 0,
                 boxShadow: '0 4px 12px rgba(0,0,0,.5)',
                 padding: '4px 0',
                 zIndex: 30,
@@ -4515,7 +4540,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
 
       {/* Table */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0, padding: 14 }}>
-        <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
+        <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, minHeight: 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
@@ -4546,7 +4571,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
                   onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--admin-hover)'; }}
                   onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
-                  <td style={{ ...AL.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{fmtDateTime(alert.triggeredAt)}</td>
+                  <td style={{ ...AL.td, fontFamily: 'var(--admin-font-mono)', fontSize: '.65rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{fmtDateTime(alert.triggeredAt)}</td>
                   <td style={{ ...AL.td }}>
                     <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: provinceName === '—' ? undefined : 'var(--admin-accent)' }}>
                       {provinceName}
@@ -4560,12 +4585,12 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
                   <td style={{ ...AL.td, fontSize: '.68rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{alertSourceLabel(alert.source)}</td>
                   <td style={{ ...AL.td, fontWeight: 700, color: 'var(--admin-text)', maxWidth: 340 }}>{cleanAlertMessage(alert.message)}</td>
                   <td style={AL.td}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, background: `${lv.color}18`, border: `1px solid ${lv.color}40`, color: lv.color, fontSize: '.58rem', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 0, background: `${lv.color}18`, border: `1px solid ${lv.color}40`, color: lv.color, fontSize: '.58rem', fontWeight: 900, whiteSpace: 'nowrap' }}>
                       {lv.label}
                     </span>
                   </td>
                   <td style={AL.td}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 3, background: `${st.color}18`, border: `1px solid ${st.color}40`, color: st.color, fontSize: '.58rem', fontWeight: 900, whiteSpace: 'nowrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 0, background: `${st.color}18`, border: `1px solid ${st.color}40`, color: st.color, fontSize: '.58rem', fontWeight: 900, whiteSpace: 'nowrap' }}>
                       {st.label}
                     </span>
                   </td>
@@ -5004,7 +5029,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
   const downloadCsv = () => {
     if (tasks.length === 0) { alert('Không có dữ liệu để xuất CSV'); return; }
     const rows = exportRows();
-    const headers = Object.keys(rows[0]);
+    const headers = Object.keys(rows[0]!);
     const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
     const csv = '﻿' + [headers.join(','), ...rows.map(r => headers.map(h => escape((r as any)[h])).join(','))].join('\n');
     const a = document.createElement('a');
@@ -5027,7 +5052,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) return;
     const rows = exportRows();
-    const headers = Object.keys(rows[0]);
+    const headers = Object.keys(rows[0]!);
     const rowsHtml = rows.map(r => `<tr>${headers.map(h => `<td style="padding:5px 8px;border:1px solid #e5e7eb;font-size:11px;">${(r as any)[h]}</td>`).join('')}</tr>`).join('');
     win.document.write(`<!DOCTYPE html><html><head><title>Báo cáo bảo trì</title><style>body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;color:#111}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#f3f4f6;padding:7px 8px;font-size:10px;text-transform:uppercase;font-weight:bold;border:1px solid #e5e7eb;text-align:left}h2{color:#1a56db;margin:0 0 8px}.meta{font-size:11px;color:#6b7280;margin-bottom:12px}</style></head><body><h2>BÁO CÁO BẢO TRÌ THIẾT BỊ</h2><div class="meta">Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> &nbsp;|&nbsp; Số lượng: <b>${tasks.length} nhiệm vụ</b></div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table></body></html>`);
     win.document.close();
@@ -5039,7 +5064,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
     sep: { width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' } as React.CSSProperties,
     th: { padding: '6px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '7px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
-    pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 3, background: `${c}18`, border: `1px solid ${c}40`, color: c, fontSize: '.6rem', fontWeight: 700 } as React.CSSProperties),
+    pill: (c: string) => ({ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 0, background: `${c}18`, border: `1px solid ${c}40`, color: c, fontSize: '.6rem', fontWeight: 700 } as React.CSSProperties),
   };
 
   const statusColor = (s: string) => s === 'overdue' ? 'var(--admin-danger)' : s === 'in_progress' ? 'var(--admin-warning)' : s === 'completed' ? 'var(--admin-success)' : 'var(--admin-text-muted)';
@@ -5085,7 +5110,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
           { value: 'completed',  label: 'Hoàn thành' },
         ]} />
 
-        <button onClick={load} style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+        <button onClick={load} style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
           <RefreshCw size={12} style={loading ? { animation: 'crv-spin 1s linear infinite' } : {}} />
         </button>
 
@@ -5094,14 +5119,14 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setDownloadDropdownOpen(v => !v)}
-            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
+            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
           >
             <Download size={12} />
             <span>XUẤT</span>
             <span style={{ fontSize: '.5rem', opacity: 0.6 }}>▼</span>
           </button>
           {downloadDropdownOpen && (
-            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, background: '#0b0f14', border: '1px solid var(--admin-border)', borderRadius: 3, boxShadow: '0 4px 12px rgba(0,0,0,.5)', padding: '4px 0', zIndex: 30, minWidth: 120 }}>
+            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, background: '#0b0f14', border: '1px solid var(--admin-border)', borderRadius: 0, boxShadow: '0 4px 12px rgba(0,0,0,.5)', padding: '4px 0', zIndex: 30, minWidth: 120 }}>
               {([
                 { label: 'Tải file XLSX', fn: downloadXlsx, icon: <FileSpreadsheet size={12} style={{ color: 'var(--admin-accent)' }} /> },
                 { label: 'Tải file CSV',  fn: downloadCsv,  icon: <FileSpreadsheet size={12} style={{ color: 'var(--admin-success)' }} /> },
@@ -5123,14 +5148,14 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
         </div>
 
         {canManage && (
-          <button onClick={() => setShowCreate(true)} style={{ height: 26, padding: '0 12px', background: 'var(--admin-accent)', border: 'none', color: '#fff', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, fontSize: '.65rem' }}>
+          <button onClick={() => setShowCreate(true)} style={{ height: 26, padding: '0 12px', background: 'var(--admin-accent)', border: 'none', color: '#fff', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, fontSize: '.65rem' }}>
             <Plus size={12} />Giao việc bảo trì
           </button>
         )}
       </div>
 
       {/* ── Table ────────────────────────────────────────── */}
-      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
+      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, minHeight: 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
@@ -5163,30 +5188,30 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
                     <td style={{ ...MS.td, fontWeight: 700 }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         {isCentral
-                          ? <span title="Giao từ trạm tổng" style={{ fontSize: '.5rem', background: '#3b82f620', border: '1px solid #3b82f640', color: '#3b82f6', borderRadius: 2, padding: '1px 5px', fontWeight: 800 }}>HQ</span>
-                          : <span title="Tạo tại trạm con" style={{ fontSize: '.5rem', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 2, padding: '1px 5px', fontWeight: 800 }}>CON</span>
+                          ? <span title="Giao từ trạm tổng" style={{ fontSize: '.5rem', background: '#3b82f620', border: '1px solid #3b82f640', color: '#3b82f6', borderRadius: 0, padding: '1px 5px', fontWeight: 800 }}>HQ</span>
+                          : <span title="Tạo tại trạm con" style={{ fontSize: '.5rem', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 0, padding: '1px 5px', fontWeight: 800 }}>CON</span>
                         }
                         {task.title}
                         {isExpanded ? <ChevronUp size={11} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} /> : <ChevronDown size={11} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} />}
                       </span>
                     </td>
                     <td style={{ ...MS.td, color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{task.deviceName || '—'}</td>
-                    <td style={{ ...MS.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)' }}>{task.scheduledDate?.slice(0, 10) || '—'}</td>
+                    <td style={{ ...MS.td, fontFamily: 'var(--admin-font-mono)', fontSize: '.65rem', color: 'var(--admin-text-muted)' }}>{task.scheduledDate?.slice(0, 10) || '—'}</td>
                     <td style={MS.td}><span style={MS.pill(statusColor(task.status))}>{statusLabel(task.status)}</span></td>
                     <td style={{ ...MS.td, color: 'var(--admin-text-muted)' }}>{task.assignedTo || '—'}</td>
                     {canManage && (
                       <td style={{ ...MS.td }} onClick={e => e.stopPropagation()}>
                         <div style={{ display: 'flex', gap: 4 }}>
                           {task.status === 'pending' || task.status === 'overdue' ? (
-                            <button onClick={() => handleStart(task.id)} title="Bắt đầu" style={{ padding: '2px 6px', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '.6rem', fontWeight: 700 }}>
+                            <button onClick={() => handleStart(task.id)} title="Bắt đầu" style={{ padding: '2px 6px', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '.6rem', fontWeight: 700 }}>
                               <Play size={10} />Bắt đầu
                             </button>
                           ) : task.status === 'in_progress' ? (
-                            <button onClick={() => handleComplete(task.id)} title="Hoàn thành" style={{ padding: '2px 6px', background: '#22c55e20', border: '1px solid #22c55e40', color: '#22c55e', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '.6rem', fontWeight: 700 }}>
+                            <button onClick={() => handleComplete(task.id)} title="Hoàn thành" style={{ padding: '2px 6px', background: '#22c55e20', border: '1px solid #22c55e40', color: '#22c55e', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: '.6rem', fontWeight: 700 }}>
                               <CheckCircle2 size={10} />Hoàn thành
                             </button>
                           ) : null}
-                          <button onClick={() => handleDelete(task.id, task.title)} title="Xóa" style={{ padding: '2px 6px', background: 'transparent', border: '1px solid var(--admin-border)', color: 'var(--admin-danger)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
+                          <button onClick={() => handleDelete(task.id, task.title)} title="Xóa" style={{ padding: '2px 6px', background: 'transparent', border: '1px solid var(--admin-border)', color: 'var(--admin-danger)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}>
                             <Trash2 size={10} />
                           </button>
                         </div>
@@ -5236,7 +5261,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
       {/* ── Create modal ─────────────────────────────────── */}
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => { setShowCreate(false); resetCreateForm(); }}>
-          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 6, width: 560, maxHeight: '88vh', overflow: 'auto', padding: 24 }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, width: 560, maxHeight: '88vh', overflow: 'auto', padding: 24 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
               <Wrench size={16} style={{ color: 'var(--admin-accent)' }} />
               <h3 style={{ margin: 0, fontSize: '.9rem', fontWeight: 800, color: 'var(--admin-text)' }}>Giao nhiệm vụ bảo trì xuống trạm con</h3>
@@ -5247,7 +5272,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
               {/* Trạm con */}
               <div>
                 <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Trạm con nhận việc <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
-                <select value={cStation} onChange={e => setCStation(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem' }}>
+                <select value={cStation} onChange={e => setCStation(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem' }}>
                   <option value="">— Chọn trạm con —</option>
                   {visibleStations.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
@@ -5256,7 +5281,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
               {/* Thiết bị */}
               <div>
                 <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Thiết bị (tùy chọn)</label>
-                <select value={cDevice} onChange={e => setCDevice(e.target.value)} disabled={!cStation} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', opacity: !cStation ? .5 : 1 }}>
+                <select value={cDevice} onChange={e => setCDevice(e.target.value)} disabled={!cStation} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem', opacity: !cStation ? .5 : 1 }}>
                   <option value="">— Không gắn với thiết bị cụ thể —</option>
                   {stationDevices.map(d => <option key={d.id} value={d.id}>{d.name} ({d.type})</option>)}
                 </select>
@@ -5265,14 +5290,14 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
               {/* Tiêu đề */}
               <div>
                 <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Tiêu đề nhiệm vụ <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
-                <input value={cTitle} onChange={e => setCTitle(e.target.value)} placeholder="VD: Kiểm tra định kỳ MBA 110kV" style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
+                <input value={cTitle} onChange={e => setCTitle(e.target.value)} placeholder="VD: Kiểm tra định kỳ MBA 110kV" style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
               </div>
 
               {/* Loại + Ngày */}
               <div style={{ display: 'flex', gap: 12 }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Loại bảo trì</label>
-                  <select value={cType} onChange={e => setCType(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem' }}>
+                  <select value={cType} onChange={e => setCType(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem' }}>
                     <option value="inspection">Kiểm tra định kỳ</option>
                     <option value="repair">Sửa chữa</option>
                     <option value="cleaning">Vệ sinh</option>
@@ -5282,33 +5307,33 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Ngày thực hiện dự kiến <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
-                  <input type="date" value={cDate} onChange={e => setCDate(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
+                  <input type="date" value={cDate} onChange={e => setCDate(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
                 </div>
               </div>
 
               {/* Giao cho ai */}
               <div>
                 <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Giao cho (tên / username)</label>
-                <input value={cAssignTo} onChange={e => setCAssignTo(e.target.value)} placeholder="VD: Nguyễn Văn A, stationadmin..." style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
+                <input value={cAssignTo} onChange={e => setCAssignTo(e.target.value)} placeholder="VD: Nguyễn Văn A, stationadmin..." style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem', boxSizing: 'border-box' as const }} />
               </div>
 
               {/* Ghi chú */}
               <div>
                 <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Ghi chú / Yêu cầu chi tiết</label>
-                <textarea value={cNotes} onChange={e => setCNotes(e.target.value)} rows={3} placeholder="Mô tả chi tiết yêu cầu bảo trì, chú ý an toàn..." style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem', resize: 'vertical' as const, boxSizing: 'border-box' as const }} />
+                <textarea value={cNotes} onChange={e => setCNotes(e.target.value)} rows={3} placeholder="Mô tả chi tiết yêu cầu bảo trì, chú ý an toàn..." style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem', resize: 'vertical' as const, boxSizing: 'border-box' as const }} />
               </div>
 
               {/* Checklist */}
               <div>
                 <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Checklist ({cChecklist.length} hạng mục)</label>
                 <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                  <input value={cNewItem} onChange={e => setCNewItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && cNewItem.trim()) { setCChecklist(prev => [...prev, { item: cNewItem.trim(), done: false }]); setCNewItem(''); } }} placeholder="Nhập hạng mục kiểm tra, nhấn Enter để thêm" style={{ flex: 1, padding: '6px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 3, color: 'var(--admin-text)', fontSize: '.75rem' }} />
-                  <button onClick={() => { if (cNewItem.trim()) { setCChecklist(prev => [...prev, { item: cNewItem.trim(), done: false }]); setCNewItem(''); } }} style={{ padding: '6px 10px', background: 'var(--admin-accent)', border: 'none', color: '#fff', borderRadius: 3, cursor: 'pointer', fontSize: '.7rem' }}>+ Thêm</button>
+                  <input value={cNewItem} onChange={e => setCNewItem(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && cNewItem.trim()) { setCChecklist(prev => [...prev, { item: cNewItem.trim(), done: false }]); setCNewItem(''); } }} placeholder="Nhập hạng mục kiểm tra, nhấn Enter để thêm" style={{ flex: 1, padding: '6px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem' }} />
+                  <button onClick={() => { if (cNewItem.trim()) { setCChecklist(prev => [...prev, { item: cNewItem.trim(), done: false }]); setCNewItem(''); } }} style={{ padding: '6px 10px', background: 'var(--admin-accent)', border: 'none', color: '#fff', borderRadius: 0, cursor: 'pointer', fontSize: '.7rem' }}>+ Thêm</button>
                 </div>
                 {cChecklist.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4 }}>
                     {cChecklist.map((c, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', background: 'var(--admin-layer-1)', borderRadius: 3, fontSize: '.72rem' }}>
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px', background: 'var(--admin-layer-1)', borderRadius: 0, fontSize: '.72rem' }}>
                         <span style={{ flex: 1, color: 'var(--admin-text)' }}>○ {c.item}</span>
                         <button onClick={() => setCChecklist(prev => prev.filter((_, j) => j !== i))} style={{ background: 'none', border: 'none', color: 'var(--admin-danger)', cursor: 'pointer', padding: '0 4px', fontSize: '.75rem' }}>✕</button>
                       </div>
@@ -5319,8 +5344,8 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
 
               {/* Submit */}
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', paddingTop: 8, borderTop: '1px solid var(--admin-border)' }}>
-                <button onClick={() => { setShowCreate(false); resetCreateForm(); }} style={{ padding: '7px 16px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', borderRadius: 3, cursor: 'pointer', fontSize: '.75rem' }}>Hủy</button>
-                <button onClick={handleCreate} disabled={saving || !cTitle.trim() || !cStation || !cDate} style={{ padding: '7px 18px', background: saving || !cTitle.trim() || !cStation || !cDate ? 'var(--admin-layer-2)' : 'var(--admin-accent)', border: 'none', color: saving || !cTitle.trim() || !cStation || !cDate ? 'var(--admin-text-muted)' : '#fff', borderRadius: 3, cursor: saving || !cTitle.trim() || !cStation || !cDate ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '.75rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button onClick={() => { setShowCreate(false); resetCreateForm(); }} style={{ padding: '7px 16px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', borderRadius: 0, cursor: 'pointer', fontSize: '.75rem' }}>Hủy</button>
+                <button onClick={handleCreate} disabled={saving || !cTitle.trim() || !cStation || !cDate} style={{ padding: '7px 18px', background: saving || !cTitle.trim() || !cStation || !cDate ? 'var(--admin-layer-2)' : 'var(--admin-accent)', border: 'none', color: saving || !cTitle.trim() || !cStation || !cDate ? 'var(--admin-text-muted)' : '#fff', borderRadius: 0, cursor: saving || !cTitle.trim() || !cStation || !cDate ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '.75rem', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   {saving ? <><Loader2 size={12} style={{ animation: 'crv-spin 1s linear infinite' }} />Đang lưu...</> : <><Wrench size={12} />Giao nhiệm vụ</>}
                 </button>
               </div>

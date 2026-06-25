@@ -247,8 +247,8 @@ export default function ThermalConfigPage() {
             ) : points.map(pt => (
               <tr key={pt.id} style={{ borderTop: '1px solid var(--admin-border)' }}>
                 <td style={{ padding: '12px 14px', fontWeight: 'bold' }}>{pt.name}</td>
-                <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--admin-text-muted)' }}>{pt.tx.toFixed(4)}, {pt.ty.toFixed(4)}</td>
-                <td style={{ padding: '12px 14px', fontFamily: 'monospace', fontSize: 12, color: 'var(--admin-text-muted)' }}>{pt.ox.toFixed(4)}, {pt.oy.toFixed(4)}</td>
+                <td style={{ padding: '12px 14px', fontFamily: 'var(--admin-font-mono)', fontSize: 12, color: 'var(--admin-text-muted)' }}>{pt.tx.toFixed(4)}, {pt.ty.toFixed(4)}</td>
+                <td style={{ padding: '12px 14px', fontFamily: 'var(--admin-font-mono)', fontSize: 12, color: 'var(--admin-text-muted)' }}>{pt.ox.toFixed(4)}, {pt.oy.toFixed(4)}</td>
                 <td style={{ padding: '12px 14px', fontSize: 13 }}>
                   <span style={{ color: '#fbbf24' }}>{pt.preAlarmThreshold}°C</span> / <span style={{ color: '#ef4444' }}>{pt.alarmThreshold}°C</span>
                 </td>

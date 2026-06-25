@@ -71,6 +71,16 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-token`);
   }
 
+  /** Proxy danh sách cảnh báo từ trạm con. */
+  async getRemoteAlerts(id: string, opts?: { status?: string; from?: string; to?: string; limit?: number }): Promise<import('@/types/api.types').AlertItem[]> {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.from)   params.set('from', opts.from);
+    if (opts?.to)     params.set('to', opts.to);
+    if (opts?.limit)  params.set('limit', String(opts.limit));
+    return apiFetch(`/stations/${id}/remote-alerts?${params.toString()}`);
+  }
+
   /** Cập nhật thông tin trạm. */
   async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; apiUsername?: string; apiPassword?: string; webUrl?: string; status?: string }): Promise<void> {
     return apiMutate<void>('PUT', `/stations/${id}`, data);

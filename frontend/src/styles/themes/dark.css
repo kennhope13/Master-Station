@@ -37,7 +37,7 @@
   --admin-tag-danger-text: #f87171;
 
   /* Typography */
-  --admin-font: 'Inter', 'Segoe UI', 'Roboto', system-ui, -apple-system, sans-serif;
+  --admin-font: 'Verdana', 'Segoe UI', 'Arial', sans-serif;
   --admin-font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
 
   /* Overlay layers — dùng thay rgba(255,255,255,X) hardcode để hỗ trợ đổi theme */

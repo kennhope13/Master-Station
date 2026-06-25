@@ -221,7 +221,7 @@ function MiniCalendar({
                 height: 26, padding: '0 6px', border: '1px solid var(--admin-border)',
                 background: 'var(--admin-layer-2)', color: 'var(--admin-text)',
                 fontSize: '.62rem', outline: 'none', borderRadius: 0, width: '100%',
-                boxSizing: 'border-box', fontFamily: 'monospace',
+                boxSizing: 'border-box', fontFamily: 'var(--admin-font-mono)',
               }}
             />
           </div>
@@ -236,7 +236,7 @@ function MiniCalendar({
                   height: 26, padding: '0 6px', border: '1px solid var(--admin-border)',
                   background: 'var(--admin-layer-2)', color: 'var(--admin-text)',
                   fontSize: '.62rem', outline: 'none', borderRadius: 0, width: '100%',
-                  boxSizing: 'border-box', fontFamily: 'monospace',
+                  boxSizing: 'border-box', fontFamily: 'var(--admin-font-mono)',
                 }}
               />
             </div>

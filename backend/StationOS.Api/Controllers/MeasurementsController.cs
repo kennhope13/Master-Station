@@ -133,6 +133,22 @@ public class MeasurementsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>
+    /// Lấy giá trị nhiệt độ mới nhất của từng điểm đo trên một thiết bị cụ thể (camera nhiệt, PLC...).
+    /// Trả về { pointId: value } — dùng cho cả trạm con và trạm chính.
+    /// </summary>
+    [HttpGet("devices/{deviceId}/thermal-readings")]
+    public IActionResult GetThermalReadings(Guid deviceId)
+    {
+        var cachedDict = _cache.Get("LatestReadings") as Dictionary<string, SensorReading>
+            ?? new Dictionary<string, SensorReading>();
+        var readings = cachedDict.Values
+            .Where(r => r.DeviceId == deviceId)
+            .GroupBy(r => r.PointId)
+            .ToDictionary(g => g.Key, g => g.First().Value);
+        return Ok(readings);
+    }
+
     private void AddPointHelper(List<object> list, Guid deviceId, string pointId, double value, string unit, Dictionary<string, SldPoint>? sldPointsMap)
     {
         SldPoint? sp = null;

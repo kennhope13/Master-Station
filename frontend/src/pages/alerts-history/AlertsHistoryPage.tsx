@@ -58,10 +58,25 @@ export default function AlertsHistoryPage() {
     try {
       const from = dates.from ? new Date(dates.from).toISOString() : undefined;
       const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
-      const data = await stationApi.getAlerts(filterStatus || undefined, from, to, 200, stationId);
+
+      // Nếu đang xem trạm con (có apiUrl), proxy qua remote-alerts thay vì query local DB
+      const targetStation = stationId ? stations.find(s => s.id === stationId) : null;
+      const isChildStation = !!targetStation?.apiUrl;
+
+      let data: AlertItem[];
+      if (isChildStation && stationId) {
+        data = await stationApi.getRemoteAlerts(stationId, {
+          status: filterStatus || undefined,
+          from,
+          to,
+          limit: 200,
+        });
+      } else {
+        data = await stationApi.getAlerts(filterStatus || undefined, from, to, 200, stationId);
+      }
       setAlerts(data);
     } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [dates, filterStatus, stationId]);
+  }, [dates, filterStatus, stationId, stations]);
 
   useEffect(() => { loadAlerts(); }, [loadAlerts]);
 

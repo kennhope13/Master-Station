@@ -205,7 +205,7 @@ export default function AlertDetailPage() {
       </div>
       <div style={{ flex: 1, paddingTop: 4 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '.7rem', fontFamily: 'monospace', color: 'var(--admin-text-muted)' }}>{o.time}</span>
+          <span style={{ fontSize: '.7rem', fontFamily: 'var(--admin-font-mono)', color: 'var(--admin-text-muted)' }}>{o.time}</span>
           <span 
             style={{
               fontSize: '.65rem', fontWeight: 700, padding: '1px 7px', borderRadius: 0,
@@ -228,7 +228,7 @@ export default function AlertDetailPage() {
         <button className="btn-industrial" onClick={() => navigate(-1)}>← Quay lại</button>
         <span style={{ color: 'var(--admin-text-muted)' }}>Nhật ký cảnh báo</span>
         <span style={{ color: 'var(--admin-text-muted)', opacity: 0.5 }}>/</span>
-        <span style={{ color: '#44ff88', fontSize: '.85rem', fontFamily: 'monospace' }}>{alert.id.slice(0, 8)}…</span>
+        <span style={{ color: '#44ff88', fontSize: '.85rem', fontFamily: 'var(--admin-font-mono)' }}>{alert.id.slice(0, 8)}…</span>
         
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           {alert.status === 'open' && (

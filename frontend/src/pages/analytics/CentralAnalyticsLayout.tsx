@@ -154,36 +154,9 @@ function StationTrendChart({ color, data }: { color: string; data: { time: strin
 }
 
 function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openStationAlerts }: { snapshot: StationAnalyticsSnapshot; onClose: () => void; openStationDevices: (id: string) => void; openStationAlerts: (id: string) => void; }) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'thermal' | 'pd' | 'live' | 'alerts' | 'diagnostics'>('overview');
-  const [localAlerts, setLocalAlerts] = useState<AlertItem[]>([]);
-  const [loadingAlerts, setLoadingAlerts] = useState(false);
-  const cabinetSummary = getCabinetSummary(snapshot.points, snapshot.devices);
+  const [activeTab, setActiveTab] = useState<'overview' | 'thermal' | 'pd' | 'diagnostics'>('overview');
   
-  const loadStationAlerts = useCallback(async () => {
-    setLoadingAlerts(true);
-    try {
-      const res = await stationApi.getAlerts('open', undefined, undefined, 20, snapshot.station.id);
-      setLocalAlerts(res);
-    } catch (err) {
-      console.error('Failed to load station alerts', err);
-    } finally {
-      setLoadingAlerts(false);
-    }
-  }, [snapshot.station.id]);
-
-  useEffect(() => {
-    if (activeTab === 'alerts') loadStationAlerts();
-  }, [activeTab, loadStationAlerts]);
-
-  const handleAck = async (id: string) => {
-    try {
-      await stationApi.ackAlert(id, 'Xác nhận từ trạm tổng');
-      setLocalAlerts(prev => prev.filter(a => a.id !== id));
-      showToast('Đã xác nhận cảnh báo', 'success');
-    } catch (err) {
-      showToast('Lỗi khi xác nhận', 'error');
-    }
-  };
+  const cabinetSummary = getCabinetSummary(snapshot.points, snapshot.devices);
 
   const mockHistory = useMemo(() => Array.from({ length: 20 }, (_, i) => ({
     time: i.toString(),
@@ -195,19 +168,75 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
     value: 5 + Math.random() * 15
   })), []);
 
-  const selectedCamera = useMemo(() => {
-    return snapshot.devices.find(d => d.type.startsWith('camera')) as CameraDevice | undefined;
-  }, [snapshot.devices]);
+  const [historyData, setHistoryData] = useState<{ time: string; value: number }[]>([]);
+  const [pdHistoryData, setPdHistoryData] = useState<{ time: string; value: number }[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const fetchHistory = async () => {
+      setLoadingHistory(true);
+      try {
+        const now = new Date();
+        const from = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+        const to = now.toISOString();
+        const rawHistory = await stationApi.getHistoryBulk(snapshot.station.id, from, to, 15);
+        if (!active) return;
+
+        // Separate points by type
+        const thermalPoints = rawHistory.filter(p => isThermalPoint({ pointId: p.pointId } as any));
+        const pdPoints = rawHistory.filter(p => isPdPoint({ pointId: p.pointId } as any));
+
+        // Group thermal points by time
+        const thermalByTime: Record<string, number[]> = {};
+        thermalPoints.forEach(p => {
+          const tStr = new Date(p.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+          if (!thermalByTime[tStr]) thermalByTime[tStr] = [];
+          thermalByTime[tStr].push(p.value);
+        });
+
+        // Group pd points by time
+        const pdByTime: Record<string, number[]> = {};
+        pdPoints.forEach(p => {
+          const tStr = new Date(p.time).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+          if (!pdByTime[tStr]) pdByTime[tStr] = [];
+          pdByTime[tStr].push(p.value);
+        });
+
+        const sortedThermal = Object.entries(thermalByTime).map(([time, vals]) => ({
+          time,
+          value: vals.reduce((a, b) => a + b, 0) / vals.length
+        })).sort((a, b) => a.time.localeCompare(b.time));
+
+        const sortedPd = Object.entries(pdByTime).map(([time, vals]) => ({
+          time,
+          value: Math.max(...vals)
+        })).sort((a, b) => a.time.localeCompare(b.time));
+
+        setHistoryData(sortedThermal);
+        setPdHistoryData(sortedPd);
+      } catch (err) {
+        console.error('Error fetching history:', err);
+      } finally {
+        if (active) setLoadingHistory(false);
+      }
+    };
+    fetchHistory();
+    return () => { active = false; };
+  }, [snapshot.station.id]);
+
+  const displayTempHistory = historyData.length > 0 ? historyData : mockHistory;
+  const displayPdHistory = pdHistoryData.length > 0 ? pdHistoryData : mockPdHistory;
 
   return (
-      <div 
+    <div 
       className="station-overlay-animate"
       style={{
-        position: 'absolute', top: 16, left: 16, bottom: 16, width: 440,
+        flex: 1,
         background: 'var(--admin-panel)',
-        border: '1px solid var(--admin-accent)', borderRadius: 0,
-        zIndex: 1010, display: 'flex', flexDirection: 'column',
-        boxShadow: '4px 4px 0 rgba(0,0,0,0.5)', overflow: 'hidden'
+        border: 'none', borderRadius: 0,
+        display: 'flex', flexDirection: 'column',
+        height: '100%', overflow: 'hidden'
       }}
     >
       <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--admin-layer-2)' }}>
@@ -224,8 +253,6 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
       <div style={{ display: 'flex', gap: 2, padding: '0 12px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-bg)', overflowX: 'auto' }} className="custom-hud-scroll">
         {[
           { id: 'overview', label: 'TỔNG QUAN', icon: <Activity size={13} /> },
-          { id: 'live', label: 'TRỰC TIẾP', icon: <Video size={13} /> },
-          { id: 'alerts', label: `SỰ CỐ (${snapshot.openAlerts})`, icon: <AlertTriangle size={13} />, color: snapshot.openAlerts > 0 ? 'var(--admin-danger)' : undefined },
           { id: 'thermal', label: 'NHIỆT ĐỘ', icon: <Thermometer size={13} /> },
           { id: 'pd', label: 'PHÓNG ĐIỆN', icon: <Zap size={13} /> },
           { id: 'diagnostics', label: 'CHẨN ĐOÁN', icon: <Shield size={13} /> },
@@ -234,9 +261,9 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
             key={t.id}
             onClick={() => setActiveTab(t.id as any)}
             style={{
-              background: 'transparent', border: 'none', color: activeTab === t.id ? (t.color || 'var(--admin-accent)') : 'var(--admin-text-muted)',
+              background: 'transparent', border: 'none', color: activeTab === t.id ? 'var(--admin-accent)' : 'var(--admin-text-muted)',
               fontSize: '.62rem', fontWeight: 950, cursor: 'pointer', padding: '18px 14px',
-              borderBottom: activeTab === t.id ? `3px solid ${t.color || 'var(--admin-accent)'}` : '3px solid transparent',
+              borderBottom: activeTab === t.id ? '3px solid var(--admin-accent)' : '3px solid transparent',
               textTransform: 'uppercase', letterSpacing: '0.1em', display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s', flexShrink: 0
             }}
           >
@@ -268,7 +295,7 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
                 </div>
               </div>
               <div style={{ height: 100, width: '100%', background: 'var(--admin-bg)', borderRadius: 0, overflow: 'hidden', border: '1px solid var(--admin-border)' }}>
-                <StationTrendChart color="var(--admin-accent)" data={mockHistory} />
+                <StationTrendChart key="overview-temp" color="var(--admin-accent)" data={displayTempHistory} />
               </div>
             </div>
 
@@ -313,74 +340,6 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
           </>
         )}
 
-        {activeTab === 'live' && (
-          <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ flex: 1, background: '#000', borderRadius: 0, overflow: 'hidden', border: '1px solid var(--admin-border)', position: 'relative', minHeight: 240, boxShadow: 'inset 0 0 40px rgba(0,0,0,0.8)' }}>
-              {selectedCamera ? (
-                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: 'var(--admin-text-muted)', gap: 14 }}>
-                   <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: '8px 16px', background: 'linear-gradient(to bottom, rgba(0,0,0,0.8), transparent)', display: 'flex', justifyContent: 'space-between', zIndex: 1 }}>
-                      <span style={{ fontSize: '.65rem', fontWeight: 800, color: '#fff' }}>{selectedCamera.name}</span>
-                      <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>{selectedCamera.config.ip || '192.168.1.150'}</span>
-                   </div>
-                   <Video size={56} style={{ opacity: 0.2, color: 'var(--admin-accent)' }} />
-                   <div style={{ fontSize: '.65rem', fontWeight: 800, letterSpacing: '0.1em' }}>Hệ thống đang kết nối luồng RTSP...</div>
-                   <div style={{ position: 'absolute', bottom: 16, left: 16, display: 'flex', gap: 8 }}>
-                      <div style={{ padding: '4px 10px', background: 'rgba(0,0,0,0.6)', borderRadius: 0, fontSize: '.55rem', fontWeight: 900, color: 'var(--admin-success)', border: '1px solid var(--admin-success)' }}>25 FPS</div>
-                      <div style={{ padding: '4px 10px', background: 'rgba(0,0,0,0.6)', borderRadius: 0, fontSize: '.55rem', fontWeight: 900, color: 'var(--admin-accent)', border: '1px solid var(--admin-accent)' }}>4K ULTRA</div>
-                   </div>
-                   <div style={{ position: 'absolute', top: 12, right: 12, padding: '4px 10px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: '.6rem', fontWeight: 900, borderRadius: 0, boxShadow: '0 0 15px rgba(239, 68, 68, 0.4)' }}>REC LIVE</div>
-                </div>
-              ) : (
-                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--admin-text-muted)', fontSize: '.75rem' }}>
-                  Trạm hiện chưa cấu hình Camera IP
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <button style={{ padding: '12px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: '#fff', fontSize: '.7rem', fontWeight: 900, cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--admin-layer-2)'}>CHỤP ẢNH TỨC THÌ</button>
-              <button style={{ padding: '12px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: '#fff', fontSize: '.7rem', fontWeight: 900, cursor: 'pointer', transition: 'all 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--admin-layer-2)'}>GHI HÌNH SỰ KIỆN</button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'alerts' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-               <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>Danh sách Sự cố</div>
-               <button onClick={loadStationAlerts} style={{ background: 'transparent', border: 'none', color: 'var(--admin-accent)', cursor: 'pointer' }}><RefreshCw size={14} /></button>
-            </div>
-            {loadingAlerts ? (
-              <div style={{ padding: 60, textAlign: 'center' }}><Activity size={28} className="pulse-slow" style={{ color: 'var(--admin-accent)' }} /></div>
-            ) : localAlerts.length === 0 ? (
-              <div style={{ padding: 60, textAlign: 'center', border: '1px dashed var(--admin-border)', borderRadius: 0}}>
-                 <ShieldCheck size={32} style={{ color: 'var(--admin-success)', opacity: 0.3, marginBottom: 12 }} />
-                 <div style={{ color: 'var(--admin-text-muted)', fontSize: '.7rem', fontWeight: 700 }}>Hệ thống vận hành an toàn</div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {localAlerts.map(alert => (
-                  <div key={alert.id} style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 0, padding: 16, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div style={{ fontSize: '.75rem', fontWeight: 900, color: 'var(--admin-danger)', letterSpacing: '0.01em' }}>{alert.message}</div>
-                      <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 800, background: 'rgba(0,0,0,0.2)', padding: '2px 6px', borderRadius: 0}}>{new Date(alert.triggeredAt).toLocaleTimeString()}</div>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                         <div style={{ width: 6, height: 6, borderRadius: 0, background: alert.level === 'alarm' ? 'var(--admin-danger)' : '#f59e0b' }} />
-                         <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 700, textTransform: 'uppercase' }}>{alert.level === 'alarm' ? 'Critical' : 'Warning'}</span>
-                      </div>
-                      <button 
-                        onClick={() => handleAck(alert.id)}
-                        style={{ padding: '6px 14px', background: 'var(--admin-danger)', color: '#fff', border: 'none', borderRadius: 0, fontSize: '.65rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 2px 8px rgba(239,68,68,0.3)' }}
-                      >XÁC NHẬN</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {activeTab === 'thermal' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -412,7 +371,7 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
               </div>
             ))}
             <div style={{ height: 110, background: 'var(--admin-bg)', borderRadius: 0, overflow: 'hidden', border: '1px solid var(--admin-border)' }}>
-               <StationTrendChart color="var(--admin-danger)" data={mockHistory} />
+               <StationTrendChart key="thermal-temp" color="var(--admin-danger)" data={displayTempHistory} />
             </div>
           </div>
         )}
@@ -428,7 +387,7 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
             <div>
                <div style={{ fontSize: '.65rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase', marginBottom: 12, letterSpacing: '0.05em' }}>Lịch sử Phóng điện (dB)</div>
                <div style={{ height: 140, background: 'var(--admin-bg)', borderRadius: 0, border: '1px solid var(--admin-border)', overflow: 'hidden' }}>
-                  <StationTrendChart color="#f59e0b" data={mockPdHistory} />
+                  <StationTrendChart key="pd-pd" color="#f59e0b" data={displayPdHistory} />
                </div>
             </div>
           </div>
@@ -693,6 +652,8 @@ function CabinetMiniRow({ t1, t2, t3, pdVal }: { t1: number | null; t2: number |
   );
 }
 
+type CentralTab = 'overview' | 'thermal' | 'pd' | 'health';
+
 // ── Main Component ─────────────────────────────────────────────
 
 export default function CentralAnalyticsLayout() {
@@ -703,16 +664,8 @@ export default function CentralAnalyticsLayout() {
   const [stations, setStations] = useState<StationAnalyticsSnapshot[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
-  const [showAnalysisOverlay, setShowAnalysisOverlay] = useState(false);
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
-  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
-
-  // Leaflet refs
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const leafletMap = useRef<any>(null);
-  const markerMapRef = useRef<Record<string, any>>({});
-  const [leafletReady, setLeafletReady] = useState(false);
-  const [mapFitTrigger, setMapFitTrigger] = useState(0);
+  const [fleetTab, setFleetTab] = useState<CentralTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
   const downloadDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -822,7 +775,6 @@ export default function CentralAnalyticsLayout() {
         console.error('[CentralAnalytics] Load failed:', err);
       } finally {
         setLoading(false);
-        setMapFitTrigger(t => t + 1);
       }
     };
     load();
@@ -886,149 +838,6 @@ export default function CentralAnalyticsLayout() {
     'Port': getStationEndpointInfo(sn.station).port,
     'Dia chi': parseLocation(sn.station.location).address || '',
   })), [filteredStations]);
-
-  // ── Leaflet Map ────────────────────────────────────────────
-
-  // Detect Leaflet CDN
-  useEffect(() => {
-    if ((window as any).L) { setLeafletReady(true); return; }
-    const iv = setInterval(() => { if ((window as any).L) { setLeafletReady(true); clearInterval(iv); } }, 150);
-    return () => clearInterval(iv);
-  }, []);
-
-  // Initialize map
-  useEffect(() => {
-    const L = (window as any).L;
-    if (!L || !mapContainerRef.current || !leafletReady) return;
-
-    // Clean previous
-    if (leafletMap.current) {
-      try { leafletMap.current.remove(); } catch {}
-      leafletMap.current = null;
-    }
-    markerMapRef.current = {};
-    mapContainerRef.current.innerHTML = '';
-    try { delete (mapContainerRef.current as any)._leaflet_id; } catch {}
-
-    const map = L.map(mapContainerRef.current, {
-      zoomControl: false,
-      attributionControl: false,
-    }).setView([16.0, 107.5], 6);
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 18,
-    }).addTo(map);
-
-    leafletMap.current = map;
-
-    // Fit when data loads
-    setMapFitTrigger(t => t + 1);
-
-    return () => {
-      try { map.remove(); } catch {}
-      leafletMap.current = null;
-    };
-  }, [leafletReady]);
-
-  // Update markers
-  useEffect(() => {
-    const L = (window as any).L;
-    const map = leafletMap.current;
-    if (!L || !map) return;
-
-    // Clear existing markers
-    Object.values(markerMapRef.current).forEach((m: any) => { try { map.removeLayer(m); } catch {} });
-    markerMapRef.current = {};
-
-    const bounds: any[] = [];
-
-    stations.forEach(sn => {
-      const loc = parseLocation(sn.station.location);
-      if (loc.lat == null || loc.lng == null) return;
-
-      const health = getHealthClass(sn.avgHealth);
-      const hasAlerts = sn.openAlerts > 0;
-      const isSelected = sn.station.id === selectedStationId;
-
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="
-          width: ${isSelected ? '18px' : '14px'};
-          height: ${isSelected ? '18px' : '14px'};
-          background: ${hasAlerts ? 'var(--admin-danger)' : health.color};
-          border: 2px solid #fff;
-          border-radius: 50%;
-          box-shadow: 0 0 ${isSelected ? '14px' : '8px'} ${hasAlerts ? 'var(--admin-danger)' : health.color};
-          transition: all 0.2s;
-          ${isSelected ? 'transform: scale(1.3);' : ''}
-        "></div>`,
-        iconSize: [isSelected ? 18 : 14, isSelected ? 18 : 14],
-        iconAnchor: [isSelected ? 9 : 7, isSelected ? 9 : 7],
-      });
-
-      const marker = L.marker([loc.lat, loc.lng], { icon }).addTo(map);
-      marker.bindPopup(`
-        <div style="font-family:monospace;font-size:11px;min-width:140px">
-          <b>${sn.station.name}</b><br/>
-          <span style="font-size:10px;opacity:.7">${sn.station.code || '—'}</span>
-          <hr style="margin:6px 0;border-color:rgba(255,255,255,.1)"/>
-          Health: <b style="color:${health.color}">${sn.avgHealth != null ? sn.avgHealth.toFixed(0) : '—'}</b><br/>
-          Devices: ${sn.onlineDevices}/${sn.deviceTotal}<br/>
-          Alerts: <b style="color:${hasAlerts ? 'var(--admin-danger)' : 'inherit'}">${sn.openAlerts}</b>
-        </div>
-      `);
-      marker.on('click', () => {
-        setSelectedStationId(sn.station.id);
-        setShowAnalysisOverlay(true);
-      });
-
-      markerMapRef.current[sn.station.id] = marker;
-      bounds.push([loc.lat, loc.lng]);
-    });
-
-    // Fit bounds
-    if (bounds.length > 0) {
-      try {
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14, animate: true });
-      } catch {}
-    }
-  }, [stations, selectedStationId, mapFitTrigger]);
-
-  // Highlight selected marker
-  useEffect(() => {
-    const L = (window as any).L;
-    const map = leafletMap.current;
-    if (!L || !map) return;
-
-    stations.forEach(sn => {
-      const marker = markerMapRef.current[sn.station.id];
-      if (!marker) return;
-      const loc = parseLocation(sn.station.location);
-      if (loc.lat == null) return;
-
-      const health = getHealthClass(sn.avgHealth);
-      const hasAlerts = sn.openAlerts > 0;
-      const isSelected = sn.station.id === selectedStationId;
-
-      try {
-        marker.setIcon(L.divIcon({
-          className: '',
-          html: `<div style="
-            width: ${isSelected ? '18px' : '14px'};
-            height: ${isSelected ? '18px' : '14px'};
-            background: ${hasAlerts ? 'var(--admin-danger)' : health.color};
-            border: 2px solid #fff;
-            border-radius: 50%;
-            box-shadow: 0 0 ${isSelected ? '14px' : '8px'} ${hasAlerts ? 'var(--admin-danger)' : health.color};
-            transition: all 0.2s;
-            ${isSelected ? 'transform: scale(1.3);' : ''}
-          "></div>`,
-          iconSize: [isSelected ? 18 : 14, isSelected ? 18 : 14],
-          iconAnchor: [isSelected ? 9 : 7, isSelected ? 9 : 7],
-        }));
-      } catch {}
-    });
-  }, [selectedStationId, stations]);
 
   // ── Actions ────────────────────────────────────────────────
 
@@ -1107,11 +916,412 @@ export default function CentralAnalyticsLayout() {
     setTimeout(() => win.print(), 400);
   }, [analyticsExportRows]);
 
+  // ── Fleet-wide Ranked Lists ───────────────────────────────
+
+  const rankedStations = useMemo(() => {
+    return [...stations].sort((a, b) => {
+      const riskA = a.openAlerts * 20 + (100 - (a.avgHealth ?? 100)) + a.warningPdPoints * 8 + (a.hottestPoint?.value ?? 0);
+      const riskB = b.openAlerts * 20 + (100 - (b.avgHealth ?? 100)) + b.warningPdPoints * 8 + (b.hottestPoint?.value ?? 0);
+      return riskB - riskA;
+    });
+  }, [stations]);
+
+  const thermalRanking = useMemo(() => {
+    return rankedStations
+      .filter(item => item.hottestPoint)
+      .sort((a, b) => (b.hottestPoint?.value ?? 0) - (a.hottestPoint?.value ?? 0));
+  }, [rankedStations]);
+
+  const pdRanking = useMemo(() => {
+    return [...stations].sort((a, b) => b.warningPdPoints - a.warningPdPoints);
+  }, [stations]);
+
+  const healthRanking = useMemo(() => {
+    return [...stations].sort((a, b) => (a.avgHealth ?? 999) - (b.avgHealth ?? 999));
+  }, [stations]);
+
+  const recentAlertsList = useMemo(() => {
+    return [...alerts]
+      .sort((a, b) => new Date(b.triggeredAt).getTime() - new Date(a.triggeredAt).getTime())
+      .slice(0, 10);
+  }, [alerts]);
+
+  function MetricCard({ label, value, sub, icon, accentColor }: { label: string; value: string | number; sub: string; icon: React.ReactNode; accentColor?: string }) {
+    return (
+      <div style={{ padding: 16, borderLeft: accentColor ? `4px solid ${accentColor}` : undefined, background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 0, background: accentColor ? `${accentColor}1A` : 'var(--admin-layer-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: accentColor || 'var(--admin-text-muted)', border: '1px solid var(--admin-border)' }}>
+            {icon}
+          </div>
+          <div>
+            <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--admin-text)', marginTop: 2, lineHeight: 1.1 }}>{value}</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, fontSize: '.7rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{sub}</div>
+      </div>
+    );
+  }
+
+  const renderOverview = () => (
+    <div style={{ display: 'grid', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+        <MetricCard label="Trạm đang theo dõi" value={fleetSummary.totalStations} sub={`${fleetSummary.totalDevices} thiết bị`} icon={<Activity size={20} />} accentColor="var(--admin-accent)" />
+        <MetricCard label="Thiết bị trực tuyến" value={`${fleetSummary.totalOnline}/${fleetSummary.totalDevices}`} sub="Toàn mạng lưới" icon={<Wifi size={20} />} accentColor="var(--admin-success)" />
+        <MetricCard label="Cảnh báo chưa đóng" value={fleetSummary.totalAlerts} sub="Open và acked" icon={<AlertTriangle size={20} />} accentColor="var(--admin-danger)" />
+        <MetricCard label="Điểm sức khỏe TB" value={fleetSummary.avgHealth != null ? fleetSummary.avgHealth.toFixed(1) : 'N/A'} sub={getHealthClass(fleetSummary.avgHealth).label} icon={<Radio size={20} />} accentColor="#f59e0b" />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr', gap: 24 }}>
+        <section style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', fontWeight: 800, fontSize: '.75rem', color: 'var(--admin-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Activity size={14} style={{ color: 'var(--admin-accent)' }} /> BẢNG XẾP HẠNG RỦI RO
+          </div>
+          <div style={{ overflowX: 'auto', flex: 1 }}>
+            <table className="data-table" style={{ width: '100%', margin: 0, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
+                  <th style={{ width: 40, textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>#</th>
+                  <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Trạm</th>
+                  <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Sức khỏe</th>
+                  <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Hotspot</th>
+                  <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>PD</th>
+                  <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Cảnh báo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankedStations.map((item, idx) => (
+                  <tr key={item.station.id} onClick={() => setSelectedStationId(item.station.id)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--admin-border)' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '.7rem', padding: '12px 14px' }}>{idx + 1}</td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <div style={{ color: 'var(--admin-text)', fontWeight: 800, fontSize: '.75rem' }}>{item.station.name}</div>
+                      <div style={{ color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{item.station.code || 'NO-CODE'}</div>
+                    </td>
+                    <td style={{ textAlign: 'center', color: getHealthClass(item.avgHealth).color, fontWeight: 800, padding: '12px 14px', fontSize: '.75rem' }}>
+                      {item.avgHealth != null ? `${item.avgHealth.toFixed(1)}` : 'N/A'}
+                    </td>
+                    <td style={{ textAlign: 'center', color: getThermalClass(item.hottestPoint?.value ?? null).color, fontWeight: 800, padding: '12px 14px', fontSize: '.75rem' }}>
+                      {item.hottestPoint ? `${item.hottestPoint.value.toFixed(1)}°C` : '—'}
+                    </td>
+                    <td style={{ textAlign: 'center', color: getPdClass(item.warningPdPoints).color, fontWeight: 800, padding: '12px 14px', fontSize: '.75rem' }}>
+                      {item.warningPdPoints > 0 ? item.warningPdPoints : '—'}
+                    </td>
+                    <td style={{ textAlign: 'center', color: item.openAlerts > 0 ? 'var(--admin-danger)' : 'var(--admin-text-muted)', fontWeight: 800, padding: '12px 14px', fontSize: '.75rem' }}>
+                      {item.openAlerts > 0 ? item.openAlerts : '0'}
+                    </td>
+                  </tr>
+                ))}
+                {rankedStations.length === 0 && (
+                  <tr>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: 30, color: 'var(--admin-text-muted)', fontSize: '.7rem' }}>Không có dữ liệu trạm</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style={{ display: 'grid', gap: 24, alignContent: 'start' }}>
+          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 20, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--admin-text-muted)', fontWeight: 800, fontSize: '.7rem', letterSpacing: '0.05em' }}>
+              <Thermometer size={14} style={{ color: 'var(--admin-danger)' }} /> ĐIỂM NÓNG NHẤT HỆ THỐNG
+            </div>
+            <div style={{ marginTop: 16, fontSize: '2.5rem', fontWeight: 900, color: 'var(--admin-danger)' }}>
+              {fleetSummary.hottest ? `${fleetSummary.hottest.value.toFixed(1)}°C` : 'N/A'}
+            </div>
+            <div style={{ marginTop: 8, color: 'var(--admin-text)', fontSize: '.8rem', fontWeight: 700 }}>
+              {fleetSummary.hottest ? fleetSummary.hottest.stationName : 'Chưa có dữ liệu nhiệt'}
+            </div>
+            <div style={{ color: 'var(--admin-text-muted)', fontSize: '.7rem', marginTop: 2 }}>
+              {fleetSummary.hottest ? fleetSummary.hottest.label : '---'}
+            </div>
+            {fleetSummary.hottest && (
+              <button className="btn-industrial btn-primary" style={{ marginTop: 20, padding: '8px 12px', fontSize: '.7rem', fontWeight: 800, width: 'fit-content' }} onClick={() => setSelectedStationId(fleetSummary.hottest!.stationId)}>
+                KIỂM TRA NGAY
+              </button>
+            )}
+          </div>
+
+          <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 20, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--admin-text-muted)', fontWeight: 800, fontSize: '.7rem', letterSpacing: '0.05em' }}>
+              <Zap size={14} style={{ color: '#f59e0b' }} /> DẤU HIỆU PD MẠNG LƯỚI
+            </div>
+            <div style={{ marginTop: 16, fontSize: '2.5rem', fontWeight: 900, color: fleetSummary.totalPdWarnings > 0 ? '#f59e0b' : 'var(--admin-success)' }}>
+              {fleetSummary.totalPdWarnings}
+            </div>
+            <div style={{ marginTop: 8, color: 'var(--admin-text)', fontSize: '.8rem', fontWeight: 700 }}>
+              {fleetSummary.totalPdWarnings > 0 ? 'Phát hiện tín hiệu bất thường' : 'Hệ thống điện ổn định'}
+            </div>
+             <div style={{ color: 'var(--admin-text-muted)', fontSize: '.7rem', marginTop: 2 }}>
+              Cần phân tích phổ âm thanh chuyên sâu
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+
+  const renderThermal = () => (
+    <div style={{ display: 'grid', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+        <MetricCard
+          label="Hotspot cao nhất"
+          value={fleetSummary.hottest ? `${fleetSummary.hottest.value.toFixed(1)}°C` : 'N/A'}
+          sub={fleetSummary.hottest ? fleetSummary.hottest.stationName : 'Chưa có dữ liệu'}
+          icon={<Thermometer size={20} />}
+          accentColor="var(--admin-danger)"
+        />
+        <MetricCard
+          label="Trạm có dữ liệu nhiệt"
+          value={thermalRanking.length}
+          sub={`${stations.length - thermalRanking.length} trạm chưa có nhiệt`}
+          icon={<Activity size={20} />}
+          accentColor="var(--admin-accent)"
+        />
+      </div>
+
+      <section style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', fontWeight: 800, fontSize: '.75rem', color: 'var(--admin-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Thermometer size={14} style={{ color: 'var(--admin-danger)' }} /> BẢNG XẾP HẠNG NHIỆT ĐỘ LIÊN TRẠM
+        </div>
+        <div style={{ overflowX: 'auto', flex: 1 }}>
+          <table className="data-table" style={{ width: '100%', margin: 0, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
+                <th style={{ width: 40, textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>#</th>
+                <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Trạm</th>
+                <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Điểm đo nóng nhất</th>
+                <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Nhiệt độ</th>
+                <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              {thermalRanking.map((item, idx) => {
+                const thermalInfo = getThermalClass(item.hottestPoint?.value ?? null);
+                return (
+                  <tr key={item.station.id} onClick={() => setSelectedStationId(item.station.id)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--admin-border)' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '.7rem', padding: '12px 14px' }}>{idx + 1}</td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <div style={{ color: 'var(--admin-text)', fontWeight: 800, fontSize: '.75rem' }}>{item.station.name}</div>
+                      <div style={{ color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{item.station.code || 'NO-CODE'}</div>
+                    </td>
+                    <td style={{ color: 'var(--admin-text-muted)', fontSize: '.7rem', padding: '12px 14px' }}>
+                      {item.hottestPoint?.label || 'Không rõ'}
+                    </td>
+                    <td style={{ textAlign: 'center', color: thermalInfo.color, fontWeight: 900, fontSize: '1.1rem', padding: '12px 14px' }}>
+                      {item.hottestPoint ? `${item.hottestPoint.value.toFixed(1)}°C` : 'N/A'}
+                    </td>
+                    <td style={{ textAlign: 'center', padding: '12px 14px' }}>
+                      <span style={{ 
+                        background: thermalInfo.color === 'var(--admin-danger)' ? 'rgba(239,68,68,0.1)' : thermalInfo.color === '#f59e0b' ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
+                        color: thermalInfo.color, padding: '2px 8px', borderRadius: 0, fontSize: '.65rem', fontWeight: 800 
+                      }}>
+                        {thermalInfo.label.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {thermalRanking.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: 30, color: 'var(--admin-text-muted)', fontSize: '.7rem' }}>Chưa có dữ liệu nhiệt.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+
+  const renderPd = () => (
+    <div style={{ display: 'grid', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+        <MetricCard
+          label="Điểm PD đáng chú ý"
+          value={fleetSummary.totalPdWarnings}
+          sub={getPdClass(fleetSummary.totalPdWarnings).label}
+          icon={<Zap size={20} />}
+          accentColor={fleetSummary.totalPdWarnings > 0 ? '#f59e0b' : 'var(--admin-success)'}
+        />
+        <MetricCard
+          label="Trạm có PD"
+          value={pdRanking.filter(item => item.warningPdPoints > 0).length}
+          sub={`${pdRanking.filter(item => item.warningPdPoints === 0).length} trạm ổn định`}
+          icon={<Radio size={20} />}
+          accentColor={pdRanking.filter(item => item.warningPdPoints > 0).length > 0 ? '#f59e0b' : 'var(--admin-success)'}
+        />
+      </div>
+
+      <section style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', fontWeight: 800, fontSize: '.75rem', color: 'var(--admin-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Zap size={14} style={{ color: '#f59e0b' }} /> BẢNG XẾP HẠNG PHÓNG ĐIỆN LIÊN TRẠM
+        </div>
+        <div style={{ overflowX: 'auto', flex: 1 }}>
+          <table className="data-table" style={{ width: '100%', margin: 0, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
+                <th style={{ width: 40, textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>#</th>
+                <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Trạm</th>
+                <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Số điểm cảnh báo PD</th>
+                <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Đánh giá rủi ro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pdRanking.map((item, idx) => {
+                const pdInfo = getPdClass(item.warningPdPoints);
+                return (
+                  <tr key={item.station.id} onClick={() => setSelectedStationId(item.station.id)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--admin-border)' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '.7rem', padding: '12px 14px' }}>{idx + 1}</td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <div style={{ color: 'var(--admin-text)', fontWeight: 800, fontSize: '.75rem' }}>{item.station.name}</div>
+                      <div style={{ color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{item.station.code || 'NO-CODE'}</div>
+                    </td>
+                    <td style={{ textAlign: 'center', color: pdInfo.color, fontWeight: 900, fontSize: '1.1rem', padding: '12px 14px' }}>
+                      {item.warningPdPoints}
+                    </td>
+                    <td style={{ textAlign: 'center', padding: '12px 14px' }}>
+                      <span style={{ 
+                        background: pdInfo.color === 'var(--admin-danger)' ? 'rgba(239,68,68,0.1)' : pdInfo.color === '#f59e0b' ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
+                        color: pdInfo.color, padding: '2px 8px', borderRadius: 0, fontSize: '.65rem', fontWeight: 800 
+                      }}>
+                        {pdInfo.label.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+              {pdRanking.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ textAlign: 'center', padding: 30, color: 'var(--admin-text-muted)', fontSize: '.7rem' }}>Chưa có dữ liệu phóng điện.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+
+  const renderHealth = () => (
+    <div style={{ display: 'grid', gap: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+        <MetricCard
+          label="Sức khỏe trung bình"
+          value={fleetSummary.avgHealth != null ? fleetSummary.avgHealth.toFixed(1) : 'N/A'}
+          sub={getHealthClass(fleetSummary.avgHealth).label}
+          icon={<Radio size={20} />}
+          accentColor={getHealthClass(fleetSummary.avgHealth).color}
+        />
+        <MetricCard
+          label="Trạm cần theo dõi"
+          value={healthRanking.filter(item => (item.avgHealth ?? 100) < 75).length}
+          sub="Điểm sức khỏe dưới 75"
+          icon={<AlertTriangle size={20} />}
+          accentColor={healthRanking.filter(item => (item.avgHealth ?? 100) < 75).length > 0 ? '#f59e0b' : 'var(--admin-success)'}
+        />
+      </div>
+
+      <section style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', fontWeight: 800, fontSize: '.75rem', color: 'var(--admin-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Radio size={14} style={{ color: 'var(--admin-accent)' }} /> TÌNH TRẠNG KẾT NỐI THIẾT BỊ LIÊN TRẠM
+        </div>
+        <div style={{ overflowX: 'auto', flex: 1 }}>
+          <table className="data-table" style={{ width: '100%', margin: 0, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
+                <th style={{ width: 40, textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>#</th>
+                <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Trạm</th>
+                <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Sức khỏe thiết bị (ĐTB)</th>
+                <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Thiết bị Online</th>
+                <th style={{ textAlign: 'center', padding: '10px 14px', fontSize: '.6rem', color: 'var(--admin-text-muted)' }}>Tổng thiết bị giám sát</th>
+              </tr>
+            </thead>
+            <tbody>
+              {healthRanking.map((item, idx) => {
+                const healthInfo = getHealthClass(item.avgHealth);
+                return (
+                  <tr key={item.station.id} onClick={() => setSelectedStationId(item.station.id)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--admin-border)' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <td style={{ textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '.7rem', padding: '12px 14px' }}>{idx + 1}</td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <div style={{ color: 'var(--admin-text)', fontWeight: 800, fontSize: '.75rem' }}>{item.station.name}</div>
+                      <div style={{ color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>{item.station.code || 'NO-CODE'}</div>
+                    </td>
+                    <td style={{ textAlign: 'center', padding: '12px 14px' }}>
+                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                          <span style={{ color: healthInfo.color, fontWeight: 900, fontSize: '1.1rem', minWidth: 40 }}>
+                            {item.avgHealth != null ? `${item.avgHealth.toFixed(1)}` : 'N/A'}
+                          </span>
+                          {item.avgHealth != null && (
+                            <div style={{ width: 60, height: 4, background: 'var(--admin-layer-2)', borderRadius: 0, overflow: 'hidden' }}>
+                              <div style={{ width: `${item.avgHealth}%`, height: '100%', background: healthInfo.color }} />
+                            </div>
+                          )}
+                       </div>
+                    </td>
+                    <td style={{ textAlign: 'center', color: item.onlineDevices === item.deviceTotal && item.deviceTotal > 0 ? 'var(--admin-success)' : 'var(--admin-text)', fontWeight: 800, padding: '12px 14px', fontSize: '.75rem' }}>
+                      {item.onlineDevices} / {item.deviceTotal}
+                    </td>
+                    <td style={{ textAlign: 'center', color: 'var(--admin-text-muted)', fontWeight: 700, padding: '12px 14px', fontSize: '.75rem' }}>
+                      {item.deviceTotal} thiết bị
+                    </td>
+                  </tr>
+                );
+              })}
+              {healthRanking.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: 30, color: 'var(--admin-text-muted)', fontSize: '.7rem' }}>Chưa có dữ liệu.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+
+  const renderRecentAlerts = () => (
+    <section style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', fontWeight: 800, fontSize: '.75rem', color: 'var(--admin-text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <AlertTriangle size={14} style={{ color: 'var(--admin-danger)' }} /> CẢNH BÁO MỚI NHẤT TOÀN HỆ THỐNG
+      </div>
+      <div style={{ display: 'grid' }}>
+        {recentAlertsList.map(alert => (
+          <div key={alert.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--admin-border)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                 <span style={{ 
+                    padding: '2px 8px', borderRadius: 0, fontSize: '.65rem', fontWeight: 900,
+                    background: alert.level === 'alarm' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
+                    color: alert.level === 'alarm' ? 'var(--admin-danger)' : '#f59e0b'
+                 }}>
+                    {alert.level.toUpperCase()}
+                 </span>
+                 <span style={{ color: 'var(--admin-text)', fontWeight: 800, fontSize: '.75rem' }}>
+                   {alert.stationName || 'Không rõ trạm'}
+                 </span>
+              </div>
+              <div style={{ color: 'var(--admin-text-muted)', fontSize: '.7rem', fontWeight: 700 }}>
+                {new Date(alert.triggeredAt).toLocaleString('vi-VN')}
+              </div>
+            </div>
+            <div style={{ marginTop: 8, color: 'var(--admin-text-muted)', fontSize: '.75rem', fontWeight: 600 }}>
+              {alert.message}
+            </div>
+          </div>
+        ))}
+        {recentAlertsList.length === 0 && (
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '.7rem' }}>Hệ thống không có cảnh báo nào gần đây.</div>
+        )}
+      </div>
+    </section>
+  );
+
   // ── Render ─────────────────────────────────────────────────
 
   return (
     <div className="central-analytics-shell" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', overflow: 'hidden' }}>
-      {/* ── Main Content: Left Panel + Map ───────────────── */}
+      {/* ── Main Content: Left Panel + Right Panel ───────── */}
       <div className="central-analytics-main" style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         {/* ── Left Panel: Station List ────────────────────── */}
         <div className="central-analytics-left" style={{
@@ -1238,12 +1448,6 @@ export default function CentralAnalyticsLayout() {
                       selected={sn.station.id === selectedStationId}
                       onClick={() => {
                         setSelectedStationId(sn.station.id);
-                        setShowAnalysisOverlay(true);
-                        // Fit map to station
-                        const loc = parseLocation(sn.station.location);
-                        if (loc.lat && loc.lng && leafletMap.current) {
-                          leafletMap.current.setView([loc.lat, loc.lng], 14, { animate: true });
-                        }
                       }}
                     />
                   ))
@@ -1269,55 +1473,63 @@ export default function CentralAnalyticsLayout() {
           {leftPanelCollapsed ? <ChevronRight size={14} strokeWidth={3} /> : <ChevronRight size={14} strokeWidth={3} style={{ transform: 'rotate(180deg)' }} />}
         </button>
 
-        {/* ── Center: Map ─────────────────────────────────── */}
-        <div className="central-analytics-map" style={{ flex: 1, position: 'relative', background: 'var(--admin-bg)' }}>
-          <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
-
-          {showAnalysisOverlay && selectedSnapshot && (
+        {/* ── Right Panel: Details or Fleet-wide Analytics ─────────────────── */}
+        <div className="central-analytics-right-pane" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', overflow: 'hidden' }}>
+          {selectedSnapshot ? (
             <StationAnalysisOverlay 
               snapshot={selectedSnapshot} 
-              onClose={() => setShowAnalysisOverlay(false)} 
+              onClose={() => setSelectedStationId(null)} 
               openStationDevices={openStationDevices}
               openStationAlerts={openStationAlerts}
             />
-          )}
-
-          {loading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(10,22,40,0.8)', zIndex: 1009 }}>
-              <div style={{ textAlign: 'center' }}>
-                <Loader2 size={40} className="pulse-slow" style={{ color: 'var(--admin-accent)' }} />
-                <div style={{ marginTop: 12, fontSize: '.8rem', color: 'var(--admin-text-muted)', fontWeight: 900, letterSpacing: '0.2em' }}>ĐANG ĐỒNG BỘ DỮ LIỆU ĐA TRẠM...</div>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+              {/* Fleet-wide Analytics sub-nav */}
+              <div style={{ display: 'flex', gap: 4, padding: '10px 20px', background: 'var(--admin-panel)', borderBottom: '1px solid var(--admin-border)', alignItems: 'center', overflowX: 'auto' }}>
+                {[
+                  { id: 'overview', label: 'TỔNG QUAN', icon: <Activity size={12} /> },
+                  { id: 'thermal', label: 'BẢN ĐỒ NHIỆT', icon: <Thermometer size={12} /> },
+                  { id: 'pd', label: 'PHÓNG ĐIỆN', icon: <Zap size={12} /> },
+                  { id: 'health', label: 'SỨC KHỎE THIẾT BỊ', icon: <Radio size={12} /> }
+                ].map(t => (
+                  <button
+                    key={t.id}
+                    className={`btn-industrial ${fleetTab === t.id ? 'btn-primary' : ''}`}
+                    onClick={() => setFleetTab(t.id as CentralTab)}
+                    style={{
+                      padding: '6px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: '0.65rem',
+                      fontWeight: 900,
+                      letterSpacing: '0.05em',
+                      borderRadius: 0,
+                    }}
+                  >
+                    {t.icon} {t.label}
+                  </button>
+                ))}
+              </div>
+              
+              {/* Fleet-wide Content Area */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: 20 }} className="custom-hud-scroll">
+                {loading ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.05em' }}>
+                    <Activity size={32} style={{ opacity: 0.2, marginBottom: 16 }} className="pulse-slow" />
+                    <div>ĐANG TỔNG HỢP DỮ LIỆU PHÂN TÍCH...</div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                    {fleetTab === 'overview' && renderOverview()}
+                    {fleetTab === 'thermal' && renderThermal()}
+                    {fleetTab === 'pd' && renderPd()}
+                    {fleetTab === 'health' && renderHealth()}
+                  </div>
+                )}
               </div>
             </div>
           )}
-
-          {/* Map Title Overlay */}
-          <div style={{ position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 5, pointerEvents: 'none' }}>
-             <div style={{ background: 'var(--admin-layer-2)', padding: '8px 24px', borderRadius: 0, border: '1px solid var(--admin-border)', borderBottom: '2px solid var(--admin-accent)', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <MapPin size={16} style={{ color: 'var(--admin-accent)' }} />
-                <span style={{ fontSize: '.75rem', fontWeight: 950, color: '#fff', letterSpacing: '0.15em', textTransform: 'uppercase' }}>BẢN ĐỒ GIÁM SÁT TRẠM BIẾN ÁP</span>
-             </div>
-          </div>
-
-          {/* Map zoom controls */}
-          <div style={{ position: 'absolute', bottom: 30, right: 20, zIndex: 5, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button
-              className="btn-industrial"
-              onClick={() => leafletMap.current?.zoomIn()}
-              style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', padding: 0, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', color: '#fff', borderRadius: 0, cursor: 'pointer' }}
-            >+</button>
-            <button
-              className="btn-industrial"
-              onClick={() => leafletMap.current?.zoomOut()}
-              style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', padding: 0, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', color: '#fff', borderRadius: 0, cursor: 'pointer' }}
-            >−</button>
-            <button
-              className="btn-industrial"
-              onClick={() => setMapFitTrigger(t => t + 1)}
-              style={{ width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer' }}
-              title="Fit all stations"
-            ><Maximize2 size={16} /></button>
-          </div>
         </div>
       </div>
 

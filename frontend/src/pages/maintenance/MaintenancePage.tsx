@@ -177,7 +177,7 @@ export default function MaintenancePage() {
                 style={{
                   background: filter === f ? 'var(--admin-accent)' : 'transparent',
                   border: 'none',
-                  borderRadius: 3,
+                  borderRadius: 0,
                   color: filter === f ? 'var(--admin-text-on-accent)' : 'var(--admin-text-muted)',
                   fontWeight: 700,
                   fontSize: '.65rem',

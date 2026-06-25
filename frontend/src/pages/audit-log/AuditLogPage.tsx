@@ -34,7 +34,7 @@ function AuditFilterDropdown({
   value,
   options,
   onChange,
-  minWidth = 110
+  minWidth = 150
 }: {
   value: string;
   options: Array<{ value: string; label: string }>;
@@ -362,6 +362,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
              to={filterTo}
              onApply={(f, t) => { setFilterFrom(f); setFilterTo(t); }}
              showAll
+             style={{ height: 28 }}
            />
            <button className="nvr-lb" title="Làm mới dữ liệu" onClick={loadData}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
            <button className="nvr-lb" title="Xuất XLSX" onClick={exportXlsx} style={{ width: 'auto', padding: '0 8px', fontSize: 10 }}>XLSX</button>
@@ -375,7 +376,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
           <span className="audit-filter-label">TỈNH</span>
           <AuditFilterDropdown
             value={filterProvince}
-            minWidth={140}
+            minWidth={160}
             onChange={v => { setFilterProvince(v); setFilterTeam(''); setFilterStation(''); }}
             options={[
               { value: '', label: 'TẤT CẢ TỈNH' },
@@ -385,7 +386,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
           <span className="audit-filter-label">TỔ</span>
           <AuditFilterDropdown
             value={filterTeam}
-            minWidth={130}
+            minWidth={160}
             onChange={v => { setFilterTeam(v); setFilterStation(''); }}
             options={[
               { value: '', label: 'TẤT CẢ TỔ' },
@@ -398,7 +399,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
           <span className="audit-filter-label">TRẠM</span>
           <AuditFilterDropdown
             value={filterStation}
-            minWidth={140}
+            minWidth={200}
             onChange={v => setFilterStation(v)}
             options={[
               { value: '', label: 'TẤT CẢ TRẠM' },
