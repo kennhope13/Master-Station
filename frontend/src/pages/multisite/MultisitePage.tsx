@@ -4428,9 +4428,8 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
             </div>
           )}
         </div>
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
         {visibleProvinces.length > 0 && (
-          <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tỉnh</span>
             <InlineDarkDropdown
               value={provinceId}
@@ -4441,11 +4440,11 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
                 ...visibleProvinces.map(p => ({ value: p.id, label: p.name }))
               ]}
             />
-          </>
+          </div>
         )}
 
         {visibleTeams.length > 0 && (
-          <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tổ</span>
             <InlineDarkDropdown
               value={filterTeam}
@@ -4459,47 +4458,57 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
                 ).map(t => ({ value: t.id, label: t.name }))
               ]}
             />
-          </>
+          </div>
         )}
 
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạm</span>
-        <InlineDarkDropdown
-          value={stationId}
-          onChange={setStationId}
-          minWidth={110}
-          options={[
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạm</span>
+          <InlineDarkDropdown
+            value={stationId}
+            onChange={setStationId}
+            minWidth={110}
+            options={[
+              { value: '', label: 'Tất cả' },
+              ...(availableStationIds
+                ? visibleStations.filter(s => availableStationIds.has(s.id))
+                : visibleStations
+              ).map(s => ({ value: s.id, label: s.name }))
+            ]}
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạng thái</span>
+          <InlineDarkDropdown value={status} onChange={setStatus} minWidth={105} options={[
             { value: '', label: 'Tất cả' },
-            ...(availableStationIds
-              ? visibleStations.filter(s => availableStationIds.has(s.id))
-              : visibleStations
-            ).map(s => ({ value: s.id, label: s.name }))
-          ]}
-        />
-        <div style={{ width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' }} />
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạng thái</span>
-        <InlineDarkDropdown value={status} onChange={setStatus} minWidth={105} options={[
-          { value: '', label: 'Tất cả' },
-          { value: 'open',   label: 'Chưa xử lý' },
-          { value: 'acked',  label: 'Đang xử lý' },
-          { value: 'closed', label: 'Đã đóng' },
-        ]} />
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Loại</span>
-        <InlineDarkDropdown value={filterSource} onChange={setFilterSource} minWidth={100} options={[
-          { value: '', label: 'Tất cả' },
-          { value: 'rule_engine',     label: 'Ngưỡng đo' },
-          { value: 'ai_detection',    label: 'Người' },
-          { value: 'manual',          label: 'Thủ công' },
-          { value: 'maintenance',     label: 'Bảo trì' },
-          { value: 'camera',          label: 'Camera' },
-          { value: 'storage_monitor', label: 'Giám sát bộ nhớ' },
-          { value: 'system',          label: 'Hệ thống' },
-        ]} />
-        <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Mức độ</span>
-        <InlineDarkDropdown value={filterLevel} onChange={setFilterLevel} minWidth={100} options={[
-          { value: '', label: 'Tất cả' },
-          { value: 'warning', label: 'Cảnh báo' },
-          { value: 'alarm',   label: 'Báo động' },
-        ]} />
+            { value: 'open',   label: 'Chưa xử lý' },
+            { value: 'acked',  label: 'Đang xử lý' },
+            { value: 'closed', label: 'Đã đóng' },
+          ]} />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Loại</span>
+          <InlineDarkDropdown value={filterSource} onChange={setFilterSource} minWidth={100} options={[
+            { value: '', label: 'Tất cả' },
+            { value: 'rule_engine',     label: 'Ngưỡng đo' },
+            { value: 'ai_detection',    label: 'Người' },
+            { value: 'manual',          label: 'Thủ công' },
+            { value: 'maintenance',     label: 'Bảo trì' },
+            { value: 'camera',          label: 'Camera' },
+            { value: 'storage_monitor', label: 'Giám sát bộ nhớ' },
+            { value: 'system',          label: 'Hệ thống' },
+          ]} />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Mức độ</span>
+          <InlineDarkDropdown value={filterLevel} onChange={setFilterLevel} minWidth={100} options={[
+            { value: '', label: 'Tất cả' },
+            { value: 'warning', label: 'Cảnh báo' },
+            { value: 'alarm',   label: 'Báo động' },
+          ]} />
+        </div>
 
         <div style={{ flex: 1 }} />
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
