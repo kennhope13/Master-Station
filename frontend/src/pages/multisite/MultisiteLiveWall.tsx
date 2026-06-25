@@ -438,12 +438,26 @@ function WallView({
   }, [views, provMap]);
 
   const stationsInProvince = useMemo(() =>
-    pickedProvince ? (provinceGroups.find(g => g.pid === pickedProvince)?.views ?? []) : [],
-    [provinceGroups, pickedProvince]);
+    pickedProvince === '__all__' ? views
+      : pickedProvince ? (provinceGroups.find(g => g.pid === pickedProvince)?.views ?? [])
+      : [],
+    [provinceGroups, pickedProvince, views]);
 
   /* ── Pick handlers ── */
   const handleProvincePick = (pid: string) => {
     setPickedProvince(pid); setPickedStation(null); setStationCameras([]); setSideStep('station');
+  };
+
+  const enrichCameras = (result: Awaited<ReturnType<typeof stationApi.getRemoteCameras>>, view: StationView, provinceName: string) => {
+    const getStreamId = (url?: string) => { if (!url) return null; try { return new URL(url).searchParams.get('src'); } catch { return null; } };
+    return expandCameras(result.cameras.map(c => {
+      const urls = (c.streamUrls || {}) as Record<string, string>;
+      const dev = c.device as any;
+      let cfg = {};
+      if (dev.config) { try { cfg = typeof dev.config === 'string' ? JSON.parse(dev.config) : dev.config; } catch {} }
+      return { ...dev, __stationId: view.station.id, __stationName: view.station.name, __provinceName: provinceName, __go2rtcBase: result.go2rtcBase ?? GO2RTC_URL,
+        config: { ...cfg, go2rtc_id: (cfg as any).go2rtc_id || getStreamId(urls.main_webrtc), go2rtc_optical: (cfg as any).go2rtc_optical || getStreamId(urls.optical_webrtc), go2rtc_thermal: (cfg as any).go2rtc_thermal || getStreamId(urls.thermal_webrtc) } };
+    }));
   };
 
   const handleStationPick = async (view: StationView) => {
@@ -451,29 +465,40 @@ function WallView({
     try {
       const result = await stationApi.getRemoteCameras(view.station.id);
       setGo2rtcBase(result.go2rtcBase ?? null);
-      const getStreamId = (url?: string) => { if (!url) return null; try { return new URL(url).searchParams.get('src'); } catch { return null; } };
-      const enriched = result.cameras.map(c => {
-        const urls = (c.streamUrls || {}) as Record<string, string>;
-        const dev = c.device as any;
-        let cfg = {};
-        if (dev.config) { try { cfg = typeof dev.config === 'string' ? JSON.parse(dev.config) : dev.config; } catch {} }
-        return { ...dev, config: { ...cfg, go2rtc_id: (cfg as any).go2rtc_id || getStreamId(urls.main_webrtc), go2rtc_optical: (cfg as any).go2rtc_optical || getStreamId(urls.optical_webrtc), go2rtc_thermal: (cfg as any).go2rtc_thermal || getStreamId(urls.thermal_webrtc) } };
-      });
-      setStationCameras(expandCameras(enriched));
+      const pGroup = provinceGroups.find(g => g.pid === pickedProvince);
+      setStationCameras(enrichCameras(result, view, pGroup?.name ?? ''));
+    } catch { setStationCameras([]); } finally { setLoadingCams(false); }
+  };
+
+  const handleAllStations = async () => {
+    setPickedStation(null); setStationCameras([]); setGo2rtcBase(null); setLoadingCams(true); setSideStep('camera');
+    try {
+      const results = await Promise.allSettled(
+        stationsInProvince.map(v => stationApi.getRemoteCameras(v.station.id).then(r => {
+          const pGroup = provinceGroups.find(g => g.pid === (v.station.provinceId ?? '__none__'));
+          return enrichCameras(r, v, pGroup?.name ?? '');
+        }))
+      );
+      const all = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+      setStationCameras(all);
     } catch { setStationCameras([]); } finally { setLoadingCams(false); }
   };
 
   /* Clicking a camera immediately assigns to the selected cell */
   const handleCameraPick = (cam: CameraDevice) => {
-    const pGroup = provinceGroups.find(g => g.pid === pickedProvince);
+    const c = cam as any;
+    const stId   = c.__stationId   ?? pickedStation?.station.id   ?? '';
+    const stName = c.__stationName ?? pickedStation?.station.name ?? '';
+    const prvName = c.__provinceName ?? (pickedProvince === '__all__' ? '' : (provinceGroups.find(g => g.pid === pickedProvince)?.name ?? ''));
+    const base   = c.__go2rtcBase  ?? go2rtcBase ?? GO2RTC_URL;
     const assignment: CellAssignment = {
-      stationId:    pickedStation!.station.id,
-      stationName:  pickedStation!.station.name,
-      provinceName: pGroup?.name ?? '',
+      stationId:    stId,
+      stationName:  stName,
+      provinceName: prvName,
       cameraId:     cam.id,
       cameraName:   cam.name,
-      go2rtcId:     (cam as any).config?.go2rtc_id || '',
-      go2rtcBase:   go2rtcBase || GO2RTC_URL,
+      go2rtcId:     c.config?.go2rtc_id || '',
+      go2rtcBase:   base,
     };
     setWorking(w => ({ ...w, cells: { ...w.cells, [selectedCell]: assignment } }));
 
@@ -591,6 +616,19 @@ function WallView({
             {sideStep === 'province' && (
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 <div style={{ padding: '7px 14px 4px', fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>CHỌN TỈNH</div>
+                {/* Tất cả tỉnh */}
+                <div onClick={() => handleProvincePick('__all__')}
+                  style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,0.05)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.1)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.05)'}
+                >
+                  <MapPin size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#f59e0b' }}>Tất cả tỉnh</div>
+                    <div style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{views.length} trạm</div>
+                  </div>
+                  <ChevronRight size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                </div>
                 {provinceGroups.map(g => (
                   <div key={g.pid} onClick={() => handleProvincePick(g.pid)}
                     style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8 }}
@@ -624,11 +662,24 @@ function WallView({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)' }}>← TỈNH</div>
                     <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#f59e0b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {provinceGroups.find(g => g.pid === pickedProvince)?.name}
+                      {pickedProvince === '__all__' ? 'Tất cả tỉnh' : provinceGroups.find(g => g.pid === pickedProvince)?.name}
                     </div>
                   </div>
                 </div>
                 <div style={{ padding: '7px 14px 4px', fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>CHỌN TRẠM ({stationsInProvince.length})</div>
+                {/* Tất cả trạm */}
+                <div onClick={handleAllStations}
+                  style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,0.05)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.1)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.05)'}
+                >
+                  <Wifi size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#f59e0b' }}>Tất cả trạm</div>
+                    <div style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Tải camera từ {stationsInProvince.length} trạm</div>
+                  </div>
+                  <ChevronRight size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                </div>
                 {stationsInProvince.map(v => {
                   const online = v.station.connectionStatus === 'online';
                   return (
@@ -663,7 +714,7 @@ function WallView({
                   <ChevronLeft size={12} style={{ color: '#f59e0b', flexShrink: 0 }} />
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)' }}>← TRẠM</div>
-                    <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#f59e0b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pickedStation?.station.name}</div>
+                    <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#f59e0b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pickedStation ? pickedStation.station.name : 'Tất cả trạm'}</div>
                   </div>
                 </div>
                 <div style={{ padding: '7px 14px 4px', fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>
@@ -679,17 +730,27 @@ function WallView({
                 {!loadingCams && stationCameras.length === 0 && (
                   <div style={{ padding: '18px 14px', color: 'rgba(255,255,255,0.25)', fontSize: '0.62rem' }}>Trạm chưa có camera</div>
                 )}
-                {!loadingCams && stationCameras.map(cam => {
+                {!loadingCams && stationCameras.map((cam, idx) => {
+                  const c = cam as any;
                   const assigned = working.cells[selectedCell]?.cameraId === cam.id;
+                  const showStationLabel = !pickedStation && c.__stationName &&
+                    (idx === 0 || (stationCameras[idx - 1] as any).__stationId !== c.__stationId);
                   return (
-                    <div key={cam.id} onClick={() => handleCameraPick(cam)}
-                      style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8, background: assigned ? 'rgba(245,158,11,0.1)' : 'transparent', borderLeft: assigned ? '3px solid #f59e0b' : '3px solid transparent', transition: 'all 0.1s' }}
-                      onMouseEnter={e => { if (!assigned) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
-                      onMouseLeave={e => { if (!assigned) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                    >
-                      <Video size={11} style={{ color: assigned ? '#f59e0b' : 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                      <span style={{ fontSize: '0.64rem', fontWeight: assigned ? 800 : 500, color: assigned ? '#fff' : 'rgba(255,255,255,0.65)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cam.name}</span>
-                      {assigned && <span style={{ fontSize: '0.5rem', fontWeight: 900, color: '#f59e0b' }}>✓</span>}
+                    <div key={cam.id}>
+                      {showStationLabel && (
+                        <div style={{ padding: '5px 14px 2px', fontSize: '0.5rem', fontWeight: 900, color: 'rgba(245,158,11,0.6)', letterSpacing: '0.07em', background: 'rgba(245,158,11,0.04)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                          {c.__stationName}
+                        </div>
+                      )}
+                      <div onClick={() => handleCameraPick(cam)}
+                        style={{ padding: '8px 14px 8px 20px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8, background: assigned ? 'rgba(245,158,11,0.1)' : 'transparent', borderLeft: assigned ? '3px solid #f59e0b' : '3px solid transparent', transition: 'all 0.1s' }}
+                        onMouseEnter={e => { if (!assigned) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
+                        onMouseLeave={e => { if (!assigned) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                      >
+                        <Video size={11} style={{ color: assigned ? '#f59e0b' : 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
+                        <span style={{ fontSize: '0.64rem', fontWeight: assigned ? 800 : 500, color: assigned ? '#fff' : 'rgba(255,255,255,0.65)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cam.name}</span>
+                        {assigned && <span style={{ fontSize: '0.5rem', fontWeight: 900, color: '#f59e0b' }}>✓</span>}
+                      </div>
                     </div>
                   );
                 })}

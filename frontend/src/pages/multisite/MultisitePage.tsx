@@ -3804,44 +3804,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
         </span>
       </div>
 
-      {/* ── Per-station summary strip ──────────────────────── */}
-      {!scopeStationId && logs.length > 0 && (
-        <div style={{
-          display: 'flex', gap: 8, padding: '6px 12px',
-          background: 'var(--admin-panel)', borderBottom: '1px solid var(--admin-border)',
-          overflowX: 'auto', flexShrink: 0, alignItems: 'center'
-        }}>
-          <span style={{ fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '.08em', flexShrink: 0 }}>THEO TRẠM:</span>
-          {(() => {
-            const counts: Record<string, { name: string; count: number }> = {};
-            logs.forEach(l => {
-              const key = l.stationId || '_system';
-              if (!counts[key]) counts[key] = { name: l.stationName || 'Hệ thống', count: 0 };
-              counts[key].count++;
-            });
-            return Object.entries(counts)
-              .sort((a, b) => b[1].count - a[1].count)
-              .slice(0, 8)
-              .map(([sid, info]) => (
-                <span key={sid} onClick={() => setScopeStationId(sid === '_system' ? '' : sid)}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: '2px 8px', borderRadius: 3,
-                    background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
-                    fontSize: '.58rem', fontWeight: 700, color: 'var(--admin-text)',
-                    cursor: 'pointer', whiteSpace: 'nowrap',
-                    transition: 'border-color .15s'
-                  }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--admin-accent)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--admin-border)'}
-                >
-                  <span style={{ color: 'var(--admin-accent)', fontWeight: 900 }}>{info.count}</span>
-                  {info.name.length > 14 ? info.name.slice(0, 14) + '…' : info.name}
-                </span>
-              ));
-          })()}
-        </div>
-      )}
+
 
       {/* ── Body: table + detail panel ──────────────────────── */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -4024,6 +3987,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
   const [searchText, setSearchText] = useState('');
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
   const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
   const downloadDropdownRef = useRef<HTMLDivElement>(null);
@@ -4346,9 +4310,11 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
   };
 
   return (
-    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    {/* Main: filter + table */}
+    <div style={{ flex: 1, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
       {/* Filter bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
         <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
           <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>NGÀY</span>
           <button
@@ -4651,10 +4617,13 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
               const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || '—';
               const lv = levelCfg(alert.level);
               const st = statusCfg(alert.status);
+              const isSelected = selectedAlert?.id === alert.id;
               return (
-                <tr key={alert.id} style={{ transition: 'background .12s' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--admin-hover)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                <tr key={alert.id}
+                  onClick={() => setSelectedAlert(isSelected ? null : alert)}
+                  style={{ transition: 'background .12s', cursor: 'pointer', background: isSelected ? 'var(--admin-layer-2)' : 'transparent', borderLeft: isSelected ? `2px solid ${lv.color}` : '2px solid transparent' }}
+                  onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--admin-hover)'; }}
+                  onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
                   <td style={{ ...AL.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{fmtDateTime(alert.triggeredAt)}</td>
                   <td style={{ ...AL.td, fontSize: '.68rem', color: 'var(--admin-text)' }}>{provinceName}</td>
@@ -4677,6 +4646,73 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
           </tbody>
         </table>
       </div>
+    </div>
+
+    {/* ── Detail panel ── */}
+    {selectedAlert && (() => {
+      const selStation = stations.find(s => s.id === selectedAlert.stationId);
+      const selProvince = provinces.find(p => p.id === selStation?.provinceId)?.name || '—';
+      const lv = levelCfg(selectedAlert.level);
+      const st = statusCfg(selectedAlert.status);
+      return (
+        <div style={{ width: 280, flexShrink: 0, borderLeft: '1px solid var(--admin-border)', background: 'var(--admin-panel)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Header */}
+          <div style={{ flexShrink: 0, height: 38, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 8, borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)' }}>
+            <span style={{ fontSize: '.6rem', fontWeight: 900, letterSpacing: '.08em', color: 'var(--admin-text)', flex: 1 }}>CHI TIẾT CẢNH BÁO</span>
+            <button
+              onClick={() => setSelectedAlert(null)}
+              style={{ width: 20, height: 20, background: 'transparent', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', lineHeight: 1 }}
+              title="Đóng"
+            >×</button>
+          </div>
+
+          {/* Body */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Badges */}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${lv.color}18`, border: `1px solid ${lv.color}40`, color: lv.color, fontSize: '.58rem', fontWeight: 900 }}>{lv.label}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${st.color}18`, border: `1px solid ${st.color}40`, color: st.color, fontSize: '.58rem', fontWeight: 900 }}>{st.label}</span>
+            </div>
+
+            {/* Nội dung */}
+            <div>
+              <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>NỘI DUNG</div>
+              <div style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--admin-text)', lineHeight: 1.5 }}>{cleanAlertMessage(selectedAlert.message)}</div>
+            </div>
+
+            {/* Info rows */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <AlertDetailRow label="THỜI GIAN" value={fmtDateTime(selectedAlert.triggeredAt)} mono />
+              <AlertDetailRow label="TỈNH / TP" value={selProvince} />
+              <AlertDetailRow label="TRẠM" value={selectedAlert.stationName || selStation?.name || '—'} />
+              <AlertDetailRow label="LOẠI" value={alertSourceLabel(selectedAlert.source)} />
+              {selectedAlert.value != null && <AlertDetailRow label="GIÁ TRỊ" value={String(selectedAlert.value)} mono />}
+              {selectedAlert.pointId && <AlertDetailRow label="ĐIỂM ĐO" value={selectedAlert.pointId} mono />}
+              {selectedAlert.ackedAt && <AlertDetailRow label="XÁC NHẬN LÚC" value={fmtDateTime(selectedAlert.ackedAt)} mono />}
+              {selectedAlert.ackNote && <AlertDetailRow label="GHI CHÚ XÁC NHẬN" value={selectedAlert.ackNote} />}
+              {selectedAlert.closedAt && <AlertDetailRow label="ĐÓNG LÚC" value={fmtDateTime(selectedAlert.closedAt)} mono />}
+            </div>
+
+            {/* Ảnh */}
+            {selectedAlert.imageUrl && (
+              <div>
+                <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6 }}>ẢNH CHỤP</div>
+                <img src={selectedAlert.imageUrl} alt="alert" style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block' }} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    })()}
+    </div>
+  );
+}
+
+function AlertDetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div>
+      <div style={{ fontSize: '.5rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: '.63rem', fontWeight: 600, color: 'var(--admin-text)', fontFamily: mono ? 'monospace' : undefined, wordBreak: 'break-all' }}>{value}</div>
     </div>
   );
 }
