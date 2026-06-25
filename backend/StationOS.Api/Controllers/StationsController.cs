@@ -629,6 +629,15 @@ public class StationsController : ControllerBase
             }
 
             _logger.LogInformation("Xóa trạm chính {StationId}", id);
+
+            HttpContext.Items["AuditOldValue"] = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                name = station.Name,
+                code = station.Code,
+                location = station.Location,
+                status = station.Status
+            });
+
             _db.Stations.Remove(station);
             await _db.SaveChangesAsync();
 

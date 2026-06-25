@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // AuditMiddleware — Tự động ghi AuditLog cho mọi thao tác
 // POST/PUT/DELETE /api/v1/** → ghi vào bảng AuditLogs
 // Bỏ qua: GET, auth/login, auth/refresh, ws/*
@@ -59,7 +59,8 @@ public class AuditMiddleware
                 Action     = action,
                 EntityType = entityType,
                 EntityId   = entityId,
-                NewValue   = requestBody,
+                OldValue   = ctx.Items["AuditOldValue"] as string,
+                NewValue   = (ctx.Items["AuditNewValue"] as string) ?? requestBody,
                 IpAddress  = ctx.Connection.RemoteIpAddress?.ToString(),
             });
             await db.SaveChangesAsync();

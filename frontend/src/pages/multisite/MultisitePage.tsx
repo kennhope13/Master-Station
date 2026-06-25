@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import * as XLSX from 'xlsx';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore, useAuthStore } from '@/store';
-import type { Station, AlertItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team, Device } from '@/types/api.types';
+import type { Station, AlertItem, AlertHistoryEntry, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team, Device } from '@/types/api.types';
 import type { StationView, StationLocation, StationKpi } from './types';
 import { ALERT_STATUS, DEVICE_STATUS } from '@/types/enums';
 import {
@@ -16,6 +16,7 @@ import {
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { fmtDateTime, cleanAlertMessage, fmtTimeRange } from '@/utils/format';
+import DateFilterButton from '@/components/ui/DateFilterButton';
 import { createRealtimeHub } from '@/services/realtime.service';
 import { showToast } from '@/utils/toast';
 
@@ -3208,17 +3209,18 @@ function summarizeAuditDetail(item: MergedLogItem) {
   const entity = formatEntityLabel(item.entityType);
   const changes = safeParseJson(item.newValue) || safeParseJson(item.oldValue);
   const keys = changes ? Object.keys(changes).slice(0, 2).map(formatFieldLabel) : [];
+  const nameVal = changes?.name || changes?.username || changes?.title || changes?.fullName;
 
   if (item.action.toLowerCase() === 'update' && keys.length > 0) {
-    return `Đã cập nhật ${entity}: ${keys.join(', ')}`;
+    return `Đã cập nhật ${entity}${nameVal ? ` "${nameVal}"` : ''}: ${keys.join(', ')}`;
   }
   if (item.action.toLowerCase() === 'create') {
-    return `Đã tạo ${entity} mới`;
+    return `Đã tạo ${entity} mới${nameVal ? ` "${nameVal}"` : ''}`;
   }
   if (item.action.toLowerCase() === 'delete') {
-    return `Đã xóa ${entity}`;
+    return `Đã xóa ${entity}${nameVal ? ` "${nameVal}"` : ''}`;
   }
-  return `Thao tác trên ${entity}`;
+  return `Thao tác trên ${entity}${nameVal ? ` "${nameVal}"` : ''}`;
 }
 
 function buildChangeRows(item: MergedLogItem, stations: Station[], provinces: Province[]): Array<{ label: string; before?: string; after?: string }> {
@@ -3243,9 +3245,13 @@ function buildChangeRows(item: MergedLogItem, stations: Station[], provinces: Pr
 
 function CentralLogView({ stations, provinces, teams }: { stations: Station[]; provinces: Province[]; teams: Team[] }) {
   const [logType, setLogType] = useState<LogType>('all');
-  const [selectedDate, setSelectedDate] = useState('');
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => parseIsoDate(formatIsoDate(new Date())));
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return formatIsoDate(d);
+  });
+  const [toDate, setToDate] = useState(() => formatIsoDate(new Date()));
+
   const [filterProvince, setFilterProvince] = useState('');
   const [filterTeam, setFilterTeam] = useState('');
   const [scopeStationId, setScopeStationId] = useState('');
@@ -3253,7 +3259,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<MergedLogItem[]>([]);
   const [selectedLog, setSelectedLog] = useState<MergedLogItem | null>(null);
-  const calendarRef = useRef<HTMLDivElement>(null);
   const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
   const downloadDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -3316,14 +3321,10 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
   }, [currentUser, provinces, teams, stations]);
 
-  const dates = useMemo(() => {
-    if (selectedDate) return { from: selectedDate, to: selectedDate };
-    // Mặc định: 7 ngày gần nhất
-    const to = new Date();
-    const from = new Date(to);
-    from.setDate(from.getDate() - 7);
-    return { from: formatIsoDate(from), to: formatIsoDate(to) };
-  }, [selectedDate]);
+  const dates = useMemo(() => ({
+    from: fromDate || undefined,
+    to: toDate || undefined,
+  }), [fromDate, toDate]);
 
   const loadLogs = useCallback(async () => {
     setLoading(true);
@@ -3380,20 +3381,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
 
-  useEffect(() => {
-    if (!calendarOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
-        setCalendarOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [calendarOpen]);
 
-  useEffect(() => {
-    if (selectedDate) setCalendarMonth(parseIsoDate(selectedDate));
-  }, [selectedDate]);
 
   const downloadCsv = () => {
     if (filtered.length === 0) {
@@ -3541,10 +3529,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
       (l.stationName || '').toLowerCase().includes(q)
     );
   }, [logs, logType, searchText, scopeStationId, availableStationIds]);
-
-  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
-  const todayIso = useMemo(() => formatIsoDate(new Date()), []);
-
   const S = {
     toolbar: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', flexShrink: 0, flexWrap: 'wrap' as const },
     btn: { height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap' } as React.CSSProperties,
@@ -3561,114 +3545,17 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     muted: { color: 'var(--admin-text-muted)' } as React.CSSProperties,
     empty: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, height: '100%', color: 'var(--admin-text-muted)', opacity: 0.5 } as React.CSSProperties,
     spin: { animation: 'crv-spin 1s linear infinite' } as React.CSSProperties,
-    calendarPopup: { position: 'absolute' as const, top: 'calc(100% + 6px)', left: 0, width: 240, background: '#0b0f14', border: '1px solid var(--admin-border)', borderRadius: 0, boxShadow: '0 12px 32px rgba(0,0,0,.45)', padding: 10, zIndex: 30 },
-    calendarHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-    calendarNav: { width: 24, height: 24, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 0 } as React.CSSProperties,
-    calendarTitle: { fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text)', letterSpacing: '.06em' } as React.CSSProperties,
-    calendarWeek: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 },
-    calendarWeekLabel: { textAlign: 'center' as const, fontSize: '.52rem', color: 'var(--admin-text-muted)', fontWeight: 700, padding: '4px 0' } as React.CSSProperties,
-    calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 },
-    calendarDay: { height: 28, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.62rem', fontWeight: 700, cursor: 'pointer', borderRadius: 0 } as React.CSSProperties,
-    calendarDayMuted: { height: 28, border: '1px solid transparent', background: 'transparent', color: 'rgba(255,255,255,.18)', fontSize: '.62rem', fontWeight: 700, cursor: 'default', borderRadius: 0 } as React.CSSProperties,
-    calendarFooter: { display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 6 },
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--admin-bg)' }}>
       {/* ── Toolbar ─────────────────────────────────────────── */}
       <div style={S.toolbar}>
-        <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>NGÀY</span>
-          <button
-            type="button"
-            onClick={() => setCalendarOpen(v => !v)}
-            style={S.dateButton}
-            aria-label="Chọn ngày xem nhật ký"
-          >
-            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : todayIso.split('-').reverse().join('/')}</span>
-            <Calendar size={12} />
-          </button>
-          {calendarOpen && (
-            <div style={S.calendarPopup}>
-              <div style={S.calendarHeader}>
-                <button
-                  type="button"
-                  style={S.calendarNav}
-                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <div style={S.calendarTitle}>{monthLabel(calendarMonth)}</div>
-                <button
-                  type="button"
-                  style={S.calendarNav}
-                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-              <div style={S.calendarWeek}>
-                {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(label => (
-                  <div key={label} style={S.calendarWeekLabel}>{label}</div>
-                ))}
-              </div>
-              <div style={S.calendarGrid}>
-                {calendarDays.map((day, index) => {
-                  if (!day) return <div key={`empty-${index}`} style={S.calendarDayMuted} />;
-                  const iso = formatIsoDate(day);
-                  const isSelected = iso === selectedDate;
-                  const isToday = iso === todayIso;
-                  return (
-                    <button
-                      key={iso}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDate(iso);
-                        setCalendarOpen(false);
-                      }}
-                      style={{
-                        ...S.calendarDay,
-                        borderColor: isSelected ? 'var(--admin-accent)' : isToday ? '#3b475a' : 'var(--admin-border)',
-                        background: isSelected ? 'rgba(245, 158, 11, 0.16)' : isToday ? '#111827' : 'var(--admin-layer-2)',
-                        color: isSelected ? 'var(--admin-accent)' : 'var(--admin-text)',
-                      }}
-                    >
-                      {day.getDate()}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={S.calendarFooter}>
-                <button
-                  type="button"
-                  style={{ ...S.btn, flex: 1, justifyContent: 'center' }}
-                  onClick={() => { setSelectedDate(''); setCalendarOpen(false); }}
-                >
-                  7 NGÀY
-                </button>
-                <button
-                  type="button"
-                  style={{ ...S.btn, flex: 1, justifyContent: 'center' }}
-                  onClick={() => {
-                    const today = formatIsoDate(new Date());
-                    setSelectedDate(today);
-                    setCalendarMonth(parseIsoDate(today));
-                    setCalendarOpen(false);
-                  }}
-                >
-                  HÔM NAY
-                </button>
-                <button
-                  type="button"
-                  style={{ ...S.btn, flex: 1, justifyContent: 'center' }}
-                  onClick={() => setCalendarOpen(false)}
-                >
-                  ĐÓNG
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        <DateFilterButton
+          from={fromDate}
+          to={toDate}
+          onApply={(f, t) => { setFromDate(f); setToDate(t); }}
+        />
 
         {visibleProvinces.length > 0 && (
           <>
@@ -3738,23 +3625,11 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setDownloadDropdownOpen(v => !v)}
-            title="Xuất dữ liệu"
-            style={{
-              height: 26,
-              padding: '0 8px',
-              border: '1px solid var(--admin-border)',
-              background: 'var(--admin-layer-2)',
-              color: 'var(--admin-text)',
-              borderRadius: 3,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 4,
-            }}
+            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
           >
             <Download size={12} />
-            <span style={{ fontSize: '.5rem', opacity: 0.7 }}>▼</span>
+            <span>XUẤT</span>
+            <span style={{ fontSize: '.5rem', opacity: 0.6 }}>▼</span>
           </button>
           
           {downloadDropdownOpen && (
@@ -3870,7 +3745,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
               <thead><tr>
                 <th style={{ ...S.th, width: 140 }}>THỜI GIAN</th>
                 <th style={{ ...S.th, width: 120 }}>TỈNH</th>
-                <th style={{ ...S.th, width: 120 }}>TỔ</th>
                 <th style={{ ...S.th, width: 150 }}>TRẠM</th>
                 <th style={{ ...S.th, width: 110 }}>LOẠI</th>
                 <th style={S.th}>NỘI DUNG</th>
@@ -3881,7 +3755,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                   const c = LOG_TYPE_COLORS[l.type];
                   const isSelected = selectedLog?.id === l.id;
                   const provinceName = l.provinceName ?? '—';
-                  const teamName = l.teamName ?? '—';
                   return (
                     <tr key={l.id}
                       onClick={() => setSelectedLog(isSelected ? null : l)}
@@ -3895,11 +3768,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                       <td style={{ ...S.td, ...S.tdNoWrap }} title={provinceName}>
                         <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: provinceName === '—' ? undefined : 'var(--admin-accent)' }}>
                           {provinceName === '—' ? <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span> : provinceName}
-                        </span>
-                      </td>
-                      <td style={{ ...S.td, ...S.tdNoWrap }} title={teamName}>
-                        <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: teamName === '—' ? undefined : '#f59e0b' }}>
-                          {teamName === '—' ? <span style={{ ...S.muted, fontStyle: 'italic' }}>—</span> : teamName}
                         </span>
                       </td>
                       <td style={{ ...S.td, ...S.tdNoWrap }} title={l.stationName || '—'}>
@@ -4088,9 +3956,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: Station[]; provinces: Province[]; teams: Team[] }) {
-  const [selectedDate, setSelectedDate] = useState('');
-  const [calendarOpen, setCalendarOpen] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => parseIsoDate(formatIsoDate(new Date())));
+  const [fromDate, setFromDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return formatIsoDate(d);
+  });
+  const [toDate, setToDate] = useState(() => formatIsoDate(new Date()));
   const [provinceId, setProvinceId] = useState('');
   const [filterTeam, setFilterTeam] = useState('');
   const [stationId, setStationId] = useState('');
@@ -4101,6 +3972,23 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
   const [loading, setLoading] = useState(false);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [selectedAlert, setSelectedAlert] = useState<AlertItem | null>(null);
+  const [selectedAlertDetails, setSelectedAlertDetails] = useState<(AlertItem & { history?: AlertHistoryEntry[] }) | null>(null);
+
+  const handleSelectAlert = async (alert: AlertItem | null) => {
+    if (!alert) {
+      setSelectedAlert(null);
+      setSelectedAlertDetails(null);
+      return;
+    }
+    setSelectedAlert(alert);
+    setSelectedAlertDetails(alert);
+    try {
+      const details = await stationApi.getAlertDetail(alert.id);
+      setSelectedAlertDetails(details);
+    } catch (e) {
+      console.error('Lỗi khi tải chi tiết cảnh báo:', e);
+    }
+  };
   const calendarRef = useRef<HTMLDivElement>(null);
   const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
   const downloadDropdownRef = useRef<HTMLDivElement>(null);
@@ -4116,32 +4004,14 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [downloadDropdownOpen]);
 
-  useEffect(() => {
-    if (!calendarOpen) return;
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (calendarRef.current && !calendarRef.current.contains(event.target as Node)) {
-        setCalendarOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [calendarOpen]);
-
-  useEffect(() => {
-    if (selectedDate) setCalendarMonth(parseIsoDate(selectedDate));
-  }, [selectedDate]);
-
   const dates = useMemo(() => {
-    if (selectedDate) return { from: selectedDate, to: selectedDate };
-    // Mặc định: 7 ngày gần nhất
-    const to = new Date();
-    const from = new Date(to);
-    from.setDate(from.getDate() - 7);
-    return { from: formatIsoDate(from), to: formatIsoDate(to) };
-  }, [selectedDate]);
+    return {
+      from: fromDate || undefined,
+      to: toDate || undefined
+    };
+  }, [fromDate, toDate]);
 
-  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
-  const todayIso = useMemo(() => formatIsoDate(new Date()), []);
+
 
   // Phạm vi hiển thị theo role của user hiện tại
   const currentUser = authService.getUser();
@@ -4450,124 +4320,14 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
   };
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-    {/* Main: filter + table */}
-    <div style={{ flex: 1, padding: 14, display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--admin-bg)', overflow: 'hidden' }}>
       {/* Filter bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
-        <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>NGÀY</span>
-          <button
-            type="button"
-            onClick={() => setCalendarOpen(v => !v)}
-            style={{
-              height: 26,
-              padding: '0 8px',
-              borderRadius: 3,
-              border: '1px solid var(--admin-border)',
-              background: 'var(--admin-layer-2)',
-              color: 'var(--admin-text)',
-              fontSize: '.62rem',
-              fontWeight: 600,
-              outline: 'none',
-              width: 110,
-              fontFamily: 'monospace',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer'
-            }}
-            aria-label="Chọn ngày xem nhật ký"
-          >
-            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : todayIso.split('-').reverse().join('/')}</span>
-            <Calendar size={12} />
-          </button>
-          {calendarOpen && (
-            <div style={{ position: 'absolute' as const, top: 'calc(100% + 6px)', left: 0, width: 240, background: '#0b0f14', border: '1px solid var(--admin-border)', borderRadius: 0, boxShadow: '0 12px 32px rgba(0,0,0,.45)', padding: 10, zIndex: 30 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <button
-                  type="button"
-                  style={{ width: 24, height: 24, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 0 }}
-                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <div style={{ fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text)', letterSpacing: '.06em' }}>{monthLabel(calendarMonth)}</div>
-                <button
-                  type="button"
-                  style={{ width: 24, height: 24, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 0 }}
-                  onClick={() => setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
-                {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(label => (
-                  <div key={label} style={{ textAlign: 'center' as const, fontSize: '.52rem', color: 'var(--admin-text-muted)', fontWeight: 700, padding: '4px 0' }}>{label}</div>
-                ))}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
-                {calendarDays.map((day, index) => {
-                  if (!day) return <div key={`empty-${index}`} style={{ height: 28, border: '1px solid transparent', background: 'transparent', color: 'rgba(255,255,255,.18)', fontSize: '.62rem', fontWeight: 700, cursor: 'default', borderRadius: 0 }} />;
-                  const iso = formatIsoDate(day);
-                  const isSelected = iso === selectedDate;
-                  const isToday = iso === todayIso;
-                  return (
-                    <button
-                      key={iso}
-                      type="button"
-                      onClick={() => {
-                        setSelectedDate(iso);
-                        setCalendarOpen(false);
-                      }}
-                      style={{
-                        height: 28,
-                        border: '1px solid var(--admin-border)',
-                        fontSize: '.62rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        borderRadius: 0,
-                        borderColor: isSelected ? 'var(--admin-accent)' : isToday ? '#3b475a' : 'var(--admin-border)',
-                        background: isSelected ? 'rgba(245, 158, 11, 0.16)' : isToday ? '#111827' : 'var(--admin-layer-2)',
-                        color: isSelected ? 'var(--admin-accent)' : 'var(--admin-text)',
-                      }}
-                    >
-                      {day.getDate()}
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, gap: 6 }}>
-                <button
-                  type="button"
-                  style={{ height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap', flex: 1, justifyContent: 'center' }}
-                  onClick={() => { setSelectedDate(''); setCalendarOpen(false); }}
-                >
-                  7 NGÀY
-                </button>
-                <button
-                  type="button"
-                  style={{ height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap', flex: 1, justifyContent: 'center' }}
-                  onClick={() => {
-                    const today = formatIsoDate(new Date());
-                    setSelectedDate(today);
-                    setCalendarMonth(parseIsoDate(today));
-                    setCalendarOpen(false);
-                  }}
-                >
-                  HÔM NAY
-                </button>
-                <button
-                  type="button"
-                  style={{ height: 26, padding: '0 10px', borderRadius: 3, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text)', fontSize: '.6rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, letterSpacing: '.04em', whiteSpace: 'nowrap', flex: 1, justifyContent: 'center' }}
-                  onClick={() => setCalendarOpen(false)}
-                >
-                  ĐÓNG
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', flexShrink: 0, flexWrap: 'wrap' }}>
+        <DateFilterButton
+          from={fromDate}
+          to={toDate}
+          onApply={(f, t) => { setFromDate(f); setToDate(t); }}
+        />
         {visibleProvinces.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tỉnh</span>
@@ -4654,23 +4414,11 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setDownloadDropdownOpen(v => !v)}
-            title="Xuất dữ liệu"
-            style={{
-              height: 26,
-              padding: '0 8px',
-              border: '1px solid var(--admin-border)',
-              background: 'var(--admin-layer-2)',
-              color: 'var(--admin-text)',
-              borderRadius: 3,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 4,
-            }}
+            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
           >
             <Download size={12} />
-            <span style={{ fontSize: '.5rem', opacity: 0.7 }}>▼</span>
+            <span>XUẤT</span>
+            <span style={{ fontSize: '.5rem', opacity: 0.6 }}>▼</span>
           </button>
           
           {downloadDropdownOpen && (
@@ -4765,9 +4513,9 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
         </div>
       </div>
 
-
       {/* Table */}
-      <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', minHeight: 0, padding: 14 }}>
+        <div style={{ flex: 1, overflow: 'auto', background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, minHeight: 0 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
@@ -4793,14 +4541,22 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
               const isSelected = selectedAlert?.id === alert.id;
               return (
                 <tr key={alert.id}
-                  onClick={() => setSelectedAlert(isSelected ? null : alert)}
+                  onClick={() => handleSelectAlert(isSelected ? null : alert)}
                   style={{ transition: 'background .12s', cursor: 'pointer', background: isSelected ? 'var(--admin-layer-2)' : 'transparent', borderLeft: isSelected ? `2px solid ${lv.color}` : '2px solid transparent' }}
                   onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'var(--admin-hover)'; }}
                   onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                 >
                   <td style={{ ...AL.td, fontFamily: 'monospace', fontSize: '.65rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{fmtDateTime(alert.triggeredAt)}</td>
-                  <td style={{ ...AL.td, fontSize: '.68rem', color: 'var(--admin-text)' }}>{provinceName}</td>
-                  <td style={{ ...AL.td, fontSize: '.68rem', fontWeight: 600, color: 'var(--admin-text)' }}>{alert.stationName || station?.name || '—'}</td>
+                  <td style={{ ...AL.td }}>
+                    <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: provinceName === '—' ? undefined : 'var(--admin-accent)' }}>
+                      {provinceName}
+                    </span>
+                  </td>
+                  <td style={{ ...AL.td }}>
+                    <span style={{ display: 'block', fontSize: '.62rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--admin-text)' }}>
+                      {alert.stationName || station?.name || '—'}
+                    </span>
+                  </td>
                   <td style={{ ...AL.td, fontSize: '.68rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap' }}>{alertSourceLabel(alert.source)}</td>
                   <td style={{ ...AL.td, fontWeight: 700, color: 'var(--admin-text)', maxWidth: 340 }}>{cleanAlertMessage(alert.message)}</td>
                   <td style={AL.td}>
@@ -4827,9 +4583,10 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
       const selProvince = provinces.find(p => p.id === selStation?.provinceId)?.name || '—';
       const lv = levelCfg(selectedAlert.level);
       const st = statusCfg(selectedAlert.status);
+      const isLoadingDetails = selectedAlertDetails?.id !== selectedAlert.id || selectedAlertDetails?.history === undefined;
       return (
         <div
-          onClick={() => setSelectedAlert(null)}
+          onClick={() => handleSelectAlert(null)}
           style={{ 
             position: 'fixed', 
             inset: 0, 
@@ -4858,7 +4615,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
             <div style={{ flexShrink: 0, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)', position: 'relative' }}>
               <span style={{ fontSize: '.72rem', fontWeight: 800, letterSpacing: '.08em', color: 'var(--admin-text)' }}>CHI TIẾT CẢNH BÁO</span>
               <button
-                onClick={() => setSelectedAlert(null)}
+                onClick={() => handleSelectAlert(null)}
                 style={{ 
                   position: 'absolute', 
                   right: 12, 
@@ -4922,22 +4679,79 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
 
               {/* Info rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 14 }}>
+                <AlertDetailRow label="MÃ SỰ KIỆN" value={selectedAlert.id} mono />
                 <AlertDetailRow label="THỜI GIAN" value={fmtDateTime(selectedAlert.triggeredAt)} mono />
                 <AlertDetailRow label="TỈNH / TP" value={selProvince} />
                 <AlertDetailRow label="TRẠM" value={selectedAlert.stationName || selStation?.name || '—'} />
-                <AlertDetailRow label="LOẠI" value={alertSourceLabel(selectedAlert.source)} />
-                {selectedAlert.value != null && <AlertDetailRow label="GIÁ TRỊ" value={String(selectedAlert.value)} mono />}
+                <AlertDetailRow label="MÃ TRẠM" value={selStation?.code || '—'} mono />
+                <AlertDetailRow label="NGUỒN SỰ KIỆN" value={alertSourceLabel(selectedAlert.source)} />
+                {selectedAlert.deviceId && <AlertDetailRow label="MÃ THIẾT BỊ" value={selectedAlert.deviceId} mono />}
                 {selectedAlert.pointId && <AlertDetailRow label="ĐIỂM ĐO" value={selectedAlert.pointId} mono />}
+                {selectedAlert.ruleId && <AlertDetailRow label="MÃ QUY TẮC" value={selectedAlert.ruleId} mono />}
+                {selectedAlert.value != null && <AlertDetailRow label="GIÁ TRỊ ĐO" value={String(selectedAlert.value)} mono />}
                 {selectedAlert.ackedAt && <AlertDetailRow label="XÁC NHẬN LÚC" value={fmtDateTime(selectedAlert.ackedAt)} mono />}
                 {selectedAlert.ackNote && <AlertDetailRow label="GHI CHÚ XÁC NHẬN" value={selectedAlert.ackNote} />}
                 {selectedAlert.closedAt && <AlertDetailRow label="ĐÓNG LÚC" value={fmtDateTime(selectedAlert.closedAt)} mono />}
+                {renderAlertMetadata(selectedAlert.metadata)}
+              </div>
+
+              {/* Lịch sử xử lý */}
+              <div style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 14 }}>
+                <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 10 }}>LỊCH SỬ XỬ LÝ</div>
+                {isLoadingDetails ? (
+                  <div style={{ fontSize: '.68rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Đang tải lịch sử...</div>
+                ) : !selectedAlertDetails?.history || selectedAlertDetails.history.length === 0 ? (
+                  <div style={{ fontSize: '.68rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>Chưa có lịch sử cập nhật</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {selectedAlertDetails.history.map((h, i) => {
+                      const hSt = statusCfg(h.status);
+                      return (
+                        <div key={i} style={{ display: 'flex', gap: 10, paddingBottom: i < selectedAlertDetails.history!.length - 1 ? 10 : 0, borderBottom: i < selectedAlertDetails.history!.length - 1 ? '1px dashed var(--admin-border)' : 'none' }}>
+                          <span style={{ 
+                            padding: '2px 6px', 
+                            background: `${hSt.color}15`, 
+                            border: `1px solid ${hSt.color}35`, 
+                            color: hSt.color, 
+                            fontSize: '.55rem', 
+                            fontWeight: 800,
+                            height: 'fit-content'
+                          }}>
+                            {hSt.label.toUpperCase()}
+                          </span>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <div style={{ fontSize: '.68rem', color: 'var(--admin-text)', fontWeight: 600 }}>
+                              {h.changedBy ? `Bởi: ${h.changedBy}` : 'Hệ thống'}
+                            </div>
+                            {h.note && (
+                              <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>
+                                Ghi chú: {h.note}
+                              </div>
+                            )}
+                            <div style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)' }}>
+                              {fmtDateTime(h.changedAt)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Ảnh */}
               {selectedAlert.imageUrl && (
                 <div>
-                  <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6, textAlign: 'center' }}>ẢNH CHỤP</div>
+                  <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6, textAlign: 'center' }}>ẢNH CHỤP SỰ KIỆN</div>
                   <img src={selectedAlert.imageUrl} alt="alert" style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block', borderRadius: 0 }} />
+                </div>
+              )}
+
+              {/* Video */}
+              {selectedAlert.videoUrl && (
+                <div>
+                  <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6, textAlign: 'center' }}>VIDEO SỰ KIỆN</div>
+                  <video src={selectedAlert.videoUrl} controls style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block', borderRadius: 0 }} />
                 </div>
               )}
             </div>
@@ -4947,6 +4761,35 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
     })()}
     </div>
   );
+}
+
+function renderAlertMetadata(metadata: any) {
+  if (!metadata) return null;
+  try {
+    const obj = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
+    if (typeof obj !== 'object' || obj === null) {
+      return <AlertDetailRow label="DỮ LIỆU PHỤ" value={String(obj)} />;
+    }
+    return (
+      <>
+        {Object.entries(obj).map(([key, val]) => {
+          const keyLabel = key === 'boundaryName' ? 'TÊN VÙNG' 
+            : key === 'threshold' ? 'NGƯỠNG CẢNH BÁO' 
+            : key === 'temperature' ? 'NHIỆT ĐỘ ĐO' 
+            : key.toUpperCase();
+          return (
+            <AlertDetailRow 
+              key={key} 
+              label={keyLabel} 
+              value={typeof val === 'object' ? JSON.stringify(val) : String(val)} 
+            />
+          );
+        })}
+      </>
+    );
+  } catch {
+    return <AlertDetailRow label="DỮ LIỆU PHỤ" value={String(metadata)} />;
+  }
 }
 
 function AlertDetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -4988,6 +4831,18 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const canManage = authService.hasPermission('maintenance:manage');
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const downloadDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!downloadDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (downloadDropdownRef.current && !downloadDropdownRef.current.contains(e.target as Node))
+        setDownloadDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [downloadDropdownOpen]);
 
   // Load devices khi chọn trạm trong form tạo
   useEffect(() => {
@@ -5129,6 +4984,56 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
     return () => window.removeEventListener('maintenance:changed', load);
   }, [load]);
 
+  const fmtDate = (iso?: string) => iso ? new Date(iso).toLocaleDateString('vi-VN') : '—';
+
+  const exportRows = () => tasks.map(t => {
+    const station = stations.find(s => s.id === t.stationId);
+    const province = station ? provinces.find(p => p.id === station.provinceId) : undefined;
+    return {
+      'Tỉnh': province?.name || '—',
+      'Trạm': station?.name || '—',
+      'Tiêu đề': t.title,
+      'Loại': t.type || '—',
+      'Ngày dự kiến': fmtDate(t.scheduledDate),
+      'Trạng thái': statusLabel(t.status),
+      'Phụ trách': t.assignedTo || '—',
+      'Ghi chú': t.notes || '',
+    };
+  });
+
+  const downloadCsv = () => {
+    if (tasks.length === 0) { alert('Không có dữ liệu để xuất CSV'); return; }
+    const rows = exportRows();
+    const headers = Object.keys(rows[0]);
+    const escape = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv = '﻿' + [headers.join(','), ...rows.map(r => headers.map(h => escape((r as any)[h])).join(','))].join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    a.download = `BaoTri_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
+  const downloadXlsx = () => {
+    if (tasks.length === 0) { alert('Không có dữ liệu để xuất XLSX'); return; }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(exportRows());
+    ws['!cols'] = [{ wch: 16 }, { wch: 22 }, { wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 24 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'BaoTri');
+    XLSX.writeFile(wb, `BaoTri_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const downloadPdf = () => {
+    if (tasks.length === 0) { alert('Không có dữ liệu để xuất PDF'); return; }
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) return;
+    const rows = exportRows();
+    const headers = Object.keys(rows[0]);
+    const rowsHtml = rows.map(r => `<tr>${headers.map(h => `<td style="padding:5px 8px;border:1px solid #e5e7eb;font-size:11px;">${(r as any)[h]}</td>`).join('')}</tr>`).join('');
+    win.document.write(`<!DOCTYPE html><html><head><title>Báo cáo bảo trì</title><style>body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;color:#111}table{width:100%;border-collapse:collapse;margin-top:15px}th{background:#f3f4f6;padding:7px 8px;font-size:10px;text-transform:uppercase;font-weight:bold;border:1px solid #e5e7eb;text-align:left}h2{color:#1a56db;margin:0 0 8px}.meta{font-size:11px;color:#6b7280;margin-bottom:12px}</style></head><body><h2>BÁO CÁO BẢO TRÌ THIẾT BỊ</h2><div class="meta">Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> &nbsp;|&nbsp; Số lượng: <b>${tasks.length} nhiệm vụ</b></div><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table></body></html>`);
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); }, 400);
+  };
+
   const MS = {
     label: { fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' as const, whiteSpace: 'nowrap' as const },
     sep: { width: 1, height: 20, background: 'var(--admin-border)', margin: '0 2px' } as React.CSSProperties,
@@ -5185,28 +5090,43 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
         </button>
 
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: '.6rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>{tasks.length} công việc</span>
+
+        <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => setDownloadDropdownOpen(v => !v)}
+            style={{ height: 26, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
+          >
+            <Download size={12} />
+            <span>XUẤT</span>
+            <span style={{ fontSize: '.5rem', opacity: 0.6 }}>▼</span>
+          </button>
+          {downloadDropdownOpen && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, background: '#0b0f14', border: '1px solid var(--admin-border)', borderRadius: 3, boxShadow: '0 4px 12px rgba(0,0,0,.5)', padding: '4px 0', zIndex: 30, minWidth: 120 }}>
+              {([
+                { label: 'Tải file XLSX', fn: downloadXlsx, icon: <FileSpreadsheet size={12} style={{ color: 'var(--admin-accent)' }} /> },
+                { label: 'Tải file CSV',  fn: downloadCsv,  icon: <FileSpreadsheet size={12} style={{ color: 'var(--admin-success)' }} /> },
+                { label: 'Tải file PDF',  fn: downloadPdf,  icon: <FileText size={12} style={{ color: 'var(--admin-warning)' }} /> },
+              ] as const).map(item => (
+                <button
+                  key={item.label}
+                  onClick={() => { item.fn(); setDownloadDropdownOpen(false); }}
+                  style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--admin-text)', padding: '6px 12px', fontSize: '.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {canManage && (
           <button onClick={() => setShowCreate(true)} style={{ height: 26, padding: '0 12px', background: 'var(--admin-accent)', border: 'none', color: '#fff', borderRadius: 3, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700, fontSize: '.65rem' }}>
             <Plus size={12} />Giao việc bảo trì
           </button>
         )}
-      </div>
-
-      {/* ── Stats strip ──────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
-        {[
-          { label: 'Tổng', value: tasks.length, color: 'var(--admin-text)' },
-          { label: 'Quá hạn', value: tasks.filter(t => t.status === 'overdue').length, color: 'var(--admin-danger)' },
-          { label: 'Đang làm', value: tasks.filter(t => t.status === 'in_progress').length, color: 'var(--admin-warning)' },
-          { label: 'Hoàn thành', value: tasks.filter(t => t.status === 'completed').length, color: 'var(--admin-success)' },
-        ].map(s => (
-          <div key={s.label} style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 3, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: '.58rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '.08em', textTransform: 'uppercase' as const }}>{s.label}</span>
-            <b style={{ fontSize: '.85rem', color: s.color }}>{s.value}</b>
-          </div>
-        ))}
       </div>
 
       {/* ── Table ────────────────────────────────────────── */}

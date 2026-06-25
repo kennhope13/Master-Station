@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { stationApi, AlertItem } from '@/services/StationApiService';
 import { fmtDateTime } from '@/utils/format';
+import DateFilterButton from '@/components/ui/DateFilterButton';
 
 const CHART_COLORS = [
   'var(--admin-accent)', '#10B981', '#F59E0B', '#a855f7',
@@ -28,7 +31,7 @@ export default function ExportTab({ stationId, alerts }: { stationId: string, al
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [info, setInfo] = useState<{ msg: string; type: 'info' | 'ok' | 'error' }>({
-    msg: 'Chọn cảm biến và khoảng thời gian, sau đó nhấn "Xem trước" hoặc "Xuất XLSX".',
+    msg: 'Chọn cảm biến và khoảng thời gian, sau đó nhấn "Xem trước" hoặc xuất `XLSX / CSV / PDF`.',
     type: 'info',
   });
 
@@ -199,6 +202,12 @@ export default function ExportTab({ stationId, alerts }: { stationId: string, al
     return Array.from(map.values()).sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
   };
 
+  const fetchPivotedData = async () => {
+    const queryPointIds = [...new Set(allAvailableSensors.map(s => s.rawPointId))];
+    const raw = await stationApi.getHistoryBulk(stationId, from, to, Number(interval), queryPointIds);
+    return { raw, pivoted: pivot(raw) };
+  };
+
   const loadPreview = async () => {
     if (!stationId) { setInfo({ msg: 'Chưa kết nối backend', type: 'error' }); return; }
     if (!selectedPoints.length) { setInfo({ msg: 'Chọn ít nhất 1 cảm biến', type: 'error' }); return; }
@@ -206,9 +215,7 @@ export default function ExportTab({ stationId, alerts }: { stationId: string, al
     setLoading(true);
     setInfo({ msg: 'Đang tải dữ liệu...', type: 'info' });
     try {
-      const queryPointIds = [...new Set(allAvailableSensors.map(s => s.rawPointId))];
-      const raw = await stationApi.getHistoryBulk(stationId, from, to, Number(interval), queryPointIds);
-      const pivoted = pivot(raw);
+      const { pivoted } = await fetchPivotedData();
       setPreviewData(pivoted.slice(0, 30));
       setTotalRows(pivoted.length);
       setInfo({ msg: `Tổng ${pivoted.length} dòng · ${selectedPoints.length} cảm biến · khoảng ${interval === '0' ? 'raw' : interval + ' phút'}`, type: 'ok' });
@@ -225,9 +232,7 @@ export default function ExportTab({ stationId, alerts }: { stationId: string, al
     if (!from || !to) { setInfo({ msg: 'Chọn đầy đủ ngày', type: 'error' }); return; }
     setExporting(true);
     try {
-      const queryPointIds = [...new Set(allAvailableSensors.map(s => s.rawPointId))];
-      const raw = await stationApi.getHistoryBulk(stationId, from, to, Number(interval), queryPointIds);
-      const pivoted = pivot(raw);
+      const { raw, pivoted } = await fetchPivotedData();
       const wb = XLSX.utils.book_new();
       const activeSensors = allAvailableSensors.filter(s => selectedPoints.includes(s.id));
 
@@ -304,6 +309,71 @@ export default function ExportTab({ stationId, alerts }: { stationId: string, al
     }
   };
 
+  const exportCsv = async () => {
+    if (!stationId) { setInfo({ msg: 'Chưa kết nối backend', type: 'error' }); return; }
+    if (!selectedPoints.length) { setInfo({ msg: 'Chọn ít nhất 1 cảm biến', type: 'error' }); return; }
+    if (!from || !to) { setInfo({ msg: 'Chọn đầy đủ ngày', type: 'error' }); return; }
+    setExporting(true);
+    try {
+      const { pivoted } = await fetchPivotedData();
+      const activeSensors = allAvailableSensors.filter(s => selectedPoints.includes(s.id));
+      const headers = ['Thời gian', ...activeSensors.map(s => `${s.deviceName} · ${s.label}${s.unit ? ` (${s.unit})` : ''}`)];
+      const rows = pivoted.map(row => [
+        fmtDateTime(row.time as string),
+        ...activeSensors.map(s => row[s.id] !== null && row[s.id] !== undefined ? Number(Number(row[s.id]).toFixed(2)) : ''),
+      ]);
+      const csv = [headers, ...rows]
+        .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SensorData_${from.replace(/[-:T]/g, '')}_${to.replace(/[-:T]/g, '')}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setInfo({ msg: `Lỗi xuất CSV: ${err.message}`, type: 'error' });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!stationId) { setInfo({ msg: 'Chưa kết nối backend', type: 'error' }); return; }
+    if (!selectedPoints.length) { setInfo({ msg: 'Chọn ít nhất 1 cảm biến', type: 'error' }); return; }
+    if (!from || !to) { setInfo({ msg: 'Chọn đầy đủ ngày', type: 'error' }); return; }
+    setExporting(true);
+    try {
+      const { pivoted } = await fetchPivotedData();
+      const activeSensors = allAvailableSensors.filter(s => selectedPoints.includes(s.id));
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      doc.setFontSize(14);
+      doc.text('STATION MONITOR - XUAT DU LIEU CAM BIEN', 40, 36);
+      doc.setFontSize(9);
+      doc.text(`Thoi gian: ${fmtDateTime(from)} -> ${fmtDateTime(to)}`, 40, 54);
+      doc.text(`Khoang mau: ${interval === '0' ? 'Raw' : `${interval} phut`} | So dong: ${pivoted.length}`, 40, 68);
+      autoTable(doc, {
+        startY: 84,
+        styles: { fontSize: 7, cellPadding: 3 },
+        head: [[
+          'Thời gian',
+          ...activeSensors.map(s => `${s.label}${s.unit ? ` (${s.unit})` : ''}`),
+        ]],
+        body: pivoted.slice(0, 500).map(row => [
+          fmtDateTime(row.time as string),
+          ...activeSensors.map(s => row[s.id] !== null && row[s.id] !== undefined ? Number(Number(row[s.id]).toFixed(2)).toString() : ''),
+        ]),
+        margin: { left: 24, right: 24 },
+      });
+      doc.save(`SensorData_${from.replace(/[-:T]/g, '')}_${to.replace(/[-:T]/g, '')}.pdf`);
+    } catch (err: any) {
+      setInfo({ msg: `Lỗi xuất PDF: ${err.message}`, type: 'error' });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const activeSensorCols = allAvailableSensors.filter(s => selectedPoints.includes(s.id));
 
   return (
@@ -313,15 +383,14 @@ export default function ExportTab({ stationId, alerts }: { stationId: string, al
         <div style={labelStyle}>Cấu hình xuất</div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={labelStyle}>Từ ngày</label>
-          <input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)}
-            style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', padding: '7px 10px', fontSize: '0.78rem', width: '100%', boxSizing: 'border-box' }} />
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={labelStyle}>Đến ngày</label>
-          <input type="datetime-local" value={to} onChange={e => setTo(e.target.value)}
-            style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', padding: '7px 10px', fontSize: '0.78rem', width: '100%', boxSizing: 'border-box' }} />
+          <label style={labelStyle}>Thời gian</label>
+          <DateFilterButton
+            from={from}
+            to={to}
+            onApply={(f, t) => { setFrom(f); setTo(t); }}
+            inputType="datetime-local"
+            style={{ width: '100%', justifyContent: 'flex-start', height: 34, padding: '0 10px', fontSize: '0.78rem' }}
+          />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -392,6 +461,14 @@ export default function ExportTab({ stationId, alerts }: { stationId: string, al
           <button onClick={exportXlsx} disabled={loading || exporting || loadingDevices}
             style={{ padding: 9, background: 'var(--admin-accent)', border: 'none', borderRadius: 0, color: 'var(--admin-text)', fontSize: '0.78rem', fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer' }}>
             {exporting ? 'Đang xuất...' : `Xuất XLSX (${selectedPoints.length} cảm biến)`}
+          </button>
+          <button onClick={exportCsv} disabled={loading || exporting || loadingDevices}
+            style={{ padding: 9, background: 'var(--admin-btn-secondary-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '0.78rem', fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer' }}>
+            {exporting ? 'Đang xuất...' : `Xuất CSV (${selectedPoints.length} cảm biến)`}
+          </button>
+          <button onClick={exportPdf} disabled={loading || exporting || loadingDevices}
+            style={{ padding: 9, background: 'var(--admin-btn-secondary-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '0.78rem', fontWeight: 700, cursor: exporting ? 'not-allowed' : 'pointer' }}>
+            {exporting ? 'Đang xuất...' : `Xuất PDF (${selectedPoints.length} cảm biến)`}
           </button>
         </div>
 

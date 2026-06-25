@@ -167,6 +167,15 @@ public class RulesController : ControllerBase
     {
         var rule = await _db.Rules.FindAsync(id);
         if (rule == null) return NotFound();
+
+        HttpContext.Items["AuditOldValue"] = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            name = rule.Name,
+            ruleSet = rule.RuleSet,
+            enabled = rule.Enabled,
+            condition = rule.Condition
+        });
+
         _db.Rules.Remove(rule);
         await _db.SaveChangesAsync();
         _ = _notifier.SendRuleListChangedAsync("deleted", rule.StationId);

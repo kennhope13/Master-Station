@@ -7,6 +7,7 @@
 // ============================================================
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
   AlertCircle, CheckSquare, ChevronDown, ChevronLeft,
   ChevronRight, ChevronUp, Copy, Cpu, Download, Edit3, FileSpreadsheet, FileText,
@@ -716,6 +717,39 @@ export default function CentralDeviceView({
     showToast('Đã xuất CSV');
   };
 
+  const handleExportXLSX = () => {
+    const devices = isDrilldown ? drilldownDevices : allDevices.map(x => x.device);
+    if (devices.length === 0) {
+      alert('Không có dữ liệu để xuất XLSX');
+      return;
+    }
+
+    const rows = devices.map(d => ({
+      'Tên thiết bị': d.name,
+      'Loại': TYPE_LABELS[d.type] || d.type,
+      'IP': d.config?.ip || '',
+      'Cổng': d.config?.port || '',
+      'Trạng thái': statusLabel(d.status),
+      'Trạm': isDrilldown ? (currentStation?.name || '') : (stations.find(s => s.id === d.stationId)?.name || ''),
+      'Ngày tạo': new Date(d.createdAt).toLocaleDateString('vi-VN'),
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 28 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 10 },
+      { wch: 16 },
+      { wch: 24 },
+      { wch: 14 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'ThietBi');
+    XLSX.writeFile(wb, `thiet-bi-${isDrilldown ? currentStation?.code || 'tram' : 'da-tram'}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    showToast('Đã xuất XLSX');
+  };
+
   const handleExportPDF = () => {
     const devices = isDrilldown ? drilldownDevices : allDevices.map(x => x.device);
     if (devices.length === 0) {
@@ -999,6 +1033,30 @@ export default function CentralDeviceView({
                   minWidth: 120,
                 }}
               >
+                <button
+                  onClick={() => {
+                    handleExportXLSX();
+                    setDownloadDropdownOpen(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--admin-text)',
+                    padding: '6px 12px',
+                    fontSize: '.65rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <FileSpreadsheet size={12} style={{ color: 'var(--admin-accent)' }} />
+                  <span>Tải file XLSX</span>
+                </button>
                 <button
                   onClick={() => {
                     handleExportCSV();

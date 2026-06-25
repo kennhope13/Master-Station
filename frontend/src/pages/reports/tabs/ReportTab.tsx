@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import Chart from 'chart.js/auto';
 import 'chartjs-adapter-date-fns';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { stationApi, AlertItem, ReportItem } from '@/services/StationApiService';
 import { fmtDateTime } from '@/utils/format';
+import DateFilterButton from '@/components/ui/DateFilterButton';
 import { confirmDialog } from '@/utils/confirm';
 import { POINTS, ReportType } from '../types';
 
@@ -491,6 +495,98 @@ export default function ReportTab({ stationId, scopeType, scopeId, scopeLabel, s
     loadHistory();
   };
 
+  const reportRows = cabinetList.map(item => ({
+    'Thiết bị': item.name || 'Điểm giám sát',
+    'Trạm': item.stationId || '',
+    'Loại': item.type || '',
+    'T1 (°C)': item.t1 ?? '',
+    'T2 (°C)': item.t2 ?? '',
+    'T3 (°C)': item.t3 ?? '',
+    'Nhiệt độ max (°C)': item.tempMax ?? '',
+    'PD': item.pdCount ?? '',
+    'Health score': item.healthScore ?? '',
+    'Trạng thái': item.healthStatus || '',
+    'Khuyến nghị': item.recommendation || '',
+  }));
+
+  const exportReportXlsx = () => {
+    if (reportRows.length === 0) {
+      alert('Không có dữ liệu để xuất XLSX');
+      return;
+    }
+    const wb = XLSX.utils.book_new();
+    const summarySheet = XLSX.utils.aoa_to_sheet([
+      ['BÁO CÁO PHÂN TÍCH STATION MONITOR'],
+      [`Loại báo cáo: ${type}`],
+      [`Phạm vi: ${scopeLabel || scopeType}`],
+      [`Khoảng thời gian: ${from} -> ${to}`],
+      [],
+    ]);
+    summarySheet['!cols'] = [{ wch: 48 }];
+    XLSX.utils.book_append_sheet(wb, summarySheet, 'TongQuan');
+
+    const ws = XLSX.utils.json_to_sheet(reportRows);
+    ws['!cols'] = [
+      { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+      { wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 42 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'DuLieuPhanTich');
+    XLSX.writeFile(wb, `BaoCaoPhanTich_${from}_${to}.xlsx`);
+  };
+
+  const exportReportCsv = () => {
+    if (reportRows.length === 0) {
+      alert('Không có dữ liệu để xuất CSV');
+      return;
+    }
+    const firstRow = reportRows[0];
+    if (!firstRow) return;
+    const headers = Object.keys(firstRow);
+    const rows = reportRows.map(row => headers.map(key => `"${String((row as Record<string, unknown>)[key] ?? '').replace(/"/g, '""')}"`).join(','));
+    const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `BaoCaoPhanTich_${from}_${to}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportReportPdf = () => {
+    if (reportRows.length === 0) {
+      alert('Không có dữ liệu để xuất PDF');
+      return;
+    }
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    doc.setFontSize(14);
+    doc.text('BAO CAO PHAN TICH STATION MONITOR', 40, 36);
+    doc.setFontSize(9);
+    doc.text(`Loai: ${type} | Pham vi: ${scopeLabel || scopeType} | Thoi gian: ${from} -> ${to}`, 40, 54);
+    autoTable(doc, {
+      startY: 72,
+      styles: { fontSize: 7, cellPadding: 3 },
+      head: [[
+        'Thiết bị', 'Trạm', 'Loại', 'T1', 'T2', 'T3', 'Max', 'PD', 'Health', 'Trạng thái', 'Khuyến nghị',
+      ]],
+      body: reportRows.map(row => [
+        row['Thiết bị'],
+        row['Trạm'],
+        row['Loại'],
+        String(row['T1 (°C)']),
+        String(row['T2 (°C)']),
+        String(row['T3 (°C)']),
+        String(row['Nhiệt độ max (°C)']),
+        String(row['PD']),
+        String(row['Health score']),
+        row['Trạng thái'],
+        row['Khuyến nghị'],
+      ]),
+      margin: { left: 24, right: 24 },
+    });
+    doc.save(`BaoCaoPhanTich_${from}_${to}.pdf`);
+  };
+
   return (
     <div style={{ flex: 1, display: 'flex', gap: 8, overflow: 'hidden', height: '100%' }}>
       {/* Configuration Sidebar Card */}
@@ -514,13 +610,13 @@ export default function ReportTab({ stationId, scopeType, scopeId, scopeLabel, s
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>Từ ngày</label>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', padding: '7px 10px', fontSize: '0.78rem', width: '100%', boxSizing: 'border-box' }} />
-        </div>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>Đến ngày</label>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', padding: '7px 10px', fontSize: '0.78rem', width: '100%', boxSizing: 'border-box' }} />
+          <label style={{ fontSize: '0.75rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>Thời gian</label>
+          <DateFilterButton
+            from={from}
+            to={to}
+            onApply={(f, t) => { setFrom(f); setTo(t); }}
+            style={{ width: '100%', justifyContent: 'flex-start', height: 34, padding: '0 10px', fontSize: '0.78rem' }}
+          />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -543,8 +639,17 @@ export default function ReportTab({ stationId, scopeType, scopeId, scopeLabel, s
           <button onClick={generateReport} disabled={generating} style={{ padding: 10, background: 'var(--admin-accent)', border: 'none', borderRadius: 0, color: 'var(--admin-text)', fontSize: '0.8rem', fontWeight: 700, cursor: generating ? 'not-allowed' : 'pointer' }}>
             {generating ? '⏳ Đang tạo...' : 'Tạo báo cáo'}
           </button>
+          <button onClick={exportReportXlsx} disabled={cabinetList.length === 0} style={{ padding: 9, background: 'var(--admin-btn-secondary-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text-muted)', fontSize: '0.78rem', fontWeight: 700, cursor: cabinetList.length > 0 ? 'pointer' : 'not-allowed', opacity: cabinetList.length > 0 ? 1 : 0.5 }}>
+            Tải XLSX
+          </button>
+          <button onClick={exportReportCsv} disabled={cabinetList.length === 0} style={{ padding: 9, background: 'var(--admin-btn-secondary-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text-muted)', fontSize: '0.78rem', fontWeight: 700, cursor: cabinetList.length > 0 ? 'pointer' : 'not-allowed', opacity: cabinetList.length > 0 ? 1 : 0.5 }}>
+            Tải CSV
+          </button>
           <button onClick={downloadServer} disabled={!currentReportId} style={{ padding: 9, background: 'var(--admin-btn-secondary-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text-muted)', fontSize: '0.78rem', fontWeight: 700, cursor: currentReportId ? 'pointer' : 'not-allowed', opacity: currentReportId ? 1 : 0.5 }}>
             Tải PDF (từ server)
+          </button>
+          <button onClick={exportReportPdf} disabled={cabinetList.length === 0} style={{ padding: 9, background: 'var(--admin-btn-secondary-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text-muted)', fontSize: '0.78rem', fontWeight: 700, cursor: cabinetList.length > 0 ? 'pointer' : 'not-allowed', opacity: cabinetList.length > 0 ? 1 : 0.5 }}>
+            Tải PDF (dữ liệu)
           </button>
           <button onClick={printReport} disabled={!previewHtml} style={{ padding: 9, background: 'var(--admin-btn-secondary-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text-muted)', fontSize: '0.78rem', fontWeight: 700, cursor: previewHtml ? 'pointer' : 'not-allowed', opacity: previewHtml ? 1 : 0.5 }}>
             In / Lưu PDF (trình duyệt)

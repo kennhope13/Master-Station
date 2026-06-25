@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, RefreshCw, ChevronRight, ChevronLeft, LayoutGrid, Database } from 'lucide-react';
 import { stationApi, Station } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { isCentralUser } from '@/utils/centralAccess';
-import { fmtDateTime, fmtTimeRange } from '@/utils/format';
+import { fmtDateTime } from '@/utils/format';
+import DateFilterButton from '@/components/ui/DateFilterButton';
 import { Province, Team } from '@/types/api.types';
 import './AuditLogPage.css';
 
@@ -104,9 +106,8 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const activeTab = (searchParams.get('auditTab') as TabId) || 'all';
-  const [timeRange, setTimeRange] = useState('today');
-  const [customFrom, setCustomFrom] = useState(new Date().toISOString().slice(0, 10));
-  const [customTo, setCustomTo] = useState(new Date().toISOString().slice(0, 10));
+  const [filterFrom, setFilterFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [filterTo, setFilterTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [searchText, setSearchText] = useState('');
@@ -122,12 +123,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const currentUser = authService.getUser();
   const isCentralMode = isCentralUser(currentUser);
   
-  const dates = useMemo(() => {
-    if (timeRange === 'custom') {
-      return { from: customFrom, to: customTo };
-    }
-    return fmtTimeRange(timeRange);
-  }, [timeRange, customFrom, customTo]);
+  const dates = useMemo(() => ({ from: filterFrom, to: filterTo }), [filterFrom, filterTo]);
 
   useEffect(() => {
     if (isCentralMode) {
@@ -222,6 +218,88 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const stationAuditCount = useMemo(() => filtered.filter(l => l.type === 'audit').length, [filtered]);
   const stationLoginCount = useMemo(() => filtered.filter(l => l.type === 'login').length, [filtered]);
 
+  const exportCsv = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất CSV');
+      return;
+    }
+    const headers = ['Thời gian', 'Loại', 'Tài khoản', 'Hành động', 'Chi tiết/Đối tượng', 'Trạm'];
+    const rows = filtered.map(l => [
+      fmtDateTime(l.ts),
+      l.type === 'audit' ? 'Hệ thống' : 'Đăng nhập',
+      l.who,
+      formatActionLabel(l.type, l.action, l.raw?.entityType),
+      l.info,
+      l.stationName || 'Trung tâm',
+    ]);
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `AuditLog_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportXlsx = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất XLSX');
+      return;
+    }
+    const rows = filtered.map(l => ({
+      'Thời gian': fmtDateTime(l.ts),
+      'Loại': l.type === 'audit' ? 'Hệ thống' : 'Đăng nhập',
+      'Tài khoản': l.who,
+      'Hành động': formatActionLabel(l.type, l.action, l.raw?.entityType),
+      'Chi tiết/Đối tượng': l.info,
+      'Trạm': l.stationName || 'Trung tâm',
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 20 }, { wch: 14 }, { wch: 20 }, { wch: 28 }, { wch: 24 }, { wch: 24 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'AuditLog');
+    XLSX.writeFile(wb, `AuditLog_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const exportPdf = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất PDF');
+      return;
+    }
+    const win = window.open('', '_blank', 'width=1000,height=700');
+    if (!win) return;
+    const rowsHtml = filtered.map(l => `
+      <tr>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;white-space:nowrap;">${fmtDateTime(l.ts)}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.type === 'audit' ? 'Hệ thống' : 'Đăng nhập'}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.who}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${formatActionLabel(l.type, l.action, l.raw?.entityType)}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.info}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.stationName || 'Trung tâm'}</td>
+      </tr>
+    `).join('');
+    win.document.write(`
+      <!DOCTYPE html><html><head><title>Nhật ký hệ thống</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #111; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th { background: #f3f4f6; padding: 8px; border: 1px solid #e5e7eb; text-align: left; font-size: 11px; }
+      </style></head><body>
+      <h2>NHẬT KÝ HỆ THỐNG</h2>
+      <div>Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> | Số dòng: <b>${filtered.length}</b></div>
+      <table>
+        <thead><tr><th>Thời gian</th><th>Loại</th><th>Tài khoản</th><th>Hành động</th><th>Chi tiết/Đối tượng</th><th>Trạm</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      </body></html>
+    `);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
+  };
+
   return (
     <div className="rtm-page industrial-theme">
       <header className="rtm-bar">
@@ -279,41 +357,16 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
                { value: 'login', label: 'ĐĂNG NHẬP' }
              ]}
            />
-           <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>THỜI GIAN:</span>
-           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-             <AuditFilterDropdown
-               value={timeRange}
-               minWidth={130}
-               onChange={setTimeRange}
-               options={[
-                 { value: 'today', label: 'HÔM NAY' },
-                 { value: 'yesterday', label: 'HÔM QUA' },
-                 { value: '7d', label: '7 NGÀY QUA' },
-                 { value: 'custom', label: 'CHỌN NGÀY CỤ THỂ' },
-                 { value: 'all', label: 'TẤT CẢ LỊCH SỬ' }
-               ]}
-             />
-             {timeRange === 'custom' && (
-               <div style={{ display: 'flex', gap: 6, alignItems: 'center', background: '#000', border: '1px solid #334155', padding: '2px 8px', height: 26 }}>
-                 <input 
-                   type="text"
-                   placeholder="YYYY-MM-DD"
-                   style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 11, outline: 'none', cursor: 'pointer' }} 
-                   value={customFrom} 
-                   onChange={e => setCustomFrom(e.target.value)} 
-                 />
-                 <span style={{ color: '#475569', fontSize: 10, fontWeight: 900 }}>→</span>
-                 <input 
-                   type="text"
-                   placeholder="YYYY-MM-DD"
-                   style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 11, outline: 'none', cursor: 'pointer' }} 
-                   value={customTo} 
-                   onChange={e => setCustomTo(e.target.value)} 
-                 />
-               </div>
-             )}
-           </div>
+           <DateFilterButton
+             from={filterFrom}
+             to={filterTo}
+             onApply={(f, t) => { setFilterFrom(f); setFilterTo(t); }}
+             showAll
+           />
            <button className="nvr-lb" title="Làm mới dữ liệu" onClick={loadData}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
+           <button className="nvr-lb" title="Xuất XLSX" onClick={exportXlsx} style={{ width: 'auto', padding: '0 8px', fontSize: 10 }}>XLSX</button>
+           <button className="nvr-lb" title="Xuất CSV" onClick={exportCsv} style={{ width: 'auto', padding: '0 8px', fontSize: 10 }}>CSV</button>
+           <button className="nvr-lb" title="Xuất PDF" onClick={exportPdf} style={{ width: 'auto', padding: '0 8px', fontSize: 10 }}>PDF</button>
         </div>
       </header>
 

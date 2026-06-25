@@ -4,6 +4,8 @@
 // ============================================================
 
 import { useState, useEffect, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { stationApi, UserItem, Station, LoginLogEntry, PermissionInfo, Province, Team } from '@/services/StationApiService';
 import { confirmDialog } from '@/utils/confirm';
@@ -13,7 +15,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 import { 
   Search, UserPlus, Users, Clock, 
   Activity, CheckCircle2, Shield, Edit2, Trash2, X,
-  MoreHorizontal, ChevronLeft, Map, Plus
+  MoreHorizontal, ChevronLeft, Map, Plus, Download, FileSpreadsheet, FileText
 } from 'lucide-react';
 import { fmtDateTime } from '@/utils/format';
 
@@ -77,7 +79,7 @@ function FilterDropdown({
   placeholder,
   options,
   onChange,
-  width = 170
+  width = 132
 }: {
   value: string;
   placeholder: string;
@@ -87,23 +89,46 @@ function FilterDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const activeLabel = options.find(option => option.value === value)?.label || placeholder;
+  const [menuRect, setMenuRect] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
 
+    const updateMenuPosition = () => {
+      const rect = rootRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuRect({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    };
+
+    updateMenuPosition();
+
     const handleOutsideClick = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const clickedRoot = rootRef.current?.contains(target);
+      const clickedMenu = menuRef.current?.contains(target);
+      if (!clickedRoot && !clickedMenu) {
         setOpen(false);
       }
     };
 
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
     document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
   }, [open]);
 
   return (
-    <div ref={rootRef} style={{ position: 'relative', width, flexShrink: 0 }}>
+    <div ref={rootRef} style={{ position: 'relative', width, flexShrink: 0, zIndex: open ? 60 : 'auto' }}>
       <button
         type="button"
         onClick={() => setOpen(prev => !prev)}
@@ -120,27 +145,28 @@ function FilterDropdown({
           gap: 8,
           fontSize: '.72rem',
           cursor: 'pointer',
-          borderRadius: 4
+          borderRadius: 0
         }}
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeLabel}</span>
         <span style={{ fontSize: '.68rem', color: 'var(--admin-text-muted)' }}>{open ? '▴' : '▾'}</span>
       </button>
 
-      {open && (
+      {open && menuRect && createPortal(
         <div
+          ref={menuRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            right: 0,
-            zIndex: 30,
+            position: 'fixed',
+            top: menuRect.top,
+            left: menuRect.left,
+            width: menuRect.width,
+            zIndex: 9999,
             maxHeight: 260,
             overflowY: 'auto',
             background: 'var(--admin-panel)',
             border: '1px solid var(--admin-border)',
             boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
-            borderRadius: 4
+            borderRadius: 0
           }}
         >
           {options.map(option => {
@@ -170,7 +196,8 @@ function FilterDropdown({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -193,9 +220,14 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
   const [roleFilter, setRoleFilter] = useState('');
   const [provinceFilter, setProvinceFilter] = useState('');
   const [teamFilter, setTeamFilter] = useState('');
+  const [userStationFilter, setUserStationFilter] = useState('');
   const [teamProvinceFilter, setTeamProvinceFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'stations' | 'teams' | 'users'>('stations');
   const [teamsList, setTeamsList] = useState<Team[]>([]);
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const downloadDropdownRef = useRef<HTMLDivElement | null>(null);
+  const downloadMenuRef = useRef<HTMLDivElement | null>(null);
+  const [downloadMenuRect, setDownloadMenuRect] = useState<{ top: number; left: number } | null>(null);
   const [collapsedStationProvinces, setCollapsedStationProvinces] = useState<Set<string>>(new Set());
   const [collapsedStationTeams, setCollapsedStationTeams] = useState<Set<string>>(new Set());
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
@@ -242,6 +274,38 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     const interval = setInterval(refreshData, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!downloadDropdownOpen) return;
+    const updateMenuPosition = () => {
+      const rect = downloadDropdownRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setDownloadMenuRect({
+        top: rect.bottom + 4,
+        left: rect.right - 120,
+      });
+    };
+
+    updateMenuPosition();
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const clickedTrigger = downloadDropdownRef.current?.contains(target);
+      const clickedMenu = downloadMenuRef.current?.contains(target);
+      if (!clickedTrigger && !clickedMenu) {
+        setDownloadDropdownOpen(false);
+      }
+    };
+
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [downloadDropdownOpen]);
 
   const refreshData = async () => {
     try {
@@ -451,6 +515,27 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     if (teamFilter) {
       list = list.filter(u => getUserTeamId(u) === teamFilter);
     }
+    if (userStationFilter) {
+      const selectedStation = stationsList.find(s => s.id === userStationFilter);
+      list = list.filter(u => {
+        if (u.station_ids?.includes(userStationFilter)) return true;
+
+        if (u.teamId) {
+          const team = teamsList.find(t => t.id === u.teamId);
+          if (team?.stationIds?.includes(userStationFilter)) return true;
+        }
+
+        if (
+          selectedStation?.provinceId &&
+          ['admin_province', 'operator_province'].includes(u.role) &&
+          u.province_ids?.includes(selectedStation.provinceId)
+        ) {
+          return true;
+        }
+
+        return false;
+      });
+    }
     if (searchText.trim()) {
       const q = searchText.trim().toLowerCase();
       list = list.filter(u =>
@@ -460,13 +545,51 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
       );
     }
     return list;
-  }, [users, filterStationId, roleFilter, provinceFilter, teamFilter, searchText, stationsList, teamsList]);
+  }, [users, filterStationId, roleFilter, provinceFilter, teamFilter, userStationFilter, searchText, stationsList, teamsList]);
 
   const getLastActive = (username: string) => {
     const userLogs = loginLogs.filter(l => l.username === username);
     if (userLogs.length === 0) return null;
     return userLogs[0]?.ts ?? null;
   };
+
+  const filteredStationsView = useMemo(() => {
+    let list = stationsList;
+
+    if (provinceFilter) {
+      list = list.filter(s => s.provinceId === provinceFilter);
+    }
+
+    if (teamFilter) {
+      const team = teamsList.find(t => t.id === teamFilter);
+      list = list.filter(s => team?.stationIds?.includes(s.id) ?? false);
+    }
+
+    if (userStationFilter) {
+      list = list.filter(s => s.id === userStationFilter);
+    }
+
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      list = list.filter(s => {
+        const provinceName = provincesList.find(p => p.id === s.provinceId)?.name || '';
+        const teamName = teamsList.find(t => t.stationIds?.includes(s.id))?.name || '';
+        return (
+          s.name.toLowerCase().includes(q) ||
+          (s.code || '').toLowerCase().includes(q) ||
+          provinceName.toLowerCase().includes(q) ||
+          teamName.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    return list;
+  }, [stationsList, provincesList, teamsList, provinceFilter, teamFilter, userStationFilter, searchText]);
+
+  const filteredStationsUserCount = useMemo(
+    () => filteredStationsView.reduce((sum, station) => sum + getStationUsers(station.id).length, 0),
+    [filteredStationsView, users, teamsList, loginLogs]
+  );
 
   const filteredTeamsView = useMemo(() => {
     let list = teamsList;
@@ -694,18 +817,137 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     }
   };
 
+  const userExportRows = useMemo(() => filteredUsers.map(u => ({
+    'Username': u.username,
+    'Ho ten': u.fullName || '',
+    'Email': u.email || '',
+    'Vai tro': ROLE_CFG[u.role as keyof typeof ROLE_CFG]?.label || u.role,
+    'Tinh': getUserProvinceIds(u).map(id => provincesList.find(p => p.id === id)?.name || id).join(', '),
+    'To': teamsList.find(t => t.id === getUserTeamId(u))?.name || '',
+    'Tram': (u.station_ids || []).map(id => stationsList.find(s => s.id === id)?.name || id).join(', '),
+    'Hoat dong': u.isActive ? 'Hoat dong' : 'Vo hieu',
+    'Lan cuoi': getLastActive(u.username) ? fmtDateTime(getLastActive(u.username)!) : '',
+  })), [filteredUsers, provincesList, teamsList, stationsList, loginLogs]);
+
+  const teamExportRows = useMemo(() => filteredTeamsView.map(t => ({
+    'Ten to': t.name,
+    'Tinh': provincesList.find(p => p.id === t.provinceId)?.name || '',
+    'Mo ta': t.description || '',
+    'So tram': t.stationIds?.length || 0,
+    'So thanh vien': users.filter(u => u.teamId === t.id).length,
+  })), [filteredTeamsView, provincesList, users]);
+
+  const stationExportRows = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    const baseRows = filteredStationsView.map(s => ({
+      'Tram': s.name,
+      'Ma tram': s.code || '',
+      'Tinh': provincesList.find(p => p.id === s.provinceId)?.name || '',
+      'So nhan su': getStationUsers(s.id).length,
+    }));
+
+    if (!q) return baseRows;
+
+    return baseRows.filter(row =>
+      row['Tram'].toLowerCase().includes(q) ||
+      row['Ma tram'].toLowerCase().includes(q) ||
+      row['Tinh'].toLowerCase().includes(q)
+    );
+  }, [filteredStationsView, provincesList, users, teamsList, searchText]);
+
+  const currentExportRows = filterStationId
+    ? userExportRows
+    : activeTab === 'users'
+      ? userExportRows
+      : activeTab === 'teams'
+        ? teamExportRows
+        : stationExportRows;
+
+  const currentExportName = filterStationId
+    ? 'NhanSuTram'
+    : activeTab === 'users'
+      ? 'NguoiDung'
+      : activeTab === 'teams'
+        ? 'ToThaoTac'
+        : 'NhanSuTheoTram';
+
+  const exportCurrentCsv = () => {
+    if (currentExportRows.length === 0) {
+      alert('Không có dữ liệu để xuất CSV');
+      return;
+    }
+    const firstRow = currentExportRows[0];
+    if (!firstRow) return;
+    const headers = Object.keys(firstRow);
+    const rows = currentExportRows.map(row => headers.map(key => `"${String((row as Record<string, unknown>)[key] ?? '').replace(/"/g, '""')}"`).join(','));
+    const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentExportName}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportCurrentXlsx = () => {
+    if (currentExportRows.length === 0) {
+      alert('Không có dữ liệu để xuất XLSX');
+      return;
+    }
+    const firstRow = currentExportRows[0];
+    if (!firstRow) return;
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(currentExportRows);
+    ws['!cols'] = Object.keys(firstRow).map(() => ({ wch: 22 }));
+    XLSX.utils.book_append_sheet(wb, ws, currentExportName);
+    XLSX.writeFile(wb, `${currentExportName}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const exportCurrentPdf = () => {
+    if (currentExportRows.length === 0) {
+      alert('Không có dữ liệu để xuất PDF');
+      return;
+    }
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    if (!win) return;
+    const firstRow = currentExportRows[0];
+    if (!firstRow) return;
+    const headers = Object.keys(firstRow);
+    const rowsHtml = currentExportRows.map(row => `
+      <tr>${headers.map(key => `<td style="padding:6px 8px;border:1px solid #e5e7eb;">${String((row as Record<string, unknown>)[key] ?? '')}</td>`).join('')}</tr>
+    `).join('');
+    win.document.write(`
+      <!DOCTYPE html><html><head><title>${currentExportName}</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #111; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px; }
+        th { background: #f3f4f6; padding: 8px; border: 1px solid #e5e7eb; text-align: left; }
+      </style></head><body>
+      <h2>${currentExportName.toUpperCase()}</h2>
+      <div>Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> | Số dòng: <b>${currentExportRows.length}</b></div>
+      <table><thead><tr>${headers.map(key => `<th>${key}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table>
+      </body></html>
+    `);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
+  };
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--admin-bg)', height: '100%', minHeight: 0, width: '100%', overflow: 'hidden' }}>
       
       <div style={{
-        padding: '12px 20px',
+        padding: '8px 12px',
         borderBottom: '1px solid var(--admin-border)',
-        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'nowrap',
+        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap',
         background: 'var(--admin-panel)',
         flexShrink: 0,
         overflowX: 'auto',
+        overflowY: 'visible',
+        position: 'relative',
+        zIndex: 20,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap', minWidth: 0, flexShrink: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', minWidth: 0, flexShrink: 1 }}>
           {filterStationId && (
             <button 
               onClick={() => setFilterStationId('')}
@@ -725,7 +967,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                 textTransform: 'uppercase',
                 cursor: 'pointer',
                 boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-                borderRadius: 4
+                borderRadius: 0
               }}
             >
               <span style={{ fontSize: '0.8rem', lineHeight: 1, position: 'relative', top: 1 }}>←</span>
@@ -737,7 +979,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
             <TopStat 
               icon={<Users size={14} color="var(--admin-text-muted)" />} 
               label={filterStationId ? "Nhân sự tại trạm" : "Tổng nhân sự"} 
-              value={filteredUsers.length} 
+              value={filterStationId ? filteredUsers.length : filteredStationsUserCount} 
             />
           )}
 
@@ -764,54 +1006,52 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           )}
         </div>
 
-        <div style={{ flex: 1, minWidth: 20 }} />
+        <div style={{ flex: 1, minWidth: 12 }} />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap', justifyContent: 'flex-end', minWidth: 0, flexShrink: 0 }}>
-          {(activeTab === 'users' || activeTab === 'teams' || filterStationId || activeTab === 'stations') && (
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0, flex: '1 1 220px' }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--admin-text-muted)' }} />
-              <input 
-                className="form-input" 
-                placeholder={activeTab === 'teams' ? 'Tìm tổ...' : 'Tìm nhân sự...'} 
-                value={searchText}
-                onChange={e => setSearchText(e.target.value)}
-                style={{ width: '100%', minWidth: 0, maxWidth: activeTab === 'teams' ? 200 : (isEmbeddedCentral ? 220 : 260), height: 32, paddingLeft: 30, fontSize: '.75rem', background: 'var(--admin-layer-2)' }} 
-              />
-            </div>
-          )}
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', justifyContent: 'flex-end', minWidth: 0, flexShrink: 0 }}>
           {activeTab === 'teams' && (
-            <FilterDropdown
-              value={teamProvinceFilter}
-              placeholder="Tất cả tỉnh"
-              onChange={setTeamProvinceFilter}
-              width={170}
-              options={[
-                { value: '', label: 'Tất cả tỉnh' },
-                ...provincesList.map(p => ({ value: p.id, label: p.name }))
-              ]}
-            />
+            <>
+              <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tỉnh</span>
+              <FilterDropdown
+                value={teamProvinceFilter}
+                placeholder="Tất cả tỉnh"
+                onChange={setTeamProvinceFilter}
+                width={146}
+                options={[
+                  { value: '', label: 'Tất cả tỉnh' },
+                  ...provincesList.map(p => ({ value: p.id, label: p.name }))
+                ]}
+              />
+            </>
           )}
 
-          {activeTab === 'users' && (
+          {(activeTab === 'users' || (activeTab === 'stations' && !filterStationId)) && (
             <>
+              <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tỉnh</span>
               <FilterDropdown
                 value={provinceFilter}
                 placeholder="Tất cả tỉnh"
                 onChange={value => {
                   setProvinceFilter(value);
                   setTeamFilter('');
+                  setUserStationFilter('');
                 }}
+                width={126}
                 options={[
                   { value: '', label: 'Tất cả tỉnh' },
                   ...provincesList.map(p => ({ value: p.id, label: p.name }))
                 ]}
               />
 
+              <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Tổ</span>
               <FilterDropdown
                 value={teamFilter}
                 placeholder="Tất cả tổ"
-                onChange={setTeamFilter}
+                onChange={value => {
+                  setTeamFilter(value);
+                  setUserStationFilter('');
+                }}
+                width={156}
                 options={[
                   { value: '', label: 'Tất cả tổ' },
                   ...teamsList
@@ -820,15 +1060,41 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                 ]}
               />
 
+              <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Trạm</span>
               <FilterDropdown
-                value={roleFilter}
-                placeholder="Tất cả vai trò"
-                onChange={setRoleFilter}
+                value={userStationFilter}
+                placeholder="Tất cả trạm"
+                onChange={setUserStationFilter}
+                width={146}
                 options={[
-                  { value: '', label: 'Tất cả vai trò' },
-                  ...Object.entries(ROLE_CFG).map(([key, cfg]) => ({ value: key, label: cfg.label }))
+                  { value: '', label: 'Tất cả trạm' },
+                  ...stationsList
+                    .filter(s => !provinceFilter || s.provinceId === provinceFilter)
+                    .filter(s => {
+                      if (!teamFilter) return true;
+                      const team = teamsList.find(t => t.id === teamFilter);
+                      return team?.stationIds?.includes(s.id) ?? false;
+                    })
+                    .map(s => ({ value: s.id, label: s.name }))
                 ]}
               />
+
+              {activeTab === 'users' && (
+                <>
+                  <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em', textTransform: 'uppercase' }}>Vai trò</span>
+                  <FilterDropdown
+                    value={roleFilter}
+                    placeholder="Tất cả vai trò"
+                    onChange={setRoleFilter}
+                    width={132}
+                    options={[
+                      { value: '', label: 'Tất cả vai trò' },
+                      ...Object.entries(ROLE_CFG).map(([key, cfg]) => ({ value: key, label: cfg.label }))
+                    ]}
+                  />
+                </>
+              )}
+
             </>
           )}
 
@@ -843,6 +1109,72 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
               <UserPlus size={14} /> THÊM TÀI KHOẢN
             </button>
           )}
+
+          <div ref={downloadDropdownRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              onClick={() => setDownloadDropdownOpen(v => !v)}
+              style={{ height: 32, padding: '0 10px', border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-accent)', borderRadius: 0, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: '.65rem' }}
+            >
+              <Download size={12} />
+              <span>XUẤT</span>
+              <span style={{ fontSize: '.5rem', opacity: 0.6 }}>▼</span>
+            </button>
+            {downloadDropdownOpen && downloadMenuRect && createPortal(
+              <div
+                ref={downloadMenuRef}
+                style={{
+                  position: 'fixed',
+                  top: downloadMenuRect.top,
+                  left: downloadMenuRect.left,
+                  background: '#0b0f14',
+                  border: '1px solid var(--admin-border)',
+                  borderRadius: 0,
+                  boxShadow: '0 4px 12px rgba(0,0,0,.5)',
+                  padding: '4px 0',
+                  zIndex: 9999,
+                  minWidth: 120,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    exportCurrentXlsx();
+                    setDownloadDropdownOpen(false);
+                  }}
+                  style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--admin-text)', padding: '6px 12px', fontSize: '.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <FileSpreadsheet size={12} style={{ color: 'var(--admin-accent)' }} />
+                  <span>Tải file XLSX</span>
+                </button>
+                <button
+                  onClick={() => {
+                    exportCurrentCsv();
+                    setDownloadDropdownOpen(false);
+                  }}
+                  style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--admin-text)', padding: '6px 12px', fontSize: '.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <FileSpreadsheet size={12} style={{ color: 'var(--admin-success)' }} />
+                  <span>Tải file CSV</span>
+                </button>
+                <button
+                  onClick={() => {
+                    exportCurrentPdf();
+                    setDownloadDropdownOpen(false);
+                  }}
+                  style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--admin-text)', padding: '6px 12px', fontSize: '.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <FileText size={12} style={{ color: 'var(--admin-warning)' }} />
+                  <span>Tải file PDF</span>
+                </button>
+              </div>,
+              document.body
+            )}
+          </div>
         </div>
       </div>
 
@@ -876,7 +1208,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
           </div>
         ) : activeTab === 'stations' && !filterStationId ? (
           <StationGroupedView
-            stationsList={stationsList}
+            stationsList={filteredStationsView}
             provincesList={provincesList}
             teamsList={teamsList}
             liveStations={stations}

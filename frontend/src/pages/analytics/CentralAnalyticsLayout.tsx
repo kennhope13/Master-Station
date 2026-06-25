@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity, AlertTriangle, Radio, Thermometer, Zap,
   Search, MapPin, ChevronRight, ChevronDown, X,
   Shield, Wifi, WifiOff, TrendingUp, Maximize2, Crosshair, Video, BarChart3,
-  RefreshCw, ShieldCheck, Loader2
+  RefreshCw, ShieldCheck, Loader2, Download, FileSpreadsheet, FileText
 } from 'lucide-react';
 import Chart from 'chart.js/auto';
 import {
@@ -713,6 +714,8 @@ export default function CentralAnalyticsLayout() {
   const [leafletReady, setLeafletReady] = useState(false);
   const [mapFitTrigger, setMapFitTrigger] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+  const downloadDropdownRef = useRef<HTMLDivElement | null>(null);
 
   // ── Data Loading ───────────────────────────────────────────
 
@@ -857,6 +860,32 @@ export default function CentralAnalyticsLayout() {
     const q = searchQuery.toLowerCase();
     return stations.filter(s => s.station.name.toLowerCase().includes(q) || (s.station.code || '').toLowerCase().includes(q));
   }, [stations, searchQuery]);
+
+  useEffect(() => {
+    if (!downloadDropdownOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (downloadDropdownRef.current && !downloadDropdownRef.current.contains(event.target as Node)) {
+        setDownloadDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [downloadDropdownOpen]);
+
+  const analyticsExportRows = useMemo(() => filteredStations.map(sn => ({
+    'Tram': sn.station.name,
+    'Ma tram': sn.station.code || '',
+    'Tong thiet bi': sn.deviceTotal,
+    'Thiet bi online': sn.onlineDevices,
+    'Canh bao mo': sn.openAlerts,
+    'Diem PD canh bao': sn.warningPdPoints,
+    'Suc khoe TB': sn.avgHealth != null ? Number(sn.avgHealth.toFixed(1)) : '',
+    'Diem nong nhat': sn.hottestPoint?.label || '',
+    'Nhiet do cao nhat': sn.hottestPoint?.value != null ? Number(sn.hottestPoint.value.toFixed(1)) : '',
+    'IP': getStationEndpointInfo(sn.station).ip,
+    'Port': getStationEndpointInfo(sn.station).port,
+    'Dia chi': parseLocation(sn.station.location).address || '',
+  })), [filteredStations]);
 
   // ── Leaflet Map ────────────────────────────────────────────
 
@@ -1015,6 +1044,69 @@ export default function CentralAnalyticsLayout() {
     navigate(`/alerts-history?stationId=${encodeURIComponent(stationId)}`);
   }, [navigate, setViewingStation]);
 
+  const exportAnalyticsCsv = useCallback(() => {
+    if (analyticsExportRows.length === 0) {
+      showToast('Không có dữ liệu để xuất', 'error');
+      return;
+    }
+    const firstRow = analyticsExportRows[0];
+    if (!firstRow) return;
+    const headers = Object.keys(firstRow);
+    const rows = analyticsExportRows.map(row => headers.map(key => `"${String((row as Record<string, unknown>)[key] ?? '').replace(/"/g, '""')}"`).join(','));
+    const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `CentralAnalytics_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [analyticsExportRows]);
+
+  const exportAnalyticsXlsx = useCallback(() => {
+    if (analyticsExportRows.length === 0) {
+      showToast('Không có dữ liệu để xuất', 'error');
+      return;
+    }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(analyticsExportRows);
+    ws['!cols'] = [
+      { wch: 26 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 16 },
+      { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 8 }, { wch: 28 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'PhanTich');
+    XLSX.writeFile(wb, `CentralAnalytics_${new Date().toISOString().split('T')[0]}.xlsx`);
+  }, [analyticsExportRows]);
+
+  const exportAnalyticsPdf = useCallback(() => {
+    if (analyticsExportRows.length === 0) {
+      showToast('Không có dữ liệu để xuất', 'error');
+      return;
+    }
+    const win = window.open('', '_blank', 'width=1200,height=800');
+    if (!win) return;
+    const firstRow = analyticsExportRows[0];
+    if (!firstRow) return;
+    const headers = Object.keys(firstRow);
+    const rowsHtml = analyticsExportRows.map(row => `
+      <tr>${headers.map(key => `<td style="padding:6px 8px;border:1px solid #e5e7eb;">${String((row as Record<string, unknown>)[key] ?? '')}</td>`).join('')}</tr>
+    `).join('');
+    win.document.write(`
+      <!DOCTYPE html><html><head><title>Phan tich trung tam</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #111; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px; }
+        th { background: #f3f4f6; padding: 8px; border: 1px solid #e5e7eb; text-align: left; }
+      </style></head><body>
+      <h2>PHAN TICH TRUNG TAM</h2>
+      <div>Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> | Số trạm: <b>${analyticsExportRows.length}</b></div>
+      <table><thead><tr>${headers.map(key => `<th>${key}</th>`).join('')}</tr></thead><tbody>${rowsHtml}</tbody></table>
+      </body></html>
+    `);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
+  }, [analyticsExportRows]);
+
   // ── Render ─────────────────────────────────────────────────
 
   return (
@@ -1029,7 +1121,8 @@ export default function CentralAnalyticsLayout() {
           flexDirection: 'column',
           background: 'var(--admin-panel)',
           borderRight: leftPanelCollapsed ? 'none' : '1px solid var(--admin-border)',
-          overflow: 'hidden',
+          overflowX: 'hidden',
+          overflowY: 'visible',
           transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           zIndex: 10
         }}>
@@ -1048,6 +1141,81 @@ export default function CentralAnalyticsLayout() {
                       fontSize: '.7rem', fontWeight: 800, outline: 'none', padding: '6px 0', textTransform: 'uppercase'
                     }}
                   />
+                </div>
+                <div ref={downloadDropdownRef} style={{ position: 'relative', display: 'inline-block', marginTop: 8 }}>
+                  <button
+                    onClick={() => setDownloadDropdownOpen(v => !v)}
+                    title="Xuất dữ liệu"
+                    style={{
+                      height: 28,
+                      padding: '0 8px',
+                      border: '1px solid var(--admin-border)',
+                      background: 'var(--admin-layer-2)',
+                      color: 'var(--admin-text)',
+                      borderRadius: 3,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <Download size={12} />
+                    <span style={{ fontSize: '.5rem', opacity: 0.7 }}>▼</span>
+                  </button>
+                  {downloadDropdownOpen && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 4px)',
+                        left: 0,
+                        background: '#0b0f14',
+                        border: '1px solid var(--admin-border)',
+                        borderRadius: 3,
+                        boxShadow: '0 4px 12px rgba(0,0,0,.5)',
+                        padding: '4px 0',
+                        zIndex: 30,
+                        minWidth: 120,
+                      }}
+                    >
+                      <button
+                        onClick={() => {
+                          exportAnalyticsXlsx();
+                          setDownloadDropdownOpen(false);
+                        }}
+                        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--admin-text)', padding: '6px 12px', fontSize: '.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <FileSpreadsheet size={12} style={{ color: 'var(--admin-accent)' }} />
+                        <span>Tải file XLSX</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportAnalyticsCsv();
+                          setDownloadDropdownOpen(false);
+                        }}
+                        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--admin-text)', padding: '6px 12px', fontSize: '.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <FileSpreadsheet size={12} style={{ color: 'var(--admin-success)' }} />
+                        <span>Tải file CSV</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          exportAnalyticsPdf();
+                          setDownloadDropdownOpen(false);
+                        }}
+                        style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--admin-text)', padding: '6px 12px', fontSize: '.65rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <FileText size={12} style={{ color: 'var(--admin-warning)' }} />
+                        <span>Tải file PDF</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
 

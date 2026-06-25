@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { RefreshCw, Play, Camera, Search, ChevronRight, ChevronLeft, Clock, ShieldAlert, CheckCircle2, History, User, ExternalLink } from 'lucide-react';
 import { stationApi, AlertItem, AlertHistoryEntry } from '@/services/StationApiService';
 import { useStationStore, useDeviceStore, useAlertStore } from '@/store';
 import { ALERT_STATUS, ALERT_LEVEL, alertStatusLabel, alertLevelLabel } from '@/types/enums';
 import { createRealtimeHub } from '@/services/realtime.service';
-import { fmtDateTime, fmtTimeRange, cleanAlertMessage } from '@/utils/format';
+import { fmtDateTime, cleanAlertMessage } from '@/utils/format';
+import DateFilterButton from '@/components/ui/DateFilterButton';
 import { confirmDialog } from '@/utils/confirm';
 import { GO2RTC_URL } from '@/utils/env';
 import { authService } from '@/services/AuthService';
@@ -30,9 +32,8 @@ export default function AlertsHistoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const stationId = searchParams.get('stationId') || undefined;
-  const [timeRange, setTimeRange] = useState('7d');
-  const [customFrom, setCustomFrom] = useState(() => new Date().toISOString().slice(0, 10));
-  const [customTo, setCustomTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [filterFrom, setFilterFrom] = useState(() => new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10));
+  const [filterTo, setFilterTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSource, setFilterSource] = useState('');
   const [searchText, setSearchText] = useState('');
@@ -48,15 +49,7 @@ export default function AlertsHistoryPage() {
   const ackAlertInStore = useAlertStore(s => s.ack);
   const closeAlertInStore = useAlertStore(s => s.close);
 
-  const dates = useMemo(() => {
-    if (timeRange === 'custom') {
-      return { from: customFrom, to: customTo };
-    }
-    if (timeRange === 'all') {
-      return { from: '', to: '' };
-    }
-    return fmtTimeRange(timeRange);
-  }, [timeRange, customFrom, customTo]);
+  const dates = useMemo(() => ({ from: filterFrom, to: filterTo }), [filterFrom, filterTo]);
 
   useEffect(() => { fetchStations(); }, [fetchStations]);
 
@@ -112,6 +105,85 @@ export default function AlertsHistoryPage() {
     await closeAlertInStore(id);
     loadAlerts();
     if (selectedAlertId === id) loadDetail(id, true);
+  };
+
+  const exportCsv = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất CSV');
+      return;
+    }
+    const headers = ['Thời gian', 'Mức độ', 'Loại', 'Nội dung', 'Trạng thái'];
+    const rows = filtered.map(a => [
+      fmtDateTime(a.triggeredAt),
+      alertLevelLabel(a.level).toUpperCase(),
+      alertSourceLabel(a.source),
+      cleanAlertMessage(a.message),
+      alertStatusLabel(a.status).toUpperCase(),
+    ]);
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `AlertsHistory_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportXlsx = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất XLSX');
+      return;
+    }
+    const rows = filtered.map(a => ({
+      'Thời gian': fmtDateTime(a.triggeredAt),
+      'Mức độ': alertLevelLabel(a.level).toUpperCase(),
+      'Loại': alertSourceLabel(a.source),
+      'Nội dung': cleanAlertMessage(a.message),
+      'Trạng thái': alertStatusLabel(a.status).toUpperCase(),
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 20 }, { wch: 14 }, { wch: 16 }, { wch: 50 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'AlertsHistory');
+    XLSX.writeFile(wb, `AlertsHistory_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const exportPdf = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất PDF');
+      return;
+    }
+    const win = window.open('', '_blank', 'width=1000,height=700');
+    if (!win) return;
+    const rowsHtml = filtered.map(a => `
+      <tr>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;white-space:nowrap;">${fmtDateTime(a.triggeredAt)}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${alertLevelLabel(a.level).toUpperCase()}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${alertSourceLabel(a.source)}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${cleanAlertMessage(a.message)}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${alertStatusLabel(a.status).toUpperCase()}</td>
+      </tr>
+    `).join('');
+    win.document.write(`
+      <!DOCTYPE html><html><head><title>Nhật ký cảnh báo</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 20px; color: #111; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th { background: #f3f4f6; padding: 8px; border: 1px solid #e5e7eb; text-align: left; font-size: 11px; }
+      </style></head><body>
+      <h2>NHẬT KÝ CẢNH BÁO</h2>
+      <div>Thời gian xuất: <b>${new Date().toLocaleString('vi-VN')}</b> | Số dòng: <b>${filtered.length}</b></div>
+      <table>
+        <thead><tr><th>Thời gian</th><th>Mức độ</th><th>Loại</th><th>Nội dung</th><th>Trạng thái</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      </body></html>
+    `);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
   };
 
   return (
@@ -181,32 +253,16 @@ export default function AlertsHistoryPage() {
               <option value="storage_monitor">GIÁM SÁT BỘ NHỚ</option>
               <option value="system">HỆ THỐNG</option>
            </select>
-           <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>HẠN:</span>
-           <select className="nvr-sel" value={timeRange} onChange={e => setTimeRange(e.target.value)}>
-              <option value="today">HÔM NAY</option>
-              <option value="yesterday">HÔM QUA</option>
-              <option value="7d">7 NGÀY</option>
-              <option value="custom">TÙY CHỌN</option>
-              <option value="all">TẤT CẢ</option>
-           </select>
-           {timeRange === 'custom' && (
-             <div className="nvr-custom-dates" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-               <input
-                 type="date"
-                 className="nvr-date-input"
-                 value={customFrom}
-                 onChange={e => setCustomFrom(e.target.value)}
-               />
-               <span className="rtm-title" style={{ fontSize: 9, opacity: 0.5 }}>-</span>
-               <input
-                 type="date"
-                 className="nvr-date-input"
-                 value={customTo}
-                 onChange={e => setCustomTo(e.target.value)}
-               />
-             </div>
-           )}
+           <DateFilterButton
+             from={filterFrom}
+             to={filterTo}
+             onApply={(f, t) => { setFilterFrom(f); setFilterTo(t); }}
+             showAll
+           />
            <button className="nvr-lb" onClick={loadAlerts}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>
+           <button className="nvr-lb" title="Xuất XLSX" onClick={exportXlsx} style={{ width: 'auto', padding: '0 8px', fontSize: 10 }}>XLSX</button>
+           <button className="nvr-lb" title="Xuất CSV" onClick={exportCsv} style={{ width: 'auto', padding: '0 8px', fontSize: 10 }}>CSV</button>
+           <button className="nvr-lb" title="Xuất PDF" onClick={exportPdf} style={{ width: 'auto', padding: '0 8px', fontSize: 10 }}>PDF</button>
         </div>
       </header>
 

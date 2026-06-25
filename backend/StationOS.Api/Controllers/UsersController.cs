@@ -501,6 +501,15 @@ public class UsersController : ControllerBase
         if (isRestricted && !await UserInScopeAsync(user.StationIds, user.ProvinceIds, user.TeamId, callerStationIds, callerProvinceIds))
             return Forbid();
 
+        HttpContext.Items["AuditOldValue"] = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            username = user.Username,
+            fullName = user.FullName,
+            email = user.Email,
+            role = user.Role,
+            isActive = user.IsActive
+        });
+
         if (permanent)
         {
             _db.Users.Remove(user);

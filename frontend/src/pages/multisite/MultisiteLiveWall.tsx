@@ -84,7 +84,7 @@ export default function MultisiteLiveWall({ views, provinces }: Props) {
 
   /* ── open a preset in edit mode (or create new) ── */
   const editPreset = (p: WallPreset | null) => {
-    setActivePreset(p ?? {
+    setActivePreset(p ? { ...p, cells: {} } : {
       id: Date.now().toString(),
       name: '',
       layout: { cols: 2, rows: 2 },
@@ -133,13 +133,13 @@ export default function MultisiteLiveWall({ views, provinces }: Props) {
       isEditing={isEditing}
       refreshKey={refreshKey}
       onBack={() => { setScreen('list'); setIsEditing(false); }}
-      onEdit={() => setIsEditing(true)}
+      onEdit={() => { setActivePreset(p => p ? { ...p, cells: {} } : p); setIsEditing(true); }}
       onSave={handleSavePreset}
       onRefresh={() => setRefreshKey(k => k + 1)}
       onCancelEdit={() => {
-        if (!presets.some(p => p.id === activePreset?.id)) {
-          setScreen('list');
-        }
+        const original = presets.find(p => p.id === activePreset?.id);
+        if (!original) { setScreen('list'); }
+        else { setActivePreset(original); }
         setIsEditing(false);
       }}
     />
@@ -388,22 +388,24 @@ function WallView({
 
   // Re-sync when switching from play→edit or loading a different preset
   useEffect(() => {
-    setWorking({ ...preset, cells: { ...preset.cells } });
+    setWorking({ ...preset, cells: isEditing ? {} : { ...preset.cells } });
     setSelectedCell(0);
     setSideStep('province');
-    setPickedProvince(null);
-    setPickedStation(null);
+    setSelProvinces(new Set());
+    setSelStations(new Set());
+    setSelCameras(new Set());
     setStationCameras([]);
   }, [preset.id, isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [layoutOpen, setLayoutOpen]   = useState(false);
+  const [layoutOpen, setLayoutOpen]     = useState(false);
   const [selectedCell, setSelectedCell] = useState(0);
-  const [sideStep, setSideStep]       = useState<SideStep>('province');
-  const [pickedProvince, setPickedProvince] = useState<string | null>(null);
-  const [pickedStation, setPickedStation]   = useState<StationView | null>(null);
+  const [sideStep, setSideStep]         = useState<SideStep>('province');
+  const [selProvinces, setSelProvinces] = useState<Set<string>>(new Set());
+  const [selStations, setSelStations]   = useState<Set<string>>(new Set());
   const [stationCameras, setStationCameras] = useState<CameraDevice[]>([]);
-  const [go2rtcBase, setGo2rtcBase]         = useState<string | null>(null);
   const [loadingCams, setLoadingCams]       = useState(false);
+  const [selCameras, setSelCameras]         = useState<Set<string>>(new Set());
+  const [dragOverCell, setDragOverCell]     = useState<number | null>(null);
 
   const maxCells = working.layout.cols * working.layout.rows;
 
@@ -437,16 +439,9 @@ function WallView({
       }));
   }, [views, provMap]);
 
-  const stationsInProvince = useMemo(() =>
-    pickedProvince === '__all__' ? views
-      : pickedProvince ? (provinceGroups.find(g => g.pid === pickedProvince)?.views ?? [])
-      : [],
-    [provinceGroups, pickedProvince, views]);
-
-  /* ── Pick handlers ── */
-  const handleProvincePick = (pid: string) => {
-    setPickedProvince(pid); setPickedStation(null); setStationCameras([]); setSideStep('station');
-  };
+  const stationsForSelection = useMemo(() =>
+    selProvinces.size === 0 ? [] : views.filter(v => selProvinces.has(v.station.provinceId ?? '__none__')),
+    [views, selProvinces]);
 
   const enrichCameras = (result: Awaited<ReturnType<typeof stationApi.getRemoteCameras>>, view: StationView, provinceName: string) => {
     const getStreamId = (url?: string) => { if (!url) return null; try { return new URL(url).searchParams.get('src'); } catch { return null; } };
@@ -460,66 +455,73 @@ function WallView({
     }));
   };
 
-  const handleStationPick = async (view: StationView) => {
-    setPickedStation(view); setStationCameras([]); setGo2rtcBase(null); setLoadingCams(true); setSideStep('camera');
-    try {
-      const result = await stationApi.getRemoteCameras(view.station.id);
-      setGo2rtcBase(result.go2rtcBase ?? null);
-      const pGroup = provinceGroups.find(g => g.pid === pickedProvince);
-      setStationCameras(enrichCameras(result, view, pGroup?.name ?? ''));
-    } catch { setStationCameras([]); } finally { setLoadingCams(false); }
-  };
+  const toggleProvince = (pid: string) => setSelProvinces(prev => { const n = new Set(prev); n.has(pid) ? n.delete(pid) : n.add(pid); return n; });
+  const toggleAllProvinces = () => setSelProvinces(prev => prev.size === provinceGroups.length ? new Set<string>() : new Set(provinceGroups.map(g => g.pid)));
+  const confirmProvinces = () => { setSelStations(new Set()); setSideStep('station'); };
 
-  const handleAllStations = async () => {
-    setPickedStation(null); setStationCameras([]); setGo2rtcBase(null); setLoadingCams(true); setSideStep('camera');
+  const toggleStation = (sid: string) => setSelStations(prev => { const n = new Set(prev); n.has(sid) ? n.delete(sid) : n.add(sid); return n; });
+  const toggleAllStations = () => setSelStations(prev => prev.size === stationsForSelection.length ? new Set<string>() : new Set(stationsForSelection.map(v => v.station.id)));
+  const confirmStations = async () => {
+    const selected = stationsForSelection.filter(v => selStations.has(v.station.id));
+    if (selected.length === 0) return;
+    setStationCameras([]); setSelCameras(new Set()); setLoadingCams(true); setSideStep('camera');
+    setWorking(w => ({ ...w, cells: {} }));
     try {
-      const results = await Promise.allSettled(
-        stationsInProvince.map(v => stationApi.getRemoteCameras(v.station.id).then(r => {
+      const results = await Promise.allSettled(selected.map(v =>
+        stationApi.getRemoteCameras(v.station.id).then(r => {
           const pGroup = provinceGroups.find(g => g.pid === (v.station.provinceId ?? '__none__'));
           return enrichCameras(r, v, pGroup?.name ?? '');
-        }))
-      );
-      const all = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-      setStationCameras(all);
+        })
+      ));
+      setStationCameras(results.flatMap(r => r.status === 'fulfilled' ? r.value : []));
     } catch { setStationCameras([]); } finally { setLoadingCams(false); }
   };
 
-  /* Clicking a camera immediately assigns to the selected cell */
-  const handleCameraPick = (cam: CameraDevice) => {
+  const toggleCamera = (id: string) => {
+    setSelCameras(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setWorking(w => {
+      const removing = Object.values(w.cells).some(cell => cell.cameraId === id);
+      if (!removing) return w;
+      const cells = Object.fromEntries(Object.entries(w.cells).filter(([, cell]) => cell.cameraId !== id));
+      return { ...w, cells };
+    });
+  };
+  const toggleAllCameras = () => setSelCameras(prev => prev.size === stationCameras.length ? new Set<string>() : new Set(stationCameras.map(c => c.id)));
+  const confirmCameras = () => {
+    const picked = stationCameras.filter(c => selCameras.has(c.id));
+    if (picked.length === 0) return;
+    const n = picked.length;
+    // Aim for ~16:9 cells on a widescreen (cols ≈ 1.4× rows)
+    const cols = Math.max(1, Math.round(Math.sqrt(n * 1.6)));
+    const rows = Math.ceil(n / cols);
+    const newCells: Record<number, CellAssignment> = {};
+    picked.forEach((cam, i) => {
+      newCells[i] = {
+        stationId: (cam as any).__stationId ?? '', stationName: (cam as any).__stationName ?? '',
+        provinceName: (cam as any).__provinceName ?? '', cameraId: cam.id, cameraName: cam.name,
+        go2rtcId: (cam as any).config?.go2rtc_id || '', go2rtcBase: (cam as any).__go2rtcBase ?? GO2RTC_URL,
+      };
+    });
+    setWorking(w => ({ ...w, layout: { cols, rows }, cells: newCells }));
+    setSelectedCell(0);
+  };
+
+    const handleCameraPick = (cam: CameraDevice) => {
     const c = cam as any;
-    const stId   = c.__stationId   ?? pickedStation?.station.id   ?? '';
-    const stName = c.__stationName ?? pickedStation?.station.name ?? '';
-    const prvName = c.__provinceName ?? (pickedProvince === '__all__' ? '' : (provinceGroups.find(g => g.pid === pickedProvince)?.name ?? ''));
-    const base   = c.__go2rtcBase  ?? go2rtcBase ?? GO2RTC_URL;
     const assignment: CellAssignment = {
-      stationId:    stId,
-      stationName:  stName,
-      provinceName: prvName,
-      cameraId:     cam.id,
-      cameraName:   cam.name,
-      go2rtcId:     c.config?.go2rtc_id || '',
-      go2rtcBase:   base,
+      stationId: c.__stationId ?? '', stationName: c.__stationName ?? '',
+      provinceName: c.__provinceName ?? '', cameraId: cam.id, cameraName: cam.name,
+      go2rtcId: c.config?.go2rtc_id || '', go2rtcBase: c.__go2rtcBase ?? GO2RTC_URL,
     };
     setWorking(w => ({ ...w, cells: { ...w.cells, [selectedCell]: assignment } }));
-
-    // Advance to next empty cell
-    const currentCells = { ...working.cells, [selectedCell]: assignment };
+    const next = { ...working.cells, [selectedCell]: assignment };
     for (let i = 1; i < maxCells; i++) {
-      const next = (selectedCell + i) % maxCells;
-      if (!currentCells[next]) { setSelectedCell(next); setSideStep('province'); setPickedProvince(null); setPickedStation(null); setStationCameras([]); return; }
+      const n = (selectedCell + i) % maxCells;
+      if (!next[n]) { setSelectedCell(n); return; }
     }
-    // All cells filled — stay on camera step
   };
 
-  const handleCellClick = (idx: number) => {
-    setSelectedCell(idx);
-    const existing = working.cells[idx];
-    if (existing && isEditing) {
-      const view = views.find(v => v.station.id === existing.stationId) ?? null;
-      if (view) { setPickedProvince(view.station.provinceId ?? '__none__'); handleStationPick(view); return; }
-    }
-    if (isEditing) { setSideStep('province'); setPickedProvince(null); setPickedStation(null); setStationCameras([]); }
-  };
+  const handleCellClick = (idx: number) => { if (isEditing) setSelectedCell(idx); };
 
   const handleClearCell = (idx: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -536,63 +538,22 @@ function WallView({
 
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: '#070c14', fontFamily: 'var(--font-mono,"JetBrains Mono","Fira Code",monospace)', color: '#e2e8f0' }}>
-
-      {/* ── TOP BAR ── */}
-      <div style={{ flexShrink: 0, height: 40, background: 'rgba(15,23,42,0.97)', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10 }}>
-        {/* Back */}
-        <button
-          onClick={isEditing ? onCancelEdit : onBack}
-          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', height: 26, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', borderRadius: 2 }}
-        >
-          <ChevronLeft size={11} /> {isEditing ? 'Hủy' : 'Danh sách'}
-        </button>
-
-        {/* Name */}
-        {isEditing ? (
-          <input
-            value={working.name}
-            onChange={e => setWorking(w => ({ ...w, name: e.target.value }))}
-            placeholder="Đặt tên cấu hình..."
-            style={{ flex: 1, maxWidth: 280, height: 26, padding: '0 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 2, color: '#fff', fontSize: '0.68rem', fontWeight: 700, outline: 'none' }}
-          />
-        ) : (
-          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#fff', flex: 1 }}>{working.name}</span>
-        )}
-
-        <span style={{ fontSize: '0.56rem', color: 'rgba(255,255,255,0.3)' }}>{camCount}/{maxCells} camera</span>
-
-        {/* Layout picker (edit only) */}
-        {isEditing && (
-          <LayoutPicker layout={working.layout} onChange={updateLayout} />
-        )}
-
-        {/* Action buttons */}
-        {isEditing ? (
-          <button
-            onClick={handleSave}
-            disabled={!working.name.trim()}
-            style={{ height: 26, padding: '0 14px', display: 'flex', alignItems: 'center', gap: 6, background: working.name.trim() ? '#f59e0b' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 2, color: working.name.trim() ? '#000' : 'rgba(255,255,255,0.2)', fontSize: '0.62rem', fontWeight: 900, cursor: working.name.trim() ? 'pointer' : 'not-allowed', letterSpacing: '0.04em' }}
-          >
-            <Save size={11} /> LƯU CẤU HÌNH
+      {/* Play mode top bar */}
+      {!isEditing && (
+        <div style={{ flexShrink: 0, height: 40, background: 'rgba(15,23,42,0.97)', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', padding: '0 12px', gap: 10 }}>
+          <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '0 8px', height: 26, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', borderRadius: 2 }}>
+            <ChevronLeft size={11} /> Danh sách
           </button>
-        ) : (
-          <>
-            <button
-              onClick={onRefresh}
-              title="Tải lại stream"
-              style={{ width: 26, height: 26, padding: 0, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2 }}
-            >
-              <RefreshCw size={11} />
-            </button>
-            <button
-              onClick={onEdit}
-              style={{ height: 26, padding: '0 10px', display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.6)', fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', borderRadius: 2 }}
-            >
-              <Edit2 size={10} /> Sửa
-            </button>
-          </>
-        )}
-      </div>
+          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#fff', flex: 1 }}>{working.name}</span>
+          <span style={{ fontSize: '0.56rem', color: 'rgba(255,255,255,0.3)' }}>{camCount}/{maxCells} camera</span>
+          <button onClick={onRefresh} title="Tải lại stream" style={{ width: 26, height: 26, padding: 0, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2 }}>
+            <RefreshCw size={11} />
+          </button>
+          <button onClick={onEdit} style={{ height: 26, padding: '0 10px', display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.6)', fontSize: '0.6rem', fontWeight: 700, cursor: 'pointer', borderRadius: 2 }}>
+            <Edit2 size={10} /> Sửa
+          </button>
+        </div>
+      )}
 
       {/* ── BODY ── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
@@ -601,159 +562,181 @@ function WallView({
         {isEditing && (
           <div style={{ width: 264, flexShrink: 0, display: 'flex', flexDirection: 'column', background: 'rgba(15,23,42,0.98)', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
 
-            {/* Selected cell badge */}
-            <div style={{ flexShrink: 0, padding: '7px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(245,158,11,0.06)' }}>
-              <div style={{ fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.08em', marginBottom: 2 }}>Ô ĐANG CẤU HÌNH</div>
-              <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#f59e0b' }}>Ô {selectedCell + 1} / {maxCells}</div>
-              {working.cells[selectedCell] && (
-                <div style={{ marginTop: 2, fontSize: '0.55rem', color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  ✓ {working.cells[selectedCell].cameraName}
-                </div>
-              )}
+            {/* Config header */}
+            <div style={{ flexShrink: 0, padding: '10px 14px 8px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(0,0,0,0.2)' }}>
+              <input
+                value={working.name}
+                onChange={e => setWorking(w => ({ ...w, name: e.target.value }))}
+                placeholder="Đặt tên cấu hình..."
+                style={{ width: '100%', boxSizing: 'border-box', height: 28, padding: '0 8px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '0.68rem', fontWeight: 700, outline: 'none', marginBottom: 7 }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button onClick={onCancelEdit} style={{ height: 24, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', fontSize: '0.58rem', fontWeight: 700, cursor: 'pointer' }}>
+                  <ChevronLeft size={10} /> Hủy
+                </button>
+                <span style={{ fontSize: '0.52rem', color: 'rgba(255,255,255,0.3)', flex: 1, textAlign: 'center' }}>{camCount}/{maxCells} cam · {working.layout.cols}×{working.layout.rows}</span>
+                <LayoutPicker layout={working.layout} onChange={updateLayout} />
+                <button onClick={handleSave} disabled={!working.name.trim()}
+                  style={{ height: 24, padding: '0 8px', background: working.name.trim() ? '#f59e0b' : 'rgba(255,255,255,0.05)', border: 'none', color: working.name.trim() ? '#000' : 'rgba(255,255,255,0.2)', fontSize: '0.58rem', fontWeight: 900, cursor: working.name.trim() ? 'pointer' : 'not-allowed' }}>
+                  <Save size={10} />
+                </button>
+              </div>
             </div>
 
-            {/* Step 1 — Province */}
+            {/* Step 1 — Province (multi-select) */}
             {sideStep === 'province' && (
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div style={{ padding: '7px 14px 4px', fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>CHỌN TỈNH</div>
-                {/* Tất cả tỉnh */}
-                <div onClick={() => handleProvincePick('__all__')}
-                  style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,0.05)' }}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div onClick={toggleAllProvinces} style={{ flexShrink: 0, padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,0.05)' }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.1)'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.05)'}
                 >
-                  <MapPin size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#f59e0b' }}>Tất cả tỉnh</div>
-                    <div style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{views.length} trạm</div>
-                  </div>
-                  <ChevronRight size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                  <input type="checkbox" readOnly checked={selProvinces.size === provinceGroups.length && provinceGroups.length > 0} style={{ accentColor: '#f59e0b', cursor: 'pointer', pointerEvents: 'none' }} />
+                  <span style={{ fontSize: '0.66rem', fontWeight: 800, color: '#f59e0b' }}>Tất cả tỉnh</span>
+                  <span style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' }}>{views.length} trạm</span>
                 </div>
-                {provinceGroups.map(g => (
-                  <div key={g.pid} onClick={() => handleProvincePick(g.pid)}
-                    style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8 }}
-                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
-                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-                  >
-                    <MapPin size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '0.66rem', fontWeight: 700, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
-                      <div style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>
-                        {g.views.length} trạm · <span style={{ color: '#10b981' }}>{g.online} online</span>
-                        {g.alarms > 0 && <span style={{ color: '#ef4444', marginLeft: 6 }}>● {g.alarms} BĐ</span>}
-                      </div>
-                    </div>
-                    <ChevronRight size={11} style={{ color: 'rgba(255,255,255,0.2)', flexShrink: 0 }} />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Step 2 — Station */}
-            {sideStep === 'station' && (
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div
-                  onClick={() => { setSideStep('province'); setPickedProvince(null); }}
-                  style={{ padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)', flexShrink: 0 }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
-                >
-                  <ChevronLeft size={12} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)' }}>← TỈNH</div>
-                    <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#f59e0b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {pickedProvince === '__all__' ? 'Tất cả tỉnh' : provinceGroups.find(g => g.pid === pickedProvince)?.name}
-                    </div>
-                  </div>
-                </div>
-                <div style={{ padding: '7px 14px 4px', fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>CHỌN TRẠM ({stationsInProvince.length})</div>
-                {/* Tất cả trạm */}
-                <div onClick={handleAllStations}
-                  style={{ padding: '9px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,0.05)' }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.1)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.05)'}
-                >
-                  <Wifi size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#f59e0b' }}>Tất cả trạm</div>
-                    <div style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Tải camera từ {stationsInProvince.length} trạm</div>
-                  </div>
-                  <ChevronRight size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                </div>
-                {stationsInProvince.map(v => {
-                  const online = v.station.connectionStatus === 'online';
-                  return (
-                    <div key={v.station.id} onClick={() => handleStationPick(v)}
-                      style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8 }}
-                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
-                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  <div style={{ padding: '5px 14px 3px', fontSize: '0.5rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>CHỌN TỈNH — {selProvinces.size}/{provinceGroups.length}</div>
+                  {provinceGroups.map(g => (
+                    <div key={g.pid} onClick={() => toggleProvince(g.pid)}
+                      style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8, background: selProvinces.has(g.pid) ? 'rgba(245,158,11,0.06)' : 'transparent' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'}
+                      onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = selProvinces.has(g.pid) ? 'rgba(245,158,11,0.06)' : 'transparent'}
                     >
-                      <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: online ? '#10b981' : '#6b7280', boxShadow: online ? '0 0 5px #10b981' : 'none' }} />
-                      {online ? <Wifi size={10} style={{ color: '#10b981', flexShrink: 0 }} /> : <WifiOff size={10} style={{ color: '#6b7280', flexShrink: 0 }} />}
+                      <input type="checkbox" readOnly checked={selProvinces.has(g.pid)} style={{ accentColor: '#f59e0b', cursor: 'pointer', flexShrink: 0, pointerEvents: 'none' }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: '0.58rem', fontWeight: 700, fontFamily: 'monospace', color: '#f59e0b' }}>{v.station.code || v.station.id.slice(0, 6)}</div>
-                        <div style={{ fontSize: '0.62rem', fontWeight: 600, color: online ? '#e2e8f0' : '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.station.name}</div>
+                        <div style={{ fontSize: '0.66rem', fontWeight: 700, color: selProvinces.has(g.pid) ? '#f59e0b' : '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
+                        <div style={{ fontSize: '0.52rem', color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>
+                          {g.views.length} trạm · <span style={{ color: '#10b981' }}>{g.online} online</span>
+                          {g.alarms > 0 && <span style={{ color: '#ef4444', marginLeft: 5 }}>●{g.alarms}</span>}
+                        </div>
                       </div>
-                      {v.kpi.alarmsCount > 0 && <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#ef4444' }}>●{v.kpi.alarmsCount}</span>}
-                      <ChevronRight size={10} style={{ color: 'rgba(255,255,255,0.15)', flexShrink: 0 }} />
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
+                <div style={{ flexShrink: 0, padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                  <button onClick={confirmProvinces} disabled={selProvinces.size === 0}
+                    style={{ width: '100%', height: 30, background: selProvinces.size > 0 ? '#f59e0b' : 'rgba(255,255,255,0.05)', border: 'none', color: selProvinces.size > 0 ? '#000' : 'rgba(255,255,255,0.2)', fontSize: '0.62rem', fontWeight: 900, cursor: selProvinces.size > 0 ? 'pointer' : 'not-allowed', letterSpacing: '0.04em' }}>
+                    TIẾP THEO → CHỌN TRẠM ({stationsForSelection.length})
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Step 3 — Camera */}
-            {sideStep === 'camera' && (
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-                <div
-                  onClick={() => { setSideStep('station'); setPickedStation(null); setStationCameras([]); }}
-                  style={{ padding: '8px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)', flexShrink: 0 }}
+            {/* Step 2 — Station (multi-select) */}
+            {sideStep === 'station' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div onClick={() => setSideStep('province')} style={{ flexShrink: 0, padding: '7px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}
                   onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
                   onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
                 >
-                  <ChevronLeft size={12} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)' }}>← TRẠM</div>
-                    <div style={{ fontSize: '0.63rem', fontWeight: 800, color: '#f59e0b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pickedStation ? pickedStation.station.name : 'Tất cả trạm'}</div>
-                  </div>
+                  <ChevronLeft size={11} style={{ color: '#f59e0b' }} />
+                  <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#f59e0b' }}>{selProvinces.size} tỉnh đã chọn</span>
                 </div>
-                <div style={{ padding: '7px 14px 4px', fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>
-                  CHỌN CAMERA {!loadingCams && `(${stationCameras.length})`}
+                <div onClick={toggleAllStations} style={{ flexShrink: 0, padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,0.05)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.1)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.05)'}
+                >
+                  <input type="checkbox" readOnly checked={selStations.size === stationsForSelection.length && stationsForSelection.length > 0} style={{ accentColor: '#f59e0b', cursor: 'pointer', pointerEvents: 'none' }} />
+                  <span style={{ fontSize: '0.66rem', fontWeight: 800, color: '#f59e0b' }}>Tất cả trạm</span>
+                  <span style={{ fontSize: '0.54rem', color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' }}>{stationsForSelection.length} trạm</span>
                 </div>
-                {loadingCams && (
-                  <div style={{ padding: '18px 14px', display: 'flex', gap: 8, alignItems: 'center', color: 'rgba(255,255,255,0.3)' }}>
-                    <RefreshCw size={12} style={{ animation: 'ms-spin 1s linear infinite' }} />
-                    <span style={{ fontSize: '0.6rem' }}>Đang tải...</span>
-                    <style>{`@keyframes ms-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
-                  </div>
-                )}
-                {!loadingCams && stationCameras.length === 0 && (
-                  <div style={{ padding: '18px 14px', color: 'rgba(255,255,255,0.25)', fontSize: '0.62rem' }}>Trạm chưa có camera</div>
-                )}
-                {!loadingCams && stationCameras.map((cam, idx) => {
-                  const c = cam as any;
-                  const assigned = working.cells[selectedCell]?.cameraId === cam.id;
-                  const showStationLabel = !pickedStation && c.__stationName &&
-                    (idx === 0 || (stationCameras[idx - 1] as any).__stationId !== c.__stationId);
-                  return (
-                    <div key={cam.id}>
-                      {showStationLabel && (
-                        <div style={{ padding: '5px 14px 2px', fontSize: '0.5rem', fontWeight: 900, color: 'rgba(245,158,11,0.6)', letterSpacing: '0.07em', background: 'rgba(245,158,11,0.04)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                          {c.__stationName}
-                        </div>
-                      )}
-                      <div onClick={() => handleCameraPick(cam)}
-                        style={{ padding: '8px 14px 8px 20px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8, background: assigned ? 'rgba(245,158,11,0.1)' : 'transparent', borderLeft: assigned ? '3px solid #f59e0b' : '3px solid transparent', transition: 'all 0.1s' }}
-                        onMouseEnter={e => { if (!assigned) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)'; }}
-                        onMouseLeave={e => { if (!assigned) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  <div style={{ padding: '5px 14px 3px', fontSize: '0.5rem', fontWeight: 700, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.07em' }}>CHỌN TRẠM — {selStations.size}/{stationsForSelection.length}</div>
+                  {stationsForSelection.map(v => {
+                    const online = v.station.connectionStatus === 'online';
+                    const checked = selStations.has(v.station.id);
+                    return (
+                      <div key={v.station.id} onClick={() => toggleStation(v.station.id)}
+                        style={{ padding: '8px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8, background: checked ? 'rgba(245,158,11,0.06)' : 'transparent' }}
+                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'}
+                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = checked ? 'rgba(245,158,11,0.06)' : 'transparent'}
                       >
-                        <Video size={11} style={{ color: assigned ? '#f59e0b' : 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
-                        <span style={{ fontSize: '0.64rem', fontWeight: assigned ? 800 : 500, color: assigned ? '#fff' : 'rgba(255,255,255,0.65)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cam.name}</span>
-                        {assigned && <span style={{ fontSize: '0.5rem', fontWeight: 900, color: '#f59e0b' }}>✓</span>}
+                        <input type="checkbox" readOnly checked={checked} style={{ accentColor: '#f59e0b', cursor: 'pointer', flexShrink: 0, pointerEvents: 'none' }} />
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: online ? '#10b981' : '#6b7280', boxShadow: online ? '0 0 4px #10b981' : 'none' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.62rem', fontWeight: checked ? 700 : 500, color: checked ? '#f59e0b' : (online ? '#e2e8f0' : '#6b7280'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.station.name}</div>
+                          <div style={{ fontSize: '0.5rem', color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>{v.station.code || v.station.id.slice(0, 6)}</div>
+                        </div>
+                        {v.kpi.alarmsCount > 0 && <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#ef4444' }}>●{v.kpi.alarmsCount}</span>}
                       </div>
+                    );
+                  })}
+                </div>
+                <div style={{ flexShrink: 0, padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                  <button onClick={confirmStations} disabled={selStations.size === 0}
+                    style={{ width: '100%', height: 30, background: selStations.size > 0 ? '#f59e0b' : 'rgba(255,255,255,0.05)', border: 'none', color: selStations.size > 0 ? '#000' : 'rgba(255,255,255,0.2)', fontSize: '0.62rem', fontWeight: 900, cursor: selStations.size > 0 ? 'pointer' : 'not-allowed', letterSpacing: '0.04em' }}>
+                    TẢI CAMERA ({selStations.size} trạm)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3 — Camera (multi-select) */}
+            {sideStep === 'camera' && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div onClick={() => setSideStep('station')} style={{ flexShrink: 0, padding: '7px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'}
+                >
+                  <ChevronLeft size={11} style={{ color: '#f59e0b' }} />
+                  <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#f59e0b' }}>{selStations.size} trạm đã chọn</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '0.55rem', color: 'rgba(255,255,255,0.3)' }}>{!loadingCams && `${stationCameras.length} cam`}</span>
+                </div>
+                {!loadingCams && stationCameras.length > 0 && (
+                  <div onClick={toggleAllCameras} style={{ flexShrink: 0, padding: '7px 14px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(245,158,11,0.05)' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.1)'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'rgba(245,158,11,0.05)'}
+                  >
+                    <input type="checkbox" readOnly checked={selCameras.size === stationCameras.length && stationCameras.length > 0} style={{ accentColor: '#f59e0b', cursor: 'pointer', pointerEvents: 'none' }} />
+                    <span style={{ fontSize: '0.64rem', fontWeight: 800, color: '#f59e0b' }}>Tất cả camera</span>
+                    <span style={{ fontSize: '0.52rem', color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' }}>{selCameras.size}/{stationCameras.length}</span>
+                  </div>
+                )}
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  {loadingCams && (
+                    <div style={{ padding: '18px 14px', display: 'flex', gap: 8, alignItems: 'center', color: 'rgba(255,255,255,0.3)' }}>
+                      <RefreshCw size={12} style={{ animation: 'ms-spin 1s linear infinite' }} />
+                      <span style={{ fontSize: '0.6rem' }}>Đang tải...</span>
+                      <style>{`@keyframes ms-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
                     </div>
-                  );
-                })}
+                  )}
+                  {!loadingCams && stationCameras.length === 0 && (
+                    <div style={{ padding: '18px 14px', color: 'rgba(255,255,255,0.25)', fontSize: '0.62rem' }}>Không có camera</div>
+                  )}
+                  {!loadingCams && stationCameras.map((cam, idx) => {
+                    const c = cam as any;
+                    const checked = selCameras.has(cam.id);
+                    const inCell = Object.values(working.cells).some(cell => cell.cameraId === cam.id);
+                    const showLabel = c.__stationName && (idx === 0 || (stationCameras[idx - 1] as any).__stationId !== c.__stationId);
+                    return (
+                      <div key={cam.id}>
+                        {showLabel && (
+                          <div style={{ padding: '5px 14px 2px', fontSize: '0.5rem', fontWeight: 900, color: 'rgba(245,158,11,0.6)', letterSpacing: '0.07em', background: 'rgba(245,158,11,0.04)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                            {c.__stationName}
+                          </div>
+                        )}
+                        <div onClick={() => toggleCamera(cam.id)}
+                          draggable
+                          onDragStart={e => { e.dataTransfer.setData('cameraId', cam.id); e.dataTransfer.effectAllowed = 'copy'; }}
+                          style={{ padding: '7px 14px 7px 18px', cursor: 'grab', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: 8, background: checked ? 'rgba(245,158,11,0.08)' : 'transparent' }}
+                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.05)'}
+                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = checked ? 'rgba(245,158,11,0.08)' : 'transparent'}
+                        >
+                          <input type="checkbox" readOnly checked={checked} style={{ accentColor: '#f59e0b', cursor: 'pointer', flexShrink: 0, pointerEvents: 'none' }} />
+                          <Video size={10} style={{ color: checked ? '#f59e0b' : 'rgba(255,255,255,0.25)', flexShrink: 0 }} />
+                          <span style={{ fontSize: '0.62rem', fontWeight: checked ? 700 : 400, color: checked ? '#fff' : 'rgba(255,255,255,0.6)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cam.name}</span>
+                          {inCell && <span style={{ fontSize: '0.46rem', fontWeight: 900, color: '#10b981', flexShrink: 0 }}>✓ đã gán</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ flexShrink: 0, padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                  <button onClick={confirmCameras} disabled={selCameras.size === 0}
+                    style={{ width: '100%', height: 30, background: selCameras.size > 0 ? '#f59e0b' : 'rgba(255,255,255,0.05)', border: 'none', color: selCameras.size > 0 ? '#000' : 'rgba(255,255,255,0.2)', fontSize: '0.62rem', fontWeight: 900, cursor: selCameras.size > 0 ? 'pointer' : 'not-allowed', letterSpacing: '0.04em' }}>
+                    GÁN VÀO Ô ({selCameras.size} camera)
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -764,17 +747,34 @@ function WallView({
           {Array.from({ length: maxCells }, (_, i) => {
             const cell = working.cells[i];
             const isSelected = isEditing && selectedCell === i;
+            const isDragOver = dragOverCell === i;
             return (
               <div
                 key={`${i}-${refreshKey}-${working.id}`}
                 onClick={() => isEditing && handleCellClick(i)}
+                onDragOver={e => { if (!isEditing) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOverCell(i); }}
+                onDragLeave={() => setDragOverCell(null)}
+                onDrop={e => {
+                  e.preventDefault(); setDragOverCell(null);
+                  if (!isEditing) return;
+                  const cameraId = e.dataTransfer.getData('cameraId');
+                  const cam = stationCameras.find(c => c.id === cameraId);
+                  if (!cam) return;
+                  const c = cam as any;
+                  setWorking(w => ({ ...w, cells: { ...w.cells, [i]: {
+                    stationId: c.__stationId ?? '', stationName: c.__stationName ?? '',
+                    provinceName: c.__provinceName ?? '', cameraId: cam.id, cameraName: cam.name,
+                    go2rtcId: c.config?.go2rtc_id || '', go2rtcBase: c.__go2rtcBase ?? GO2RTC_URL,
+                  }}}));
+                  setSelCameras(prev => { const n = new Set(prev); n.add(cam.id); return n; });
+                }}
                 style={{
                   position: 'relative', background: '#080d15',
-                  border: `1px solid ${isSelected ? '#f59e0b' : 'rgba(255,255,255,0.05)'}`,
-                  outline: isSelected ? '2px solid #f59e0b' : 'none', outlineOffset: -2,
+                  border: `1px solid ${isDragOver ? '#38bdf8' : isSelected ? '#f59e0b' : 'rgba(255,255,255,0.05)'}`,
+                  outline: isDragOver ? '2px solid #38bdf8' : isSelected ? '2px solid #f59e0b' : 'none', outlineOffset: -2,
                   cursor: isEditing ? 'pointer' : 'default',
                   overflow: 'hidden', minHeight: 0,
-                  zIndex: isSelected ? 2 : 1, transition: 'border-color 0.15s',
+                  zIndex: isSelected || isDragOver ? 2 : 1, transition: 'border-color 0.1s',
                 }}
               >
                 {cell ? (
@@ -831,6 +831,7 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
   const [hoverGrid, setHoverGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [customCols, setCustomCols] = useState(String(layout.cols));
   const [customRows, setCustomRows] = useState(String(layout.rows));
+  const [dropPos, setDropPos]     = useState({ top: 0, left: 0 });
 
   const apply = (cols: number, rows: number) => {
     const c = Math.max(1, Math.min(20, cols));
@@ -848,12 +849,18 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
     if (!isNaN(c) && !isNaN(r)) apply(c, r);
   };
 
+  const toggleOpen = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDropPos({ top: rect.bottom + 4, left: rect.left });
+    setOpen(o => !o);
+  };
+
   const previewLayout = hoverGrid ?? layout;
 
   return (
     <div style={{ position: 'relative' }}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={toggleOpen}
         style={{ height: 26, padding: '0 8px', display: 'flex', alignItems: 'center', gap: 5, background: open ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: '10px', fontWeight: 700, cursor: 'pointer', borderRadius: 0 }}
       >
         <Grid size={11} style={{ color: '#f59e0b' }} />
@@ -864,12 +871,12 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
       {open && (
         <>
           <div onClick={() => { setOpen(false); setHoverGrid(null); }} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
-          <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: 'rgba(15,23,42,0.98)', border: '1px solid rgba(255,255,255,0.1)', padding: 12, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.6)', borderRadius: 0, width: 240 }}>
+          <div style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, background: 'rgba(15,23,42,0.98)', border: '1px solid rgba(255,255,255,0.1)', padding: 12, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.6)', borderRadius: 0, width: 240 }}>
 
             {/* Quick presets */}
             <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nhanh</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4, marginBottom: 12 }}>
-              {[{c:1,r:1},{c:2,r:2},{c:3,r:2},{c:3,r:3},{c:4,r:3},{c:4,r:4},{c:5,r:4},{c:6,r:4}].map(({c,r}) => {
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4, marginBottom: 12, maxHeight: 80, overflowY: 'auto' }}>
+              {[{c:1,r:1},{c:2,r:1},{c:2,r:2},{c:3,r:2},{c:4,r:2},{c:3,r:3},{c:4,r:3},{c:5,r:3},{c:4,r:4},{c:5,r:4},{c:6,r:4},{c:6,r:5}].map(({c,r}) => {
                 const active = layout.cols === c && layout.rows === r;
                 return (
                   <button key={`${c}-${r}`} onClick={() => apply(c, r)}
@@ -881,24 +888,29 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
             </div>
 
             {/* Hover grid */}
-            <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Chọn ô lưới</span>
-              <span style={{ color: '#f59e0b' }}>{previewLayout.cols}×{previewLayout.rows} ({previewLayout.cols * previewLayout.rows} ô)</span>
+              <span style={{ color: previewLayout.cols / previewLayout.rows > 2.5 ? '#ef4444' : '#f59e0b' }}>
+                {previewLayout.cols}×{previewLayout.rows} ({previewLayout.cols * previewLayout.rows} ô)
+                {previewLayout.cols / previewLayout.rows > 2.5 && ' ⚠ ô bị dọc'}
+              </span>
             </div>
             <div
               onMouseLeave={() => setHoverGrid(null)}
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 2, background: 'rgba(0,0,0,0.2)', padding: 4, border: '1px solid rgba(255,255,255,0.05)', marginBottom: 12 }}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 2, background: 'rgba(0,0,0,0.2)', padding: 4, border: '1px solid rgba(255,255,255,0.05)', marginBottom: 12 }}
             >
-              {Array.from({ length: 10 }).map((_, r) =>
-                Array.from({ length: 10 }).map((_, c) => {
+              {Array.from({ length: 6 }).map((_, r) =>
+                Array.from({ length: 8 }).map((_, c) => {
+                  const cols = c + 1, rows = r + 1;
                   const lit = hoverGrid
                     ? (r < hoverGrid.rows && c < hoverGrid.cols)
                     : (r < layout.rows && c < layout.cols);
                   return (
                     <div
                       key={`${r}-${c}`}
-                      onMouseEnter={() => setHoverGrid({ rows: r + 1, cols: c + 1 })}
-                      onClick={() => apply(c + 1, r + 1)}
+                      onMouseEnter={() => setHoverGrid({ rows, cols })}
+                      onClick={() => apply(cols, rows)}
+                      title={`${cols}×${rows}`}
                       style={{ width: 16, height: 16, background: lit ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.04)', border: `1px solid ${lit ? 'rgba(245,158,11,0.8)' : 'rgba(255,255,255,0.08)'}`, cursor: 'pointer', transition: 'all 0.08s' }}
                     />
                   );

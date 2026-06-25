@@ -885,6 +885,14 @@ public class DevicesController : ControllerBase
         _db.RuleTriggerLogs.RemoveRange(ruleTriggerLogs);
 
         // 3. Xóa thiết bị chính
+        HttpContext.Items["AuditOldValue"] = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            name = device.Name,
+            type = device.Type,
+            protocol = device.Protocol,
+            status = device.Status
+        });
+
         _db.Devices.Remove(device);
         await _db.SaveChangesAsync();
         _ = _notifier.SendDeviceListChangedAsync("deleted", device.StationId, device.Id);

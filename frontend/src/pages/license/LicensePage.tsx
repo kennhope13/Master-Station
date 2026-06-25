@@ -336,7 +336,7 @@ export default function LicensePage() {
       return <div style={{ color: 'var(--admin-text-muted)', fontSize: 13, textAlign: 'center', padding: 20 }}>Đang tải trạng thái...</div>;
     }
 
-    if (!status.activated) {
+    if (!status || !status.activated) {
       return (
         <div className="status-box">
           <div className="status-row">
