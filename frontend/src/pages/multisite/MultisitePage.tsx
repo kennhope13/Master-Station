@@ -3246,7 +3246,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<MergedLogItem[]>([]);
   const [selectedLog, setSelectedLog] = useState<MergedLogItem | null>(null);
-  const [showDetail, setShowDetail] = useState(true);
   const calendarRef = useRef<HTMLDivElement>(null);
   const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
   const downloadDropdownRef = useRef<HTMLDivElement>(null);
@@ -3881,37 +3880,66 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
           )}
         </div>
 
-        {/* Detail panel */}
+        {/* Detail modal */}
         {selectedLog && (
-          <aside style={{
-            width: showDetail ? 320 : 28,
-            background: 'var(--admin-panel)',
-            border: '1px solid var(--admin-border)',
-            borderRadius: 3,
-            marginLeft: 6,
-            display: 'flex',
-            flexDirection: 'column',
-            transition: 'width .2s',
-            overflow: 'hidden',
-            flexShrink: 0,
-          }}>
-            <button
-              onClick={() => setShowDetail(!showDetail)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4, padding: '6px 8px',
-                border: 'none', background: 'var(--admin-layer-1)',
-                color: 'var(--admin-text)', cursor: 'pointer',
-                fontSize: '.58rem', fontWeight: 900, letterSpacing: '.08em',
-                borderBottom: '1px solid var(--admin-border)',
-              }}>
-              {showDetail ? <ChevronRight size={10} /> : <ChevronLeft size={10} />}
-              {showDetail && 'CHI TIẾT'}
-            </button>
-            {showDetail && (
-              <div style={{ flex: 1, overflow: 'auto', padding: 10 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div 
+            onClick={() => setSelectedLog(null)}
+            style={{ 
+              position: 'fixed', 
+              inset: 0, 
+              background: 'rgba(0,0,0,0.6)', 
+              zIndex: 10000, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center' 
+            }}
+          >
+            <div 
+              onClick={e => e.stopPropagation()}
+              style={{ 
+                width: 480, 
+                maxHeight: '85vh', 
+                border: '1px solid var(--admin-border)', 
+                background: 'var(--admin-panel)', 
+                borderRadius: 0,
+                display: 'flex', 
+                flexDirection: 'column', 
+                overflow: 'hidden', 
+                boxShadow: '0 16px 48px rgba(0,0,0,0.5)' 
+              }}
+            >
+              {/* Header */}
+              <div style={{ flexShrink: 0, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)', position: 'relative' }}>
+                <span style={{ fontSize: '.72rem', fontWeight: 800, letterSpacing: '.08em', color: 'var(--admin-text)' }}>CHI TIẾT NHẬT KÝ</span>
+                <button
+                  onClick={() => setSelectedLog(null)}
+                  style={{ 
+                    position: 'absolute', 
+                    right: 12, 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    width: 24, 
+                    height: 24, 
+                    background: 'transparent', 
+                    border: 'none', 
+                    color: 'var(--admin-text-muted)', 
+                    cursor: 'pointer', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center'
+                  }}
+                  title="Đóng"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* Info rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 14 }}>
                   <DetailRow label="THỜI GIAN" value={fmtDateTime(selectedLog.ts)} />
-                  <DetailRow label="TRẠM" value={selectedLog.stationName || '—'} />
+                  <DetailRow label="TRẠM" value={selectedLog.stationName || 'Hệ thống'} />
                   <DetailRow label="LOẠI" value={LOG_TYPE_LABELS[selectedLog.type]} />
                   <DetailRow label="HÀNH ĐỘNG" value={selectedLog.type === 'audit' ? formatAuditAction(selectedLog.action, selectedLog.entityType) : selectedLog.action} />
                   <DetailRow label="CHI TIẾT" value={summarizeAuditDetail(selectedLog)} />
@@ -3925,40 +3953,44 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                   {selectedLog.ruleName && <DetailRow label="RULE" value={selectedLog.ruleName} />}
                   {selectedLog.deviceName && <DetailRow label="THIẾT BỊ" value={selectedLog.deviceName} />}
                   {selectedLog.valueAtTrigger != null && <DetailRow label="GIÁ TRỊ" value={String(selectedLog.valueAtTrigger)} />}
-                  {selectedLog.conditionSnapshot && (
-                    <div>
-                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>ĐIỀU KIỆN</div>
-                      <pre style={{ fontSize: '.55rem', background: 'var(--admin-layer-2)', padding: 6, borderRadius: 3, overflow: 'auto', maxHeight: 100, margin: 0 }}>
-                        {selectedLog.conditionSnapshot}
-                      </pre>
-                    </div>
-                  )}
-                  {(selectedLog.oldValue || selectedLog.newValue) && (
-                    <div>
-                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>THAY ĐỔI</div>
-                      {buildChangeRows(selectedLog, stations, provinces).map((row, index) => (
-                        <div key={`${row.label}-${index}`} style={{ marginBottom: 8, padding: 8, background: 'var(--admin-layer-2)', borderRadius: 3 }}>
-                          <div style={{ fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text)', marginBottom: 6 }}>{row.label}</div>
-                          {row.before !== undefined && (
-                            <div style={{ marginBottom: row.after !== undefined ? 6 : 0 }}>
-                              <span style={{ fontSize: '.5rem', color: '#ef4444', fontWeight: 700 }}>TRƯỚC</span>
-                              <div style={{ fontSize: '.58rem', color: 'var(--admin-text)', marginTop: 2, wordBreak: 'break-word' }}>{row.before}</div>
-                            </div>
-                          )}
-                          {row.after !== undefined && (
-                            <div>
-                              <span style={{ fontSize: '.5rem', color: '#22c55e', fontWeight: 700 }}>SAU</span>
-                              <div style={{ fontSize: '.58rem', color: 'var(--admin-text)', marginTop: 2, wordBreak: 'break-word' }}>{row.after}</div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
+
+                {/* Điều kiện */}
+                {selectedLog.conditionSnapshot && (
+                  <div style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 14 }}>
+                    <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6 }}>ĐIỀU KIỆN KÍCH HOẠT</div>
+                    <pre style={{ fontSize: '.6rem', background: 'var(--admin-layer-2)', padding: 8, borderRadius: 0, border: '1px solid var(--admin-border)', overflow: 'auto', maxHeight: 120, margin: 0, color: 'var(--admin-text)', textAlign: 'left' }}>
+                      {selectedLog.conditionSnapshot}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Thay đổi */}
+                {(selectedLog.oldValue || selectedLog.newValue) && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>THAY ĐỔI CẤU HÌNH</div>
+                    {buildChangeRows(selectedLog, stations, provinces).map((row, index) => (
+                      <div key={`${row.label}-${index}`} style={{ padding: 12, background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0 }}>
+                        <div style={{ fontSize: '.6rem', fontWeight: 900, color: 'var(--admin-text)', marginBottom: 8, borderBottom: '1px solid var(--admin-border)', paddingBottom: 4 }}>{row.label}</div>
+                        {row.before !== undefined && (
+                          <div style={{ marginBottom: row.after !== undefined ? 8 : 0 }}>
+                            <span style={{ fontSize: '.5rem', color: '#ef4444', fontWeight: 700 }}>TRƯỚC:</span>
+                            <div style={{ fontSize: '.58rem', color: 'var(--admin-text-muted)', marginTop: 2, wordBreak: 'break-word', fontFamily: 'monospace' }}>{row.before}</div>
+                          </div>
+                        )}
+                        {row.after !== undefined && (
+                          <div>
+                            <span style={{ fontSize: '.5rem', color: '#22c55e', fontWeight: 700 }}>SAU:</span>
+                            <div style={{ fontSize: '.58rem', color: 'var(--admin-text)', marginTop: 2, wordBreak: 'break-word', fontFamily: 'monospace' }}>{row.after}</div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </aside>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -3967,9 +3999,13 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: '.65rem', fontWeight: 600, color: 'var(--admin-text)' }}>{value}</div>
+    <div style={{ display: 'flex', borderBottom: '1px solid var(--admin-border)', paddingBottom: 6, paddingTop: 2, gap: 12 }}>
+      <div style={{ width: 120, flexShrink: 0, fontSize: '.55rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '.05em', textTransform: 'uppercase' }}>
+        {label}
+      </div>
+      <div style={{ flex: 1, fontSize: '.65rem', fontWeight: 600, color: 'var(--admin-text)', wordBreak: 'break-all' }}>
+        {value}
+      </div>
     </div>
   );
 }
