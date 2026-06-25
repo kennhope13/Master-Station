@@ -4664,51 +4664,59 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
       const lv = levelCfg(selectedAlert.level);
       const st = statusCfg(selectedAlert.status);
       return (
-        <div style={{ width: 280, flexShrink: 0, borderLeft: '1px solid var(--admin-border)', background: 'var(--admin-panel)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Header */}
-          <div style={{ flexShrink: 0, height: 38, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 8, borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)' }}>
-            <span style={{ fontSize: '.6rem', fontWeight: 900, letterSpacing: '.08em', color: 'var(--admin-text)', flex: 1 }}>CHI TIẾT CẢNH BÁO</span>
-            <button
-              onClick={() => setSelectedAlert(null)}
-              style={{ width: 20, height: 20, background: 'transparent', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', lineHeight: 1 }}
-              title="Đóng"
-            >×</button>
-          </div>
-
-          {/* Body */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Badges */}
-            <div style={{ display: 'flex', gap: 6 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${lv.color}18`, border: `1px solid ${lv.color}40`, color: lv.color, fontSize: '.58rem', fontWeight: 900 }}>{lv.label}</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${st.color}18`, border: `1px solid ${st.color}40`, color: st.color, fontSize: '.58rem', fontWeight: 900 }}>{st.label}</span>
+        <div 
+          onClick={() => setSelectedAlert(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            style={{ width: 420, maxHeight: '85vh', border: '1px solid var(--admin-border)', background: 'var(--admin-panel)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}
+          >
+            {/* Header */}
+            <div style={{ flexShrink: 0, height: 38, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 8, borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)' }}>
+              <span style={{ fontSize: '.6rem', fontWeight: 900, letterSpacing: '.08em', color: 'var(--admin-text)', flex: 1 }}>CHI TIẾT CẢNH BÁO</span>
+              <button
+                onClick={() => setSelectedAlert(null)}
+                style={{ width: 20, height: 20, background: 'transparent', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', lineHeight: 1 }}
+                title="Đóng"
+              >×</button>
             </div>
 
-            {/* Nội dung */}
-            <div>
-              <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>NỘI DUNG</div>
-              <div style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--admin-text)', lineHeight: 1.5 }}>{cleanAlertMessage(selectedAlert.message)}</div>
-            </div>
-
-            {/* Info rows */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <AlertDetailRow label="THỜI GIAN" value={fmtDateTime(selectedAlert.triggeredAt)} mono />
-              <AlertDetailRow label="TỈNH / TP" value={selProvince} />
-              <AlertDetailRow label="TRẠM" value={selectedAlert.stationName || selStation?.name || '—'} />
-              <AlertDetailRow label="LOẠI" value={alertSourceLabel(selectedAlert.source)} />
-              {selectedAlert.value != null && <AlertDetailRow label="GIÁ TRỊ" value={String(selectedAlert.value)} mono />}
-              {selectedAlert.pointId && <AlertDetailRow label="ĐIỂM ĐO" value={selectedAlert.pointId} mono />}
-              {selectedAlert.ackedAt && <AlertDetailRow label="XÁC NHẬN LÚC" value={fmtDateTime(selectedAlert.ackedAt)} mono />}
-              {selectedAlert.ackNote && <AlertDetailRow label="GHI CHÚ XÁC NHẬN" value={selectedAlert.ackNote} />}
-              {selectedAlert.closedAt && <AlertDetailRow label="ĐÓNG LÚC" value={fmtDateTime(selectedAlert.closedAt)} mono />}
-            </div>
-
-            {/* Ảnh */}
-            {selectedAlert.imageUrl && (
-              <div>
-                <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6 }}>ẢNH CHỤP</div>
-                <img src={selectedAlert.imageUrl} alt="alert" style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block' }} />
+            {/* Body */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Badges */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${lv.color}18`, border: `1px solid ${lv.color}40`, color: lv.color, fontSize: '.58rem', fontWeight: 900 }}>{lv.label}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', background: `${st.color}18`, border: `1px solid ${st.color}40`, color: st.color, fontSize: '.58rem', fontWeight: 900 }}>{st.label}</span>
               </div>
-            )}
+
+              {/* Nội dung */}
+              <div>
+                <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 4 }}>NỘI DUNG</div>
+                <div style={{ fontSize: '.68rem', fontWeight: 700, color: 'var(--admin-text)', lineHeight: 1.5 }}>{cleanAlertMessage(selectedAlert.message)}</div>
+              </div>
+
+              {/* Info rows */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <AlertDetailRow label="THỜI GIAN" value={fmtDateTime(selectedAlert.triggeredAt)} mono />
+                <AlertDetailRow label="TỈNH / TP" value={selProvince} />
+                <AlertDetailRow label="TRẠM" value={selectedAlert.stationName || selStation?.name || '—'} />
+                <AlertDetailRow label="LOẠI" value={alertSourceLabel(selectedAlert.source)} />
+                {selectedAlert.value != null && <AlertDetailRow label="GIÁ TRỊ" value={String(selectedAlert.value)} mono />}
+                {selectedAlert.pointId && <AlertDetailRow label="ĐIỂM ĐO" value={selectedAlert.pointId} mono />}
+                {selectedAlert.ackedAt && <AlertDetailRow label="XÁC NHẬN LÚC" value={fmtDateTime(selectedAlert.ackedAt)} mono />}
+                {selectedAlert.ackNote && <AlertDetailRow label="GHI CHÚ XÁC NHẬN" value={selectedAlert.ackNote} />}
+                {selectedAlert.closedAt && <AlertDetailRow label="ĐÓNG LÚC" value={fmtDateTime(selectedAlert.closedAt)} mono />}
+              </div>
+
+              {/* Ảnh */}
+              {selectedAlert.imageUrl && (
+                <div>
+                  <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6 }}>ẢNH CHỤP</div>
+                  <img src={selectedAlert.imageUrl} alt="alert" style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block' }} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       );
