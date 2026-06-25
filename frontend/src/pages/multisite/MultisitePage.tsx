@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore, useAuthStore } from '@/store';
 import type { Station, AlertItem, AuditLogEntry, LoginLogEntry, NotifyLogEntry, RuleTriggerLogEntry, Province, MaintenanceTask, Team, Device } from '@/types/api.types';
@@ -3423,6 +3424,27 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     URL.revokeObjectURL(url);
   };
 
+  const downloadXlsx = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất XLSX');
+      return;
+    }
+    const rows = filtered.map(l => ({
+      'Thời gian': fmtDateTime(l.ts),
+      'Loại': l.type === 'audit' ? 'Hệ thống' : l.type === 'login' ? 'Đăng nhập' : l.type === 'notify' ? 'Thông báo' : 'Luật cảnh báo',
+      'Tài khoản': l.user,
+      'Hành động': l.action,
+      'Chi tiết/Đối tượng': l.detail,
+      'Trạm': l.stationName || 'Hệ thống',
+      'IP Address': l.ipAddress || '—',
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 18 }, { wch: 22 }, { wch: 30 }, { wch: 24 }, { wch: 18 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'NhatKyHeThong');
+    XLSX.writeFile(wb, `NhatKyHeThong_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const downloadPdf = () => {
     if (filtered.length === 0) {
       alert('Không có dữ liệu để xuất PDF');
@@ -3752,6 +3774,30 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
             >
               <button
                 onClick={() => {
+                  downloadXlsx();
+                  setDownloadDropdownOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--admin-text)',
+                  padding: '6px 12px',
+                  fontSize: '.65rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <FileSpreadsheet size={12} style={{ color: 'var(--admin-accent)' }} />
+                <span>Tải file XLSX</span>
+              </button>
+              <button
+                onClick={() => {
                   downloadCsv();
                   setDownloadDropdownOpen(false);
                 }}
@@ -3972,20 +4018,27 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                 )}
 
                 {/* Thay đổi */}
-                {/* Thay đổi */}
                 {(selectedLog.oldValue || selectedLog.newValue) && (() => {
                   const rows = buildChangeRows(selectedLog, stations, provinces);
                   if (rows.length === 0) return null;
+                  
+                  const isCreate = selectedLog.action?.toLowerCase() === 'create';
+                  const isDelete = selectedLog.action?.toLowerCase() === 'delete';
+                  
+                  let sectionTitle = 'THAY ĐỔI CẤU HÌNH';
+                  if (isCreate) sectionTitle = 'THIẾT LẬP CẤU HÌNH';
+                  else if (isDelete) sectionTitle = 'CẤU HÌNH TRƯỚC KHI XÓA';
+                  
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>THAY ĐỔI CẤU HÌNH</div>
+                      <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 2 }}>{sectionTitle}</div>
                       <div style={{ border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.6rem' }}>
                           <thead>
                             <tr style={{ background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)' }}>
-                              <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '25%' }}>TRƯỜNG</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '37.5%' }}>TRƯỚC</th>
-                              <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '37.5%' }}>SAU</th>
+                              <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '30%' }}>THUỘC TÍNH</th>
+                              {!isCreate && <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: '35%' }}>GIÁ TRỊ CŨ</th>}
+                              {!isDelete && <th style={{ padding: '6px 8px', textAlign: 'left', fontWeight: 800, color: 'var(--admin-text-muted)', width: isCreate ? '70%' : '35%' }}>GIÁ TRỊ MỚI</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -3994,12 +4047,16 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
                                 <td style={{ padding: '8px', fontWeight: 700, color: 'var(--admin-text)', verticalAlign: 'top' }}>
                                   {row.label}
                                 </td>
-                                <td style={{ padding: '8px', color: '#ef4444', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
-                                  {row.before !== undefined ? row.before : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
-                                </td>
-                                <td style={{ padding: '8px', color: '#22c55e', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
-                                  {row.after !== undefined ? row.after : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
-                                </td>
+                                {!isCreate && (
+                                  <td style={{ padding: '8px', color: '#ef4444', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
+                                    {row.before !== undefined ? row.before : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
+                                  </td>
+                                )}
+                                {!isDelete && (
+                                  <td style={{ padding: '8px', color: '#22c55e', verticalAlign: 'top', wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '.58rem' }}>
+                                    {row.after !== undefined ? row.after : <span style={{ color: 'var(--admin-text-muted)', fontStyle: 'italic' }}>—</span>}
+                                  </td>
+                                )}
                               </tr>
                             ))}
                           </tbody>
@@ -4334,6 +4391,33 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
     URL.revokeObjectURL(url);
   };
 
+  const downloadXlsx = () => {
+    if (filtered.length === 0) {
+      alert('Không có dữ liệu để xuất XLSX');
+      return;
+    }
+    const rows = filtered.map(alert => {
+      const station = stations.find(s => s.id === alert.stationId);
+      const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || '—';
+      const lv = levelCfg(alert.level);
+      const st = statusCfg(alert.status);
+      return {
+        'Thời gian': fmtDateTime(alert.triggeredAt),
+        'Tỉnh': provinceName,
+        'Trạm con': alert.stationName || station?.name || '—',
+        'Loại cảnh báo': alertSourceLabel(alert.source),
+        'Nội dung': cleanAlertMessage(alert.message),
+        'Mức độ': lv.label,
+        'Trạng thái': st.label,
+      };
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 20 }, { wch: 18 }, { wch: 24 }, { wch: 18 }, { wch: 48 }, { wch: 14 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'NhatKyCanhBao');
+    XLSX.writeFile(wb, `NhatKyCanhBao_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const AL = {
     th: { padding: '8px 12px', textAlign: 'left' as const, fontSize: '.56rem', fontWeight: 900, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', background: 'var(--admin-layer-1)', borderBottom: '1px solid var(--admin-border)', whiteSpace: 'nowrap' as const },
     td: { padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,.03)', fontSize: '.7rem', verticalAlign: 'middle' as const },
@@ -4604,6 +4688,30 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
                 minWidth: 120,
               }}
             >
+              <button
+                onClick={() => {
+                  downloadXlsx();
+                  setDownloadDropdownOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--admin-text)',
+                  padding: '6px 12px',
+                  fontSize: '.65rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--admin-hover)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <FileSpreadsheet size={12} style={{ color: 'var(--admin-accent)' }} />
+                <span>Tải file XLSX</span>
+              </button>
               <button
                 onClick={() => {
                   downloadCsv();
