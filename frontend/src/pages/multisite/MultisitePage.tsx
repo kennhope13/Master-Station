@@ -3552,14 +3552,13 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
       <div style={S.toolbar}>
         <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
           <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>NGÀY</span>
-          <Calendar size={12} style={S.muted} />
           <button
             type="button"
             onClick={() => setCalendarOpen(v => !v)}
             style={S.dateButton}
             aria-label="Chọn ngày xem nhật ký"
           >
-            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Lịch'}</span>
+            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : todayIso.split('-').reverse().join('/')}</span>
             <Calendar size={12} />
           </button>
           {calendarOpen && (
@@ -3708,14 +3707,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
         />
 
         <div style={{ flex: 1 }} />
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--admin-layer-2)', borderRadius: 3, border: '1px solid var(--admin-border)', padding: '0 8px' }}>
-          <Search size={12} style={S.muted} />
-          <input type="text" placeholder="TÌM KIẾM..." value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            style={{ ...S.input, border: 'none', background: 'transparent', minWidth: 140, padding: 0 }} />
-          {searchText && <X size={12} style={{ ...S.muted, cursor: 'pointer' }} onClick={() => setSearchText('')} />}
-        </div>
 
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
@@ -4359,7 +4350,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
       {/* Filter bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <div ref={calendarRef} style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
-          <Calendar size={12} style={{ color: 'var(--admin-text-muted)' }} />
+          <span style={{ fontSize: '.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.1em' }}>NGÀY</span>
           <button
             type="button"
             onClick={() => setCalendarOpen(v => !v)}
@@ -4373,7 +4364,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
               fontSize: '.62rem',
               fontWeight: 600,
               outline: 'none',
-              width: 100,
+              width: 110,
               fontFamily: 'monospace',
               display: 'inline-flex',
               alignItems: 'center',
@@ -4382,7 +4373,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
             }}
             aria-label="Chọn ngày xem nhật ký"
           >
-            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Lịch'}</span>
+            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : todayIso.split('-').reverse().join('/')}</span>
             <Calendar size={12} />
           </button>
           {calendarOpen && (

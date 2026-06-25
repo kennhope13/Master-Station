@@ -232,6 +232,9 @@ function PresetList({
                   <div style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)' }}>
                     Lưới {p.layout.cols}×{p.layout.rows} &nbsp;·&nbsp; {camCount}/{maxCells} camera
                   </div>
+                  <div style={{ fontSize: '0.55rem', color: 'var(--admin-text-muted)', opacity: 0.6 }}>
+                    {new Date(p.createdAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
 
                 {/* Actions */}
