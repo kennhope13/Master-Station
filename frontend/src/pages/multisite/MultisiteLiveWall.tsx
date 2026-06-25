@@ -806,6 +806,7 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
             <div style={{ fontSize: '9px', fontWeight: 700, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nhập tùy chỉnh</div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
+                className="ms-wall-number-input"
                 type="number" min={1} max={20} value={customCols}
                 onChange={e => setCustomCols(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && applyCustom()}
@@ -814,6 +815,7 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
               />
               <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px' }}>×</span>
               <input
+                className="ms-wall-number-input"
                 type="number" min={1} max={20} value={customRows}
                 onChange={e => setCustomRows(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && applyCustom()}
@@ -827,6 +829,17 @@ function LayoutPicker({ layout, onChange }: { layout: { cols: number; rows: numb
                 ÁP DỤNG
               </button>
             </div>
+            <style>{`
+              .ms-wall-number-input {
+                appearance: textfield;
+                -moz-appearance: textfield;
+              }
+              .ms-wall-number-input::-webkit-outer-spin-button,
+              .ms-wall-number-input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+              }
+            `}</style>
 
           </div>
         </>

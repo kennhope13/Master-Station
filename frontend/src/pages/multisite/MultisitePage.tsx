@@ -3580,7 +3580,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
             style={S.dateButton}
             aria-label="Chọn ngày xem nhật ký"
           >
-            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Tất cả'}</span>
+            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Lịch'}</span>
             <Calendar size={12} />
           </button>
           {calendarOpen && (
@@ -4389,7 +4389,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
             }}
             aria-label="Chọn ngày xem nhật ký"
           >
-            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Tất cả'}</span>
+            <span>{selectedDate ? selectedDate.split('-').reverse().join('/') : 'Lịch'}</span>
             <Calendar size={12} />
           </button>
           {calendarOpen && (
