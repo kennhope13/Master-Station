@@ -54,6 +54,11 @@ class StationApiService {
   getRemoteCameras = stationService.getRemoteCameras.bind(stationService);
   getRemoteToken = stationService.getRemoteToken.bind(stationService);
   getRemoteAlerts = stationService.getRemoteAlerts.bind(stationService);
+  getRemotePredictionHistory = stationService.getRemotePredictionHistory.bind(stationService);
+  getRemoteLatestPrediction = stationService.getRemoteLatestPrediction.bind(stationService);
+  getRemoteTrainingStatus = stationService.getRemoteTrainingStatus.bind(stationService);
+  getRemotePredictionConfig = stationService.getRemotePredictionConfig.bind(stationService);
+  getRemoteDetections = stationService.getRemoteDetections.bind(stationService);
 
   // ── Devices ───────────────────────────────────────────────
   getDevices = deviceService.getDevices.bind(deviceService);
@@ -176,6 +181,8 @@ class StationApiService {
   activateLicense = systemService.activateLicense.bind(systemService);
   validateLicenseKey = systemService.validateLicenseKey.bind(systemService);
   getLicenseLimits = systemService.getLicenseLimits.bind(systemService);
+  getLicenseRequest = systemService.getLicenseRequest.bind(systemService);
+  importLicense = systemService.importLicense.bind(systemService);
 }
 
 export const stationApi = new StationApiService();

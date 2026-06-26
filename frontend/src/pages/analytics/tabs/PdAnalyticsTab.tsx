@@ -11,6 +11,7 @@ export default function PdAnalyticsTab() {
   const [cameras, setCameras] = useState<Device[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
   const [aiStats, setAiStats] = useState<{ db?: number | null, hz?: number | null, active_boundary?: string | null }>({});
   const [eventHistory, setEventHistory] = useState<any[]>([]);
@@ -68,9 +69,17 @@ export default function PdAnalyticsTab() {
     return 'event'; // "Vượt ngưỡng" nhưng chưa tới mức cảnh báo
   }, []);
 
-  const loadHistory = useCallback(async (camId: string, currentBoundaries: any[]) => {
+  const loadHistory = useCallback(async (camId: string, currentBoundaries: any[], dateStr: string) => {
     try {
-      const params = new URLSearchParams({ deviceId: camId, type: 'partial_discharge', limit: '40' });
+      const fromDate = `${dateStr}T00:00:00`;
+      const toDate = `${dateStr}T23:59:59`;
+      const params = new URLSearchParams({
+        deviceId: camId,
+        type: 'partial_discharge',
+        from: fromDate,
+        to: toDate,
+        limit: '100'
+      });
       const data = await stationApi.getDetections(params.toString());
       // Map to consistent format
       setEventHistory(data.reverse().map((d: any) => {
@@ -92,10 +101,10 @@ export default function PdAnalyticsTab() {
     stationApi.getBoundaries(selectedCamera.id, 'pd')
       .then(bs => {
         setBoundaries(bs);
-        loadHistory(selectedCamera.id, bs);
+        loadHistory(selectedCamera.id, bs, selectedDate);
       })
       .catch(() => setBoundaries([]));
-  }, [selectedCamera, loadHistory]);
+  }, [selectedCamera, loadHistory, selectedDate]);
 
   // Poll real-time PD state for the big number only
   useEffect(() => {
@@ -237,161 +246,179 @@ export default function PdAnalyticsTab() {
   );
 
   return (
-    <div style={{ display: 'flex', height: '100%', gap: 12, overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 12, overflow: 'hidden' }}>
       
-      {/* SIDEBAR */}
-      <div style={{ width: 340, display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0, height: '100%' }}>
-        {/* Stream Card */}
-        <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, overflow: 'hidden', flexShrink: 0 }}>
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--admin-layer-1)' }}>
-            <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>LUỒNG PD TRỰC TIẾP</span>
-            {cameras.length > 0 && (
-              <select value={selectedCamera?.id || ''} onChange={(e) => setSelectedCamera(cameras.find(c => c.id === e.target.value) || null)} style={{ background: 'transparent', border: 'none', color: 'var(--admin-accent)', fontSize: '.65rem', cursor: 'pointer', fontWeight: 700, outline: 'none' }}>
-                {cameras.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            )}
-          </div>
-          <div style={{ aspectRatio: '16/9', background: '#000', position: 'relative', overflow: 'hidden' }}>
-             {streamUrl ? (
-               <>
-                 <iframe src={streamUrl} style={{ width: '100%', height: '100%', border: 'none' }} allow="autoplay; fullscreen" />
-                 
-                 {/* BOUNDARY OVERLAY */}
-                 <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
-                    <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-                      {boundaries.map(b => {
-                        let poly: [number, number][] = [];
-                        try { poly = JSON.parse(b.polygon); } catch { return null; }
-                        if (poly.length < 2) return null;
-                        
-                        const isActive = aiStats.active_boundary === b.name;
-                        const color = isActive ? '#ef4444' : '#10b981';
-                        const points = poly.map(p => `${p[0] * 100},${p[1] * 100}`).join(' ');
-
-                        return (
-                          <polygon
-                            key={b.id}
-                            points={points}
-                            fill={isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.05)'}
-                            stroke={color}
-                            strokeWidth={isActive ? 3 : 1.5}
-                            vectorEffect="non-scaling-stroke"
-                          />
-                        );
-                      })}
-                    </svg>
-                    
-                    {/* LABELS */}
-                    {boundaries.map(b => {
-                        let poly: [number, number][] = [];
-                        try { poly = JSON.parse(b.polygon); } catch { return null; }
-                        if (poly.length === 0) return null;
-                        
-                        const isActive = aiStats.active_boundary === b.name;
-                        const color = isActive ? '#ef4444' : '#10b981';
-                        
-                        // Calculate center
-                        const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length * 100;
-                        const cy = poly.reduce((s, p) => s + p[1], 0) / poly.length * 100;
-
-                        return (
-                          <div key={b.id} style={{ 
-                            position: 'absolute', left: `${cx}%`, top: `${cy}%`,
-                            transform: 'translate(-50%, -50%)',
-                            background: 'rgba(13,17,23,0.9)', padding: '1px 4px', borderRadius: 2,
-                            color: '#fff', fontSize: 8, fontWeight: 700, pointerEvents: 'none',
-                            border: isActive ? `1px solid ${color}` : '1px solid rgba(255,255,255,0.15)',
-                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
-                            boxShadow: isActive ? `0 0 4px ${color}44` : 'none',
-                            zIndex: isActive ? 20 : 10,
-                            transition: 'all 0.3s ease'
-                          }}>
-                            <div style={{ opacity: 0.85, fontSize: 8 }}>
-                              {isActive && <span style={{ marginRight: 2 }}>⚡</span>}{b.name}
-                            </div>
-                            <div style={{ 
-                              color: isActive ? color : 'rgba(255,255,255,0.7)', 
-                              fontSize: '9px', 
-                              fontFamily: 'var(--admin-font-mono)', 
-                              borderTop: '1px solid rgba(255,255,255,0.1)', 
-                              paddingTop: 0, 
-                              marginTop: 0, 
-                              fontWeight: 800 
-                            }}>
-                              {aiStats.db != null ? `${aiStats.db.toFixed(1)} dB` : '-- dB'}
-                            </div>
-                          </div>
-                        );
-                    })}
-                 </div>
-               </>
-             ) : (
-               <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>KHÔNG CÓ LUỒNG</div>
-             )}
-          </div>
+      {/* TOOLBAR */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', padding: '8px 16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
+           <div style={{ fontSize: '.75rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.5px' }}>XEM LỊCH SỬ NGÀY:</div>
+           <input 
+             type="date" 
+             value={selectedDate} 
+             onChange={(e) => setSelectedDate(e.target.value)}
+             style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', fontSize: '.75rem', padding: '4px 10px', borderRadius: 2, outline: 'none', cursor: 'pointer', fontFamily: 'var(--admin-font-mono)' }}
+           />
         </div>
-
-        {/* Stats Card */}
-        <div style={{ flex: 1, background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)', fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)' }}>CHỈ SỐ THỰC TẾ</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 4, padding: '6px 12px', background: 'var(--admin-layer-2)', borderBottom: '1px solid var(--admin-border)', fontSize: '.52rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>
-            <span>ĐỐI TƯỢNG</span> <span style={{ textAlign: 'right' }}>LIVE (dB)</span>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: '1px dashed var(--admin-border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.75rem', fontWeight: 700, color: 'var(--admin-text)' }}>
-                <Zap size={14} style={{ color: 'var(--admin-accent)' }} /> Hiện tại
-              </div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--admin-accent)', fontFamily: 'var(--font-mono)' }}>
-                {aiStats.db != null ? aiStats.db.toFixed(1) : '--'} <span style={{fontSize:10}}>dB</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div style={{ background: 'rgba(0,0,0,0.1)', padding: '8px', borderRadius: 4, border: '1px solid var(--admin-border)' }}>
-                <div style={{ fontSize: '9px', color: 'var(--admin-text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Đỉnh (Peak)</div>
-                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#fff' }}>
-                  {eventHistory.length > 0 ? Math.max(...eventHistory.map(h => h.db)).toFixed(1) : '--'}
-                </div>
-              </div>
-              <div style={{ background: 'rgba(0,0,0,0.1)', padding: '8px', borderRadius: 4, border: '1px solid var(--admin-border)' }}>
-                <div style={{ fontSize: '9px', color: 'var(--admin-text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Số lần vượt</div>
-                <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--admin-warning)' }}>
-                  {eventHistory.length}
-                </div>
-              </div>
-            </div>
-          </div>
+        <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', fontWeight: 600 }}>
+           <span style={{ color: 'var(--admin-accent)' }}>●</span> TỰ ĐỘNG CẬP NHẬT (10S)
         </div>
       </div>
 
-      {/* MAIN AREA */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minWidth: 0 }}>
-        
-        {/* Chart Card */}
-        <div style={{ flex: 1, background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
-          <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '.8px', textAlign: 'center' }}>
-              PHÂN TÍCH TẦN SUẤT VÀ CƯỜNG ĐỘ PHÓNG ĐIỆN VƯỢT NGƯỠNG
+      <div style={{ display: 'flex', flex: 1, gap: 12, overflow: 'hidden', minHeight: 0 }}>
+        {/* SIDEBAR */}
+        <div style={{ width: 340, display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0, height: '100%' }}>
+          {/* Stream Card */}
+          <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, overflow: 'hidden', flexShrink: 0 }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--admin-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--admin-layer-1)' }}>
+              <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>LUỒNG PD TRỰC TIẾP</span>
+              {cameras.length > 0 && (
+                <select value={selectedCamera?.id || ''} onChange={(e) => setSelectedCamera(cameras.find(c => c.id === e.target.value) || null)} style={{ background: 'transparent', border: 'none', color: 'var(--admin-accent)', fontSize: '.65rem', cursor: 'pointer', fontWeight: 700, outline: 'none' }}>
+                  {cameras.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              )}
+            </div>
+            <div style={{ aspectRatio: '16/9', background: '#000', position: 'relative', overflow: 'hidden' }}>
+               {streamUrl ? (
+                 <>
+                   <iframe src={streamUrl} style={{ width: '100%', height: '100%', border: 'none' }} allow="autoplay; fullscreen" />
+                   
+                   {/* BOUNDARY OVERLAY */}
+                   <div style={{ position: 'absolute', inset: 0, zIndex: 10, pointerEvents: 'none' }}>
+                      <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
+                        {boundaries.map(b => {
+                          let poly: [number, number][] = [];
+                          try { poly = JSON.parse(b.polygon); } catch { return null; }
+                          if (poly.length < 2) return null;
+                          
+                          const isActive = aiStats.active_boundary === b.name;
+                          const color = isActive ? '#ef4444' : '#10b981';
+                          const points = poly.map(p => `${p[0] * 100},${p[1] * 100}`).join(' ');
+  
+                          return (
+                            <polygon
+                              key={b.id}
+                              points={points}
+                              fill={isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.05)'}
+                              stroke={color}
+                              strokeWidth={isActive ? 3 : 1.5}
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          );
+                        })}
+                      </svg>
+                      
+                      {/* LABELS */}
+                      {boundaries.map(b => {
+                          let poly: [number, number][] = [];
+                          try { poly = JSON.parse(b.polygon); } catch { return null; }
+                          if (poly.length === 0) return null;
+                          
+                          const isActive = aiStats.active_boundary === b.name;
+                          const color = isActive ? '#ef4444' : '#10b981';
+                          
+                          // Calculate center
+                          const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length * 100;
+                          const cy = poly.reduce((s, p) => s + p[1], 0) / poly.length * 100;
+  
+                          return (
+                            <div key={b.id} style={{ 
+                              position: 'absolute', left: `${cx}%`, top: `${cy}%`,
+                              transform: 'translate(-50%, -50%)',
+                              background: 'rgba(13,17,23,0.9)', padding: '1px 4px', borderRadius: 2,
+                              color: '#fff', fontSize: 8, fontWeight: 700, pointerEvents: 'none',
+                              border: isActive ? `1px solid ${color}` : '1px solid rgba(255,255,255,0.15)',
+                              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
+                              boxShadow: isActive ? `0 0 4px ${color}44` : 'none',
+                              zIndex: isActive ? 20 : 10,
+                              transition: 'all 0.3s ease'
+                            }}>
+                              <div style={{ opacity: 0.85, fontSize: 8 }}>
+                                {isActive && <span style={{ marginRight: 2 }}>⚡</span>}{b.name}
+                              </div>
+                              <div style={{ 
+                                color: isActive ? color : 'rgba(255,255,255,0.7)', 
+                                fontSize: '9px', 
+                                fontFamily: 'var(--admin-font-mono)', 
+                                borderTop: '1px solid rgba(255,255,255,0.1)', 
+                                paddingTop: 0, 
+                                marginTop: 0, 
+                                fontWeight: 800 
+                              }}>
+                                {aiStats.db != null ? `${aiStats.db.toFixed(1)} dB` : '-- dB'}
+                              </div>
+                            </div>
+                          );
+                      })}
+                   </div>
+                 </>
+               ) : (
+                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--admin-text-muted)', fontSize: '.65rem' }}>KHÔNG CÓ LUỒNG</div>
+               )}
             </div>
           </div>
-          <div style={{ flex: 1, position: 'relative' }}>
-            <canvas ref={chartRef} />
+  
+          {/* Stats Card */}
+          <div style={{ flex: 1, background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--admin-border)', background: 'var(--admin-layer-1)', fontSize: '.65rem', fontWeight: 800, color: 'var(--admin-text-muted)' }}>CHỈ SỐ THỰC TẾ</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 4, padding: '6px 12px', background: 'var(--admin-layer-2)', borderBottom: '1px solid var(--admin-border)', fontSize: '.52rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>
+              <span>ĐỐI TƯỢNG</span> <span style={{ textAlign: 'right' }}>LIVE (dB)</span>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: '1px dashed var(--admin-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '.75rem', fontWeight: 700, color: 'var(--admin-text)' }}>
+                  <Zap size={14} style={{ color: 'var(--admin-accent)' }} /> Currently
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--admin-accent)', fontFamily: 'var(--font-mono)' }}>
+                  {aiStats.db != null ? aiStats.db.toFixed(1) : '--'} <span style={{fontSize:10}}>dB</span>
+                </div>
+              </div>
+  
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ background: 'rgba(0,0,0,0.1)', padding: '8px', borderRadius: 4, border: '1px solid var(--admin-border)' }}>
+                  <div style={{ fontSize: '9px', color: 'var(--admin-text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Đỉnh (Peak)</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 800, color: '#fff' }}>
+                    {eventHistory.length > 0 ? Math.max(...eventHistory.map(h => h.db)).toFixed(1) : '--'}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(0,0,0,0.1)', padding: '8px', borderRadius: 4, border: '1px solid var(--admin-border)' }}>
+                  <div style={{ fontSize: '9px', color: 'var(--admin-text-muted)', textTransform: 'uppercase', marginBottom: 2 }}>Số lần vượt</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--admin-warning)' }}>
+                    {eventHistory.length}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* Status Card */}
-        <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: '.58rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '.8px' }}>CHẾ ĐỘ PHÂN TÍCH</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-              <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--admin-text)' }}>GHI LẠI SỰ KIỆN VƯỢT NGƯỠNG</span>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--admin-accent)', animation: 'pulse 2s infinite' }} />
+  
+        {/* MAIN AREA */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minWidth: 0 }}>
+          
+          {/* Chart Card */}
+          <div style={{ flex: 1, background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: '20px', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+            <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '.8px', textAlign: 'center' }}>
+                PHÂN TÍCH TẦN SUẤT VÀ CƯỜNG ĐỘ PHÓNG ĐIỆN VƯỢT NGƯỠNG
+              </div>
+            </div>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <canvas ref={chartRef} />
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '.58rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>TRẠNG THÁI GHI</div>
-            <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--admin-accent)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>Chỉ ghi khi có phóng điện</div>
+  
+          {/* Status Card */}
+          <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: '.58rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '.8px' }}>CHẾ ĐỘ PHÂN TÍCH</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--admin-text)' }}>GHI LẠI SỰ KIỆN VƯỢT NGƯỠNG</span>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--admin-accent)', animation: 'pulse 2s infinite' }} />
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '.58rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' }}>TRẠNG THÁI GHI</div>
+              <div style={{ fontSize: '.85rem', fontWeight: 700, color: 'var(--admin-accent)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>Chỉ ghi khi có phóng điện</div>
+            </div>
           </div>
         </div>
       </div>

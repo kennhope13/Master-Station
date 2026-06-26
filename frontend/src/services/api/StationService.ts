@@ -81,6 +81,35 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-alerts?${params.toString()}`);
   }
 
+  /** Lấy lịch sử dự báo của trạm con qua proxy. */
+  async getRemotePredictionHistory(id: string, params: Record<string, string>): Promise<any> {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/stations/${id}/remote-prediction-history?${q}`);
+  }
+
+  /** Lấy dự báo mới nhất của trạm con qua proxy. */
+  async getRemoteLatestPrediction(id: string, params: Record<string, string>): Promise<any> {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/stations/${id}/remote-latest-prediction?${q}`);
+  }
+
+  /** Lấy trạng thái huấn luyện AI của trạm con qua proxy. */
+  async getRemoteTrainingStatus(id: string): Promise<any> {
+    return apiFetch(`/stations/${id}/remote-training-status`);
+  }
+
+  /** Lấy cấu hình dự báo AI của trạm con qua proxy. */
+  async getRemotePredictionConfig(id: string, params: Record<string, string>): Promise<any> {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/stations/${id}/remote-prediction-config?${q}`);
+  }
+
+  /** Lấy danh sách sự kiện phát hiện của trạm con qua proxy. */
+  async getRemoteDetections(id: string, params: Record<string, string>): Promise<any[]> {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`/stations/${id}/remote-detections?${q}`);
+  }
+
   /** Cập nhật thông tin trạm. */
   async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; apiUsername?: string; apiPassword?: string; webUrl?: string; status?: string }): Promise<void> {
     return apiMutate<void>('PUT', `/stations/${id}`, data);

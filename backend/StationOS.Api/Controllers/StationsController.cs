@@ -288,7 +288,7 @@ public class StationsController : ControllerBase
     /// <summary>Lấy chi tiết 1 trạm theo ID.</summary>
     /// <param name="id">Station ID.</param>
     /// <returns>Đối tượng Station hoặc 404.</returns>
-    [HttpGet("{id}")]
+    [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)
     {
         var s = await _db.Stations.FindAsync(id);
@@ -375,7 +375,7 @@ public class StationsController : ControllerBase
     /// <param name="id">Station ID.</param>
     /// <param name="req">Thông tin cần cập nhật.</param>
     /// <returns>Station đã cập nhật.</returns>
-    [HttpPut("{id}")]
+    [HttpPut("{id:guid}")]
     [HasPermission("station:manage")]
     public async Task<IActionResult> Update(Guid id, [FromBody] StationRequest req)
     {
@@ -419,7 +419,7 @@ public class StationsController : ControllerBase
     /// <summary>Xóa trạm. Chỉ admin, và chỉ khi trạm không còn thiết bị nào.</summary>
     /// <param name="id">Station ID.</param>
     /// <returns>204 NoContent hoặc 400 nếu còn thiết bị.</returns>
-    [HttpDelete("{id}")]
+    [HttpDelete("{id:guid}")]
     [HasPermission("station:manage")]
     public async Task<IActionResult> Delete(Guid id, [FromQuery] bool force = false)
     {
@@ -1313,6 +1313,140 @@ public class StationsController : ControllerBase
             sw.Stop();
             return Ok(new { reachable = false, responseMs = sw.ElapsedMilliseconds, error = ex.Message });
         }
+    }
+
+    private async Task<IActionResult> ProxyGetToStationAsync(Guid id, string subPath, string? queryString = null)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return NotFound(new { error = "station_not_found" });
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+        var threshold = DateTime.UtcNow.AddMinutes(-5);
+        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
+        if (!isOnline)
+        {
+            return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến." });
+        }
+
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+            {
+                return StatusCode(502, new { error = "auth_failed", message = $"Không thể đăng nhập trạm {station.Name}" });
+            }
+
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var url = $"{apiBase}{subPath}";
+            if (!string.IsNullOrEmpty(queryString))
+            {
+                url += queryString;
+            }
+
+            var resp = await client.GetAsync(url);
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return StatusCode(502, new { error = "auth_failed" });
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                resp = await client.GetAsync(url);
+            }
+
+            var body = await resp.Content.ReadAsStringAsync();
+            return new ContentResult
+            {
+                Content = body,
+                ContentType = "application/json",
+                StatusCode = (int)resp.StatusCode
+            };
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(502, new { error = "station_unreachable", detail = ex.Message });
+        }
+    }
+
+    private async Task<IActionResult> ProxyToLocalAiEngineAsync(string subPath, string? queryString = null)
+    {
+        try
+        {
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            var url = $"http://127.0.0.1:8100{subPath}";
+            if (!string.IsNullOrEmpty(queryString))
+            {
+                url += queryString;
+            }
+
+            var resp = await client.GetAsync(url);
+            var body = await resp.Content.ReadAsStringAsync();
+            return Content(body, "application/json");
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(503, new { error = "ai_engine_unreachable", detail = ex.Message });
+        }
+    }
+
+    [HttpGet("{id}/remote-prediction-history")]
+    public async Task<IActionResult> GetRemotePredictionHistory(Guid id)
+    {
+        return await ProxyGetToStationAsync(id, "/api/v1/stations/local-prediction-history", Request.QueryString.Value);
+    }
+
+    [HttpGet("{id}/remote-latest-prediction")]
+    public async Task<IActionResult> GetRemoteLatestPrediction(Guid id)
+    {
+        return await ProxyGetToStationAsync(id, "/api/v1/stations/local-latest-prediction", Request.QueryString.Value);
+    }
+
+    [HttpGet("{id}/remote-training-status")]
+    public async Task<IActionResult> GetRemoteTrainingStatus(Guid id)
+    {
+        return await ProxyGetToStationAsync(id, "/api/v1/stations/local-training-status", Request.QueryString.Value);
+    }
+
+    [HttpGet("{id}/remote-prediction-config")]
+    public async Task<IActionResult> GetRemotePredictionConfig(Guid id)
+    {
+        return await ProxyGetToStationAsync(id, "/api/v1/stations/local-prediction-config", Request.QueryString.Value);
+    }
+
+    [HttpGet("{id}/remote-detections")]
+    public async Task<IActionResult> GetRemoteDetections(Guid id)
+    {
+        return await ProxyGetToStationAsync(id, "/api/v1/detections", Request.QueryString.Value);
+    }
+
+    [HttpGet("local-prediction-history")]
+    public async Task<IActionResult> GetLocalPredictionHistory()
+    {
+        return await ProxyToLocalAiEngineAsync("/api/prediction/history", Request.QueryString.Value);
+    }
+
+    [HttpGet("local-latest-prediction")]
+    public async Task<IActionResult> GetLocalLatestPrediction()
+    {
+        return await ProxyToLocalAiEngineAsync("/api/latest-prediction", Request.QueryString.Value);
+    }
+
+    [HttpGet("local-training-status")]
+    public async Task<IActionResult> GetLocalTrainingStatus()
+    {
+        return await ProxyToLocalAiEngineAsync("/api/training-status", Request.QueryString.Value);
+    }
+
+    [HttpGet("local-prediction-config")]
+    public async Task<IActionResult> GetLocalPredictionConfig()
+    {
+        return await ProxyToLocalAiEngineAsync("/api/config", Request.QueryString.Value);
     }
 
     /// <summary>Tự động suy URL giao diện web từ URL API theo quy ước cổng.</summary>

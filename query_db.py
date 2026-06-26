@@ -3,6 +3,6 @@ conn = psycopg2.connect("dbname='StationOS_Central' user='postgres' host='localh
 cur = conn.cursor()
 
 print("--- ALL STATIONS ---")
-cur.execute("SELECT \"Id\", \"Name\", \"Code\", \"ProvinceId\", \"Location\" FROM \"Stations\";")
+cur.execute("SELECT \"Id\", \"Name\", \"ApiUrl\", \"LastContactAt\" FROM \"Stations\";")
 for r in cur.fetchall():
     print(r)

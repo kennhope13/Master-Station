@@ -11,11 +11,13 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Services.Licensing;
 
 namespace StationOS.Services;
 
@@ -23,13 +25,21 @@ public class LicenseService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly string _vendorSecret;
+    private readonly LicenseManager _licenseManager;
 
     // In-memory session tracking: tokenHash → ActiveSessionInfo
     private readonly ConcurrentDictionary<string, ActiveSessionInfo> _activeSessions = new();
 
     public LicenseService(IServiceScopeFactory scopeFactory, IConfiguration config)
+        : this(scopeFactory, config, new LicenseManager(config))
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public LicenseService(IServiceScopeFactory scopeFactory, IConfiguration config, LicenseManager licenseManager)
     {
         _scopeFactory = scopeFactory;
+        _licenseManager = licenseManager;
         _vendorSecret = Environment.GetEnvironmentVariable("STATIONOS_VENDOR_SECRET") 
                         ?? config["License:VendorSecret"] 
                         ?? throw new InvalidOperationException("Khóa bí mật nhà cung cấp (VendorSecret) chưa được cấu hình. Vui lòng thiết lập biến môi trường STATIONOS_VENDOR_SECRET.");
@@ -229,6 +239,32 @@ public class LicenseService
         });
 
         await db.SaveChangesAsync();
+
+        try
+        {
+            var licDir = Path.Combine(AppContext.BaseDirectory, "Licenses");
+            Directory.CreateDirectory(licDir);
+            var hardware = HardwareFingerprint.Capture();
+            var structured = LicenseParser.CreateStructuredLicenseJson(
+                LicensePackageKind.Base,
+                Guid.NewGuid(),
+                null,
+                null,
+                info.Tier,
+                DateTime.UtcNow,
+                info.ExpiresAt,
+                new LicenseHardwareBinding(hardware.CpuId, hardware.MainboardUuid, hardware.OsDiskSerial, hardware.MachineName, hardware.Platform),
+                new LicenseResourceBundle(info.MaxUsers, info.MaxStations, info.MaxCameras, info.MaxRoiPoints, info.MaxRoiRegions, info.MaxPdRegions),
+                _vendorSecret
+            );
+            await File.WriteAllTextAsync(Path.Combine(licDir, "base.lic"), structured);
+            _licenseManager.ReloadLicenses();
+        }
+        catch
+        {
+            // Nếu không thể sinh file license thì vẫn giữ luồng DB legacy cho tương thích ngược.
+        }
+
         return (true, "");
     }
 
@@ -240,6 +276,27 @@ public class LicenseService
     /// </summary>
     public async Task<LicenseStatusDto?> GetStatusAsync()
     {
+        var fileSnapshot = _licenseManager.GetEffectiveSnapshot();
+        if (fileSnapshot.HasLicense)
+        {
+            CleanExpiredSessions();
+            var fileActiveSessions = _activeSessions.Values.Count(s => !s.IsBypass);
+            var fileIsValid = !fileSnapshot.ExpiresAtUtc.HasValue || DateTime.UtcNow <= fileSnapshot.ExpiresAtUtc.Value;
+            return new LicenseStatusDto(
+                fileSnapshot.Tier,
+                fileSnapshot.MaxUsers,
+                fileSnapshot.MaxStations,
+                fileSnapshot.MaxCameras,
+                fileSnapshot.MaxRoiPoints,
+                fileSnapshot.MaxRoiRegions,
+                fileSnapshot.MaxPdRegions,
+                fileSnapshot.ExpiresAtUtc ?? DateTime.UtcNow,
+                fileSnapshot.ReloadedAtUtc,
+                fileActiveSessions,
+                fileIsValid
+            );
+        }
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
@@ -253,8 +310,8 @@ public class LicenseService
 
         CleanExpiredSessions();
 
-        var activeSessions = _activeSessions.Values.Count(s => !s.IsBypass);
-        var isValid = DateTime.UtcNow <= license.ExpiresAt;
+        var dbActiveSessions = _activeSessions.Values.Count(s => !s.IsBypass);
+        var dbIsValid = DateTime.UtcNow <= license.ExpiresAt;
 
         return new LicenseStatusDto(
             license.Tier,
@@ -266,8 +323,8 @@ public class LicenseService
             license.MaxPdRegions,
             license.ExpiresAt,
             license.ActivatedAt,
-            activeSessions,
-            isValid
+            dbActiveSessions,
+            dbIsValid
         );
     }
 
@@ -279,16 +336,24 @@ public class LicenseService
     /// </summary>
     public async Task<ResourceLimitInfo> CheckResourceLimitAsync(string resource)
     {
+        var fileSnapshot = _licenseManager.GetEffectiveSnapshot();
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var license = await GetActiveLicenseAsync(db);
+        var maxUsers = fileSnapshot.HasLicense ? fileSnapshot.MaxUsers : license?.MaxUsers ?? 10;
+        var maxStations = fileSnapshot.HasLicense ? fileSnapshot.MaxStations : license?.MaxStations ?? 10;
+        var maxCameras = fileSnapshot.HasLicense ? fileSnapshot.MaxCameras : license?.MaxCameras ?? 10;
+        var maxRoiPoints = fileSnapshot.HasLicense ? fileSnapshot.MaxRoiPoints : license?.MaxRoiPoints ?? 10;
+        var maxRoiRegions = fileSnapshot.HasLicense ? fileSnapshot.MaxRoiRegions : license?.MaxRoiRegions ?? 10;
+        var maxPdRegions = fileSnapshot.HasLicense ? fileSnapshot.MaxPdRegions : license?.MaxPdRegions ?? 10;
 
         int current = 0;
         int max = 999;
 
         // Chưa có license → mặc định giới hạn 10 cho mỗi loại tài nguyên (Trial/Demo)
-        if (license == null)
+        if (!fileSnapshot.HasLicense && license == null)
         {
             switch (resource.ToLower())
             {
@@ -318,26 +383,26 @@ public class LicenseService
         {
             case "stations":
                 current = await db.Stations.CountAsync();
-                max = license.MaxStations;
+                max = fileSnapshot.HasLicense ? maxStations : license!.MaxStations;
                 break;
             case "cameras":
             case "devices":
                 current = await db.Devices.CountAsync();
-                max = license.MaxCameras;
+                max = fileSnapshot.HasLicense ? maxCameras : license!.MaxCameras;
                 break;
             case "roi_points":
                 current = await db.RoiPoints.CountAsync();
-                max = license.MaxRoiPoints;
+                max = fileSnapshot.HasLicense ? maxRoiPoints : license!.MaxRoiPoints;
                 break;
             case "roi_regions":
                 current = await db.Set<StationOS.Data.Entities.Boundary>()
                     .CountAsync(b => b.Type.ToLower() == "roi");
-                max = license.MaxRoiRegions;
+                max = fileSnapshot.HasLicense ? maxRoiRegions : license!.MaxRoiRegions;
                 break;
             case "pd_regions":
                 current = await db.Set<StationOS.Data.Entities.Boundary>()
                     .CountAsync(b => b.Type.ToLower() == "pd");
-                max = license.MaxPdRegions;
+                max = fileSnapshot.HasLicense ? maxPdRegions : license!.MaxPdRegions;
                 break;
             default:
                 return new ResourceLimitInfo(resource, 0, 999, false);
@@ -352,6 +417,8 @@ public class LicenseService
     /// </summary>
     public async Task<List<ResourceLimitInfo>> GetAllResourceLimitsAsync()
     {
+        var fileSnapshot = _licenseManager.GetEffectiveSnapshot();
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
@@ -363,14 +430,15 @@ public class LicenseService
         var pdRegionCount = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "pd");
 
         var defaultMax = 10;
+        var useFileLicense = fileSnapshot.HasLicense;
 
         return new List<ResourceLimitInfo>
         {
-            new("stations", stationCount, license?.MaxStations ?? defaultMax, IsExceeded(stationCount, license?.MaxStations ?? defaultMax)),
-            new("cameras", cameraCount, license?.MaxCameras ?? defaultMax, IsExceeded(cameraCount, license?.MaxCameras ?? defaultMax)),
-            new("roi_points", roiPointCount, license?.MaxRoiPoints ?? defaultMax, IsExceeded(roiPointCount, license?.MaxRoiPoints ?? defaultMax)),
-            new("roi_regions", roiRegionCount, license?.MaxRoiRegions ?? defaultMax, IsExceeded(roiRegionCount, license?.MaxRoiRegions ?? defaultMax)),
-            new("pd_regions", pdRegionCount, license?.MaxPdRegions ?? defaultMax, IsExceeded(pdRegionCount, license?.MaxPdRegions ?? defaultMax)),
+            new("stations", stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? defaultMax), IsExceeded(stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? defaultMax))),
+            new("cameras", cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? defaultMax), IsExceeded(cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? defaultMax))),
+            new("roi_points", roiPointCount, useFileLicense ? fileSnapshot.MaxRoiPoints : (license?.MaxRoiPoints ?? defaultMax), IsExceeded(roiPointCount, useFileLicense ? fileSnapshot.MaxRoiPoints : (license?.MaxRoiPoints ?? defaultMax))),
+            new("roi_regions", roiRegionCount, useFileLicense ? fileSnapshot.MaxRoiRegions : (license?.MaxRoiRegions ?? defaultMax), IsExceeded(roiRegionCount, useFileLicense ? fileSnapshot.MaxRoiRegions : (license?.MaxRoiRegions ?? defaultMax))),
+            new("pd_regions", pdRegionCount, useFileLicense ? fileSnapshot.MaxPdRegions : (license?.MaxPdRegions ?? defaultMax), IsExceeded(pdRegionCount, useFileLicense ? fileSnapshot.MaxPdRegions : (license?.MaxPdRegions ?? defaultMax))),
         };
     }
 
@@ -402,6 +470,7 @@ public class LicenseService
                     || string.Equals(username, "multi", StringComparison.OrdinalIgnoreCase);
 
         // Lấy license hiện tại
+        var fileSnapshot = _licenseManager.GetEffectiveSnapshot();
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var license = await db.Licenses
@@ -409,8 +478,10 @@ public class LicenseService
             .OrderByDescending(l => l.ActivatedAt)
             .FirstOrDefaultAsync();
 
+        var effectiveMaxUsers = fileSnapshot.HasLicense ? fileSnapshot.MaxUsers : license?.MaxUsers ?? 10;
+
         // Chưa có license → cho vào (demo mode) nhưng gắn cờ
-        if (license == null)
+        if (!fileSnapshot.HasLicense && license == null)
         {
             _activeSessions[tokenHash] = new ActiveSessionInfo(
                 tokenHash, username, role, expiresAt, isBypass);
@@ -418,7 +489,8 @@ public class LicenseService
         }
 
         // License hết hạn → vẫn cho vào nhưng cảnh báo
-        if (DateTime.UtcNow > license.ExpiresAt)
+        if ((fileSnapshot.HasLicense && fileSnapshot.ExpiresAtUtc.HasValue && DateTime.UtcNow > fileSnapshot.ExpiresAtUtc.Value)
+            || (!fileSnapshot.HasLicense && license != null && DateTime.UtcNow > license.ExpiresAt))
         {
             _activeSessions[tokenHash] = new ActiveSessionInfo(
                 tokenHash, username, role, expiresAt, isBypass);
@@ -435,7 +507,7 @@ public class LicenseService
 
         // Đếm phiên non-bypass hiện tại
         var activeCount = _activeSessions.Values.Count(s => !s.IsBypass);
-        if (activeCount >= license.MaxUsers)
+        if (activeCount >= effectiveMaxUsers)
         {
             return (false, "max_users");
         }
@@ -457,6 +529,15 @@ public class LicenseService
 
     public void ClearAllSessions()
         => _activeSessions.Clear();
+
+    public string GenerateRequestString()
+        => _licenseManager.GenerateRequestString();
+
+    public async Task<LicenseImportOutcome> ImportLicenseAsync(IFormFile file)
+        => await _licenseManager.ImportLicenseAsync(file);
+
+    public void ReloadLicenses()
+        => _licenseManager.ReloadLicenses();
 
     private void CleanExpiredSessions()
     {
