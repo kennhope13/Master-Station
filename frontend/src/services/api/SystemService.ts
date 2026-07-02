@@ -6,6 +6,7 @@
 // ============================================================
 
 import { apiFetch, apiMutate } from './BaseApiService';
+import { authService } from '../AuthService';
 import type { UserItem, SmtpConfig, SyncStatus, PermissionInfo, Province, Team } from '@/types/api.types';
 
 export class SystemService {
@@ -168,6 +169,29 @@ export class SystemService {
   /** Tổng quan sử dụng tài nguyên hiện tại vs giới hạn license. */
   async getLicenseLimits(): Promise<any[]> {
     return apiFetch('/license/limits');
+  }
+
+  /** Xuất request string (vân tay phần cứng) để gửi cho nhà cung cấp tạo license offline. */
+  async getLicenseRequest(): Promise<any> {
+    return apiFetch('/license/request');
+  }
+
+  /** Nhập file license (.lic) — base hoặc add-on — để kích hoạt offline. */
+  async importLicense(file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = authService.getToken() || localStorage.getItem('station_token');
+    const baseUrl = (window as any).__API_BASE__ || '';
+    const res = await fetch(`${baseUrl}/api/v1/license/import`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error(err.message || 'Import thất bại');
+    }
+    return res.json();
   }
 }
 

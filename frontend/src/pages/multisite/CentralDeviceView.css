@@ -41,6 +41,19 @@
   flex-wrap: wrap;
 }
 
+.cdv-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-left: 3px solid var(--admin-accent);
+  padding-left: 10px;
+}
+
+.cdv-title-icon {
+  color: var(--admin-accent);
+  flex-shrink: 0;
+}
+
 .cdv-title {
   font-size: 0.68rem;
   font-weight: 900;
@@ -49,6 +62,17 @@
   color: var(--admin-text);
   margin: 0;
   white-space: nowrap;
+}
+
+.cdv-title-code {
+  font-size: 0.52rem;
+  font-weight: 700;
+  font-family: var(--admin-font-mono);
+  color: var(--admin-accent);
+  background: rgba(var(--admin-accent-rgb, 14 165 233) / 0.1);
+  border: 1px solid rgba(var(--admin-accent-rgb, 14 165 233) / 0.25);
+  padding: 1px 6px;
+  letter-spacing: 0.06em;
 }
 
 /* Back button */
@@ -75,36 +99,21 @@
 }
 
 /* Auto-refresh indicator */
-.cdv-refresh-indicator {
+.cdv-refresh-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.55rem;
-  color: var(--admin-text-muted);
-  font-weight: 700;
-  white-space: nowrap;
-}
-.cdv-refresh-indicator.active {
-  color: var(--admin-accent);
-}
-.cdv-refresh-indicator button {
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   border: 1px solid var(--admin-border);
   border-radius: 2px;
   background: var(--admin-layer-2);
   color: var(--admin-text-muted);
-  font-size: 0.48rem;
-  font-weight: 700;
   cursor: pointer;
-  padding: 1px 5px;
+  flex-shrink: 0;
 }
-.cdv-refresh-indicator button:hover {
-  border-color: var(--admin-text-muted);
-  color: var(--admin-text);
-}
-.cdv-refresh-indicator button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
+.cdv-refresh-btn:hover { color: var(--admin-text); border-color: var(--admin-text-muted); }
+.cdv-refresh-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* Search box */
 .cdv-search-box {
@@ -181,6 +190,22 @@
 .cdv-chip.sort {
   font-size: 0.52rem;
   letter-spacing: 0.03em;
+}
+
+/* Filter label + dropdown group */
+.cdv-filter-label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.cdv-filter-label > span {
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--admin-text-muted);
+  white-space: nowrap;
 }
 
 /* Select dropdown */

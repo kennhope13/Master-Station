@@ -102,6 +102,27 @@ function createWindow() {
   mainWindow.maximize();
   mainWindow.focus();
 
+  // Live wall popup — frameless, no OS chrome, pure camera grid
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.includes('/live-wall')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          frame: false,
+          titleBarStyle: 'hidden',
+          autoHideMenuBar: true,
+          backgroundColor: '#070c14',
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: false,
+          },
+        },
+      };
+    }
+    return { action: 'allow' };
+  });
+
   // Handle network/load failure for remote URLs
   mainWindow.webContents.on('did-fail-load', async (event, errorCode, errorDescription, validatedURL) => {
     console.log(`Failed to load URL: ${validatedURL}, error: ${errorDescription} (${errorCode})`);

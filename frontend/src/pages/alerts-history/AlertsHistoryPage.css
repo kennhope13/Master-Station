@@ -10,7 +10,7 @@
   background: #000 !important;
   color: #c1c7cd;
   overflow: hidden;
-  font-family: "JetBrains Mono", "Roboto Mono", monospace !important;
+  font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", monospace !important;
 }
 
 /* ─── TOP BAR ───────────────────── */

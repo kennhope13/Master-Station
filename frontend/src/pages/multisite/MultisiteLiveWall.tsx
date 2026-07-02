@@ -308,7 +308,7 @@ function PresetList({
                 </button>
                 <button
                   onClick={() => {
-                    window.open(`/live-wall?presetId=${encodeURIComponent(p.id)}`, `wall_${p.id}`, 'noopener,noreferrer,width=1440,height=900');
+                    window.open(`/live-wall?presetId=${encodeURIComponent(p.id)}`, `wall_${p.id}`, 'noopener,noreferrer,width=1440,height=900,toolbar=no,location=no,menubar=no,status=no,scrollbars=no');
                     setOpenDropdown(null);
                   }}
                   style={{ width: '100%', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 9, background: 'transparent', border: 'none', color: 'var(--admin-text)', fontSize: '0.66rem', fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}

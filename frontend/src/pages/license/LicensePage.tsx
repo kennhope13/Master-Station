@@ -99,12 +99,11 @@ export default function LicensePage() {
   
   const [status, setStatus] = useState<LicenseStatus | null>(cachedStatusRef.current);
   const [limits, setLimits] = useState<ResourceLimit[]>(cachedLimitsRef.current);
-  const [key, setKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(cachedStatusRef.current === null);
   const [limitsLoading, setLimitsLoading] = useState(cachedLimitsRef.current.length === 0);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importMsg, setImportMsg] = useState('');
 
   const canManageLicense = authService.hasPermission('license:manage');
 
@@ -296,25 +295,45 @@ export default function LicensePage() {
     },
   }, []);
 
-  const handleActivate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!key.trim()) {
-      setErrorMsg('Vui lòng nhập license key');
+  // ── Offline license request ──────────────────────────────
+  const handleRequest = async () => {
+    setLoading(true);
+    setImportMsg('');
+    try {
+      const data = await stationApi.getLicenseRequest();
+      const request = data?.request ?? JSON.stringify(data, null, 2);
+
+      const blob = new Blob([request], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data?.fileName || 'StationMonitor_Request.licreq';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setImportMsg(err?.message ?? 'Lỗi tạo yêu cầu');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Import license file (.lic) ───────────────────────────
+  const handleImport = async () => {
+    if (!importFile) {
+      setImportMsg('Vui lòng chọn file license (.lic)');
       return;
     }
-
     setLoading(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
+    setImportMsg('');
     try {
-      await stationApi.activateLicense(key.trim());
-      setSuccessMsg('Kích hoạt thành công! Đang tải lại...');
-      setKey('');
+      const data = await stationApi.importLicense(importFile);
+      setImportMsg(data?.message ?? 'License đã nhập thành công!');
+      setImportFile(null);
       await refreshLicenseData(false);
-      setTimeout(() => navigate('/dashboard'), 1500);
     } catch (err: any) {
-      setErrorMsg(err?.message ?? 'Không thể kết nối backend');
+      setImportMsg(err?.message ?? 'Lỗi nhập license');
     } finally {
       setLoading(false);
     }
@@ -475,7 +494,10 @@ export default function LicensePage() {
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
-            <h1>Quản lý License</h1>
+            <div className="license-title-row">
+              <button className="btn-license-back" onClick={() => navigate(-1)} title="Quay lại">←</button>
+              <h1>Quản lý License</h1>
+            </div>
             <p>Kích hoạt bản quyền phần mềm StationMonitor</p>
           </div>
 
@@ -484,52 +506,58 @@ export default function LicensePage() {
 
           {canManageLicense && (
             <div className="license-activate-section" id="activateSection">
-              <h3>Kích hoạt License Key</h3>
+              <div className="license-offline-divider"></div>
+              <h3>Kích hoạt Offline</h3>
               <p className="license-hint">
-                Nhập license key do nhà cung cấp cấp. Hỗ trợ nhiều định dạng (4 đến 10 phần).
+                Xuất mã yêu cầu phần cứng thành file <code>.licreq</code> để gửi nhà cung cấp, sau đó nhập file <code>.lic</code> nhận được.
               </p>
 
-              {errorMsg && <div className="license-error">️ {errorMsg}</div>}
-              {successMsg && <div className="license-success">{successMsg}</div>}
-
-              <form onSubmit={handleActivate} className="license-input-row">
-                <input 
-                  type="text" 
-                  className="license-input"
-                  placeholder="VD: TEAM-270101-A3F7-1B2C3D4E"
-                  spellCheck="false" 
-                  autoComplete="off"
-                  value={key}
-                  onChange={e => setKey(e.target.value)}
+              <div className="license-offline-actions">
+                <button
+                  className="btn-license-request"
+                  onClick={handleRequest}
                   disabled={loading}
-                />
-                <button type="submit" className="btn-license-activate" disabled={loading}>
-                  {loading ? 'Đang kích hoạt...' : 'Kích hoạt'}
+                  id="btnLicenseRequest"
+                >
+                  {loading ? 'Đang tạo...' : '📋 Xuất .licreq'}
                 </button>
-              </form>
 
-              <div className="license-tiers">
-                <div className="tier-card">
-                  <span className="tier-badge solo">SOLO</span>
-                  <span>1 user • 1 trạm</span>
-                </div>
-                <div className="tier-card">
-                  <span className="tier-badge team">TEAM</span>
-                  <span>5 users • 10 trạm</span>
-                </div>
-                <div className="tier-card">
-                  <span className="tier-badge ent">ENTERPRISE</span>
-                  <span>Không giới hạn</span>
-                </div>
+                <span className="license-offline-sep">hoặc</span>
+
+                <label className="btn-license-file" htmlFor="licenseFileInput">
+                  📂 Chọn file .lic
+                  <input
+                    type="file"
+                    accept=".lic"
+                    id="licenseFileInput"
+                    onChange={e => setImportFile(e.target.files?.[0] || null)}
+                    disabled={loading}
+                    hidden
+                  />
+                </label>
+                {importFile && (
+                  <button
+                    className="btn-license-import"
+                    onClick={handleImport}
+                    disabled={loading}
+                    id="btnLicenseImport"
+                  >
+                    {loading ? 'Đang nhập...' : '📥 Nhập'}
+                  </button>
+                )}
               </div>
+
+              {importFile && (
+                <div className="license-file-name">📄 {importFile.name}</div>
+              )}
+
+              {importMsg && (
+                <div className={`license-import-msg ${importMsg.includes('thành công') ? 'success' : 'error'}`}>
+                  {importMsg}
+                </div>
+              )}
             </div>
           )}
-
-          <div className="license-actions">
-            <button className="btn-license-skip" onClick={() => navigate(-1)}>
-              Quay lại
-            </button>
-          </div>
         </div>
       </div>
     </div>

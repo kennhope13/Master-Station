@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useStationStore, useAlertStore, useDeviceStore, useAuthStore } from '@/store';
@@ -16,13 +17,13 @@ import {
 import { stationApi } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { fmtDateTime, cleanAlertMessage, fmtTimeRange } from '@/utils/format';
+import { API_BASE_URL } from '@/utils/env';
 import { isCentralUser } from '@/utils/centralAccess';
 import DateFilterButton from '@/components/ui/DateFilterButton';
 import { createRealtimeHub } from '@/services/realtime.service';
 import { showToast } from '@/utils/toast';
 
 const CentralAnalyticsLayout = lazy(() => import('@/pages/analytics/CentralAnalyticsLayout'));
-const DeviceManagementPage = lazy(() => import('@/pages/device-management/DeviceManagementPage'));
 const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView'));
 const MultisiteLiveWall = lazy(() => import('@/pages/multisite/MultisiteLiveWall'));
 const UserManagementPage = lazy(() => import('@/pages/user-management/UserManagementPage'));
@@ -345,8 +346,6 @@ export default function MultisitePage() {
   const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(false);
-  const [devicePanelAction, setDevicePanelAction] = useState<'new' | null>(null);
-  const [devicesSubTab, setDevicesSubTab] = useState<'overview' | 'manage'>('overview');
   const showEmbeddedBackButton = activeTab !== 'overview' && !!selectedStationId;
 
   const activateTab = (
@@ -357,7 +356,6 @@ export default function MultisitePage() {
     }
   ) => {
     setActiveTab(tab);
-    setDevicePanelAction(options?.deviceAction ?? null);
   };
 
   useEffect(() => {
@@ -381,9 +379,6 @@ export default function MultisitePage() {
     if (stationIdFromQuery) {
       if (activeTab === 'overview') {
         setShowRightPanel(true);
-      }
-      if (activeTab === 'devices') {
-        setDevicesSubTab('overview');
       }
     }
   }, [activeTab, stationIdFromQuery]);
@@ -923,11 +918,6 @@ export default function MultisitePage() {
       setSelectedStationId(views[0].station.id);
     }
   }, [views, selectedStationId, activeTab, isCentral, isLoadingStations]);
-
-  // Reset devices sub-tab when leaving devices tab
-  useEffect(() => {
-    if (activeTab !== 'devices') setDevicesSubTab('overview');
-  }, [activeTab]);
 
   const handleDeviceRefresh = useCallback(() => {
     stations.forEach(s => fetchDevices(s.id));
@@ -1781,27 +1771,15 @@ export default function MultisitePage() {
           }}
         >
           <Suspense fallback={null}>
-            {devicesSubTab === 'manage' ? (
-              <DeviceManagementPage
-                initialAction={devicePanelAction}
-                onInitialActionHandled={() => setDevicePanelAction(null)}
-                embeddedMode="central"
-                stationIdOverride={selectedStationId}
-                onStationIdChange={id => setSelectedStationId(id || null)}
-                onBack={() => { setDevicesSubTab('overview'); handleDeviceRefresh(); }}
-              />
-            ) : (
-              <CentralDeviceView
-                stations={stations}
-                provinces={provinces}
-                devicesByStation={devicesByStation}
-                selectedStationId={selectedStationId}
-                onSelectStation={id => setSelectedStationId(id)}
-                onRefresh={handleDeviceRefresh}
-                alertsByStation={alertsByStation}
-                onAddDevice={() => { setDevicesSubTab('manage'); setDevicePanelAction('new'); }}
-              />
-            )}
+            <CentralDeviceView
+              stations={stations}
+              provinces={provinces}
+              devicesByStation={devicesByStation}
+              selectedStationId={selectedStationId}
+              onSelectStation={id => setSelectedStationId(id)}
+              onRefresh={handleDeviceRefresh}
+              alertsByStation={alertsByStation}
+            />
           </Suspense>
         </div>
       )}
@@ -3826,17 +3804,17 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
         </div>
 
         {/* Detail modal */}
-        {selectedLog && (
-          <div 
+        {selectedLog && createPortal(
+          <div
             onClick={() => setSelectedLog(null)}
-            style={{ 
-              position: 'fixed', 
-              inset: 0, 
-              background: 'rgba(0,0,0,0.6)', 
-              zIndex: 10000, 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center' 
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              zIndex: 10000,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
           >
             <div 
@@ -3961,7 +3939,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
               </div>
             </div>
           </div>
-        )}
+        , document.body)}
       </div>
     </div>
   );
@@ -3978,6 +3956,12 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       </div>
     </div>
   );
+}
+
+function resolveMediaUrl(url: string | undefined | null): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+  return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: Station[]; provinces: Province[]; teams: Team[] }) {
@@ -4603,7 +4587,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
     </div>
 
     {/* ── Detail panel ── */}
-    {selectedAlert && (() => {
+    {selectedAlert && createPortal((() => {
       const selStation = stations.find(s => s.id === selectedAlert.stationId);
       const selProvince = provinces.find(p => p.id === selStation?.provinceId)?.name || '—';
       const lv = levelCfg(selectedAlert.level);
@@ -4765,25 +4749,25 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
               </div>
 
               {/* Ảnh */}
-              {selectedAlert.imageUrl && (
+              {(selectedAlert.imageUrl || selectedAlertDetails?.imageUrl) && (
                 <div>
                   <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6, textAlign: 'center' }}>ẢNH CHỤP SỰ KIỆN</div>
-                  <img src={selectedAlert.imageUrl} alt="alert" style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block', borderRadius: 0 }} />
+                  <img src={resolveMediaUrl(selectedAlertDetails?.imageUrl || selectedAlert.imageUrl)} alt="alert" style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block', borderRadius: 0 }} />
                 </div>
               )}
 
               {/* Video */}
-              {selectedAlert.videoUrl && (
+              {(selectedAlert.videoUrl || selectedAlertDetails?.videoUrl) && (
                 <div>
                   <div style={{ fontSize: '.52rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '.08em', marginBottom: 6, textAlign: 'center' }}>VIDEO SỰ KIỆN</div>
-                  <video src={selectedAlert.videoUrl} controls style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block', borderRadius: 0 }} />
+                  <video src={resolveMediaUrl(selectedAlertDetails?.videoUrl || selectedAlert.videoUrl)} controls style={{ width: '100%', border: '1px solid var(--admin-border)', display: 'block', borderRadius: 0 }} />
                 </div>
               )}
             </div>
           </div>
         </div>
       );
-    })()}
+    })(), document.body)}
     </div>
   );
 }

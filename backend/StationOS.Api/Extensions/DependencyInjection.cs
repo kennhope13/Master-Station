@@ -69,6 +69,7 @@ public static class DependencyInjection
         services.AddScoped<ProtocolConnectionTester>();
         services.AddScoped<SupabaseService>();
         services.AddScoped<StationOS.Services.Recording.EventRecordingService>();
+        services.AddSingleton<StationOS.Services.Licensing.LicenseManager>();
         services.AddSingleton<LicenseService>();          // License key + concurrent sessions
         services.AddSingleton<CredentialEncryptionService>(); // AES-256-GCM cho device password
         services.AddSingleton<InternalAuthService>();

@@ -4,12 +4,18 @@
 // POST /api/v1/license/activate — yêu cầu admin JWT
 // POST /api/v1/license/validate — public, kiểm tra key (không kích hoạt)
 // GET  /api/v1/license/limits   — public, trả về resource usage vs limits
+// GET  /api/v1/license/request  — xuất .licreq
+// POST /api/v1/license/import   — nhập .lic
 // ============================================================
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StationOS.Services;
 using StationOS.Api.Filters;
+using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace StationOS.Api.Controllers;
 
@@ -103,6 +109,38 @@ public class LicenseController : ControllerBase
             max      = l.Max >= 999 ? -1 : l.Max,   // -1 = unlimited
             exceeded = l.Exceeded
         }));
+    }
+
+    /// <summary>
+    /// Xuất mã yêu cầu phần cứng để gửi nhà cung cấp tạo file .lic.
+    /// Trả về request string ổn định theo máy hiện tại.
+    /// </summary>
+    [HttpGet("request")]
+    public IActionResult Request()
+    {
+        return Ok(new
+        {
+            request = _license.GenerateRequestString(),
+            fileName = "StationMonitor_Request.licreq"
+        });
+    }
+
+    /// <summary>
+    /// Nhập file .lic, ưu tiên lấy license key từ text/plain hoặc JSON đơn giản.
+    /// </summary>
+    [HttpPost("import")]
+    public async Task<IActionResult> Import([FromForm] IFormFile file)
+    {
+        var result = await _license.ImportLicenseAsync(file);
+        if (!result.Success)
+            return BadRequest(new { message = result.Message });
+
+        return Ok(new
+        {
+            message = result.Message,
+            fileName = Path.GetFileName(result.SavedPath ?? file.FileName),
+            kind = result.Document?.Kind.ToString().ToLowerInvariant() ?? "base"
+        });
     }
 }
 

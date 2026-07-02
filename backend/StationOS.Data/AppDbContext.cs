@@ -30,6 +30,7 @@ public class AppDbContext : DbContext
     public DbSet<SyncQueue> SyncQueues => Set<SyncQueue>();
     public DbSet<MaintenanceTask> MaintenanceTasks => Set<MaintenanceTask>();
     public DbSet<License> Licenses => Set<License>();
+    public DbSet<LicenseAddonRecord> LicenseAddons => Set<LicenseAddonRecord>();
     public DbSet<Boundary> Boundaries => Set<Boundary>();
     public DbSet<RoiPoint> RoiPoints => Set<RoiPoint>();
     public DbSet<Team> Teams => Set<Team>();
@@ -50,6 +51,12 @@ public class AppDbContext : DbContext
         // SystemSettings — unique constraint (station_id, key)
         modelBuilder.Entity<SystemSettings>()
             .HasIndex(x => new { x.StationId, x.Key })
+            .IsUnique();
+
+        // LicenseAddonRecord — mỗi AddonId (GUID) chỉ được ghi nhận một lần, chống nạp trùng
+        // vĩnh viễn kể cả khi file .lic gốc bị xoá khỏi thư mục Licenses rồi nạp lại.
+        modelBuilder.Entity<LicenseAddonRecord>()
+            .HasIndex(x => x.AddonId)
             .IsUnique();
 
         // JSON columns (PostgreSQL JSONB)

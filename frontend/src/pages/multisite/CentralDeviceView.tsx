@@ -11,8 +11,7 @@ import * as XLSX from 'xlsx';
 import {
   AlertCircle, CheckSquare, ChevronDown, ChevronLeft,
   ChevronRight, ChevronUp, Copy, Cpu, Download, Edit3, FileSpreadsheet, FileText,
-  List, Plus, RefreshCw,
-  RotateCw, Search, Server, Thermometer, Trash2, Video, Wifi, X, Zap,
+  Plus, RefreshCw, Server, Thermometer, Trash2, Video, Wifi, X, Zap,
 } from 'lucide-react';
 import type { Station, Device, Province } from '@/types/api.types';
 import { DEVICE_TYPE_LABELS, DEV_CAM_TYPES } from '@/constants/devices';
@@ -33,9 +32,17 @@ interface Props {
   selectedStationId: string | null;
   onSelectStation: (id: string | null) => void;
   onRefresh: () => void;
-  onAddDevice?: () => void;
   alertsByStation?: Record<string, number>; // stationId → số cảnh báo đang mở
 }
+
+const ADD_FORM_INIT = {
+  name: '', type: 'camera_cctv', ip: '',
+  username: '', password: '',
+  rtspPath: '', go2rtcId: '',
+  rtspOptical: '', go2rtcOptical: '',
+  rtspThermal: '', go2rtcThermal: '',
+  rack: '0', slot: '1', db: '32',
+};
 
 interface StationSummary {
   id: string;
@@ -121,8 +128,6 @@ const SORT_FIELD_LABELS: Record<SortField, string> = {
   status: 'TT',
 };
 
-const AUTO_REFRESH_SEC = 30;
-
 // ── Helper: icon & color ──────────────────────────────────────
 function deviceIcon(type: string, size = 14): React.ReactElement {
   const fn = TYPE_ICONS[type];
@@ -197,7 +202,6 @@ export default function CentralDeviceView({
   selectedStationId,
   onSelectStation,
   onRefresh,
-  onAddDevice,
   alertsByStation,
 }: Props) {
   // Search & filters
@@ -212,12 +216,7 @@ export default function CentralDeviceView({
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('table');
 
-  // Auto-refresh
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [countdown, setCountdown] = useState(AUTO_REFRESH_SEC);
-  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Expand groups
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -231,6 +230,13 @@ export default function CentralDeviceView({
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState('');
 
+  // Add device modal
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ ...ADD_FORM_INIT });
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [addShowPassword, setAddShowPassword] = useState(false);
+
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -239,6 +245,10 @@ export default function CentralDeviceView({
   const [toast, setToast] = useState<string | null>(null);
   const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
   const [expandedProvinces, setExpandedProvinces] = useState<Set<string>>(new Set());
+
+  // Province / station quick-filter (toolbar dropdowns)
+  const [filterProvince, setFilterProvince] = useState('');
+  const [filterStation, setFilterStation]   = useState('');
 
   // Export dropdown
   const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
@@ -394,6 +404,28 @@ export default function CentralDeviceView({
     }));
   }, [provinceSummaries, stationSummaries]);
 
+  // ── Derived: province options for toolbar dropdown ─────────
+  const provinceOptions = useMemo(
+    () => [...new Set(stationSummaries.map(s => s.provinceName))].sort((a, b) => a.localeCompare(b, 'vi')),
+    [stationSummaries]
+  );
+
+  // ── Derived: station options (filtered by filterProvince) ──
+  const stationOptions = useMemo(
+    () => filterProvince
+      ? stationSummaries.filter(s => s.provinceName === filterProvince)
+      : stationSummaries,
+    [stationSummaries, filterProvince]
+  );
+
+  // ── Derived: province groups after toolbar filter ──────────
+  const visibleProvinceStationGroups = useMemo(
+    () => filterProvince
+      ? provinceStationGroups.filter(g => g.summary.name === filterProvince)
+      : provinceStationGroups,
+    [provinceStationGroups, filterProvince]
+  );
+
   // ── Derived: current station ───────────────────────────────
   const currentStation = useMemo(
     () => stationSummaries.find(s => s.id === selectedStationId) || null,
@@ -492,30 +524,11 @@ export default function CentralDeviceView({
     };
   }, [allDevices, stations]);
 
-  // ── Auto-refresh logic ─────────────────────────────────────
-  const doRefresh = useCallback(async () => {
+  const doRefresh = useCallback(() => {
     setRefreshing(true);
     onRefresh();
     setTimeout(() => setRefreshing(false), 500);
   }, [onRefresh]);
-
-  useEffect(() => {
-    if (!autoRefresh) {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      setCountdown(0);
-      return;
-    }
-    setCountdown(AUTO_REFRESH_SEC);
-    countdownTimerRef.current = setInterval(() => {
-      setCountdown(prev => (prev <= 1 ? AUTO_REFRESH_SEC : prev - 1));
-    }, 1000);
-    refreshTimerRef.current = setInterval(doRefresh, AUTO_REFRESH_SEC * 1000);
-    return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-    };
-  }, [autoRefresh, doRefresh]);
 
   // ── Handlers ────────────────────────────────────────────────
 
@@ -580,6 +593,57 @@ export default function CentralDeviceView({
       setEditError(e.message || 'Lỗi khi lưu');
     } finally {
       setEditSaving(false);
+    }
+  };
+
+  const openAddModal = () => {
+    setAddForm({ ...ADD_FORM_INIT });
+    setAddError('');
+    setAddModalOpen(true);
+  };
+
+  const saveNewDevice = async () => {
+    if (!addForm.name.trim()) { setAddError('Vui lòng nhập tên thiết bị'); return; }
+    if (!selectedStationId) return;
+    setAddSaving(true);
+    setAddError('');
+    try {
+      const ip = addForm.ip.trim();
+      const configObj: Record<string, any> = { ip };
+      let protocol = 'modbus';
+
+      if (addForm.type === 'plc_s7') {
+        protocol = 'snap7';
+        Object.assign(configObj, { rack: addForm.rack, slot: addForm.slot, db: addForm.db, offset: 0, length: 10 });
+      } else if (addForm.type === 'cabinet') {
+        protocol = 'json';
+      } else if (addForm.type === 'camera_dual') {
+        protocol = 'rtsp';
+        const gOpt = addForm.go2rtcOptical.trim() || `cam_${ip.replace(/\./g, '_')}_optical`;
+        const gThr = addForm.go2rtcThermal.trim() || `cam_${ip.replace(/\./g, '_')}_thermal`;
+        Object.assign(configObj, { rtsp_optical: addForm.rtspOptical.trim(), go2rtc_optical: gOpt, rtsp_thermal: addForm.rtspThermal.trim(), go2rtc_thermal: gThr, username: addForm.username, password: addForm.password });
+      } else if (addForm.type === 'camera_thermal') {
+        protocol = 'rtsp';
+        const gThr = addForm.go2rtcThermal.trim() || `cam_${ip.replace(/\./g, '_')}_thermal`;
+        Object.assign(configObj, { rtsp_thermal: addForm.rtspThermal.trim(), go2rtc_thermal: gThr, username: addForm.username, password: addForm.password });
+      } else if (addForm.type.startsWith('camera')) {
+        protocol = 'rtsp';
+        let rp = addForm.rtspPath.trim();
+        if (rp && !rp.startsWith('/')) rp = '/' + rp;
+        const gid = addForm.go2rtcId.trim() || `camera_${ip.replace(/\./g, '_')}_${addForm.type.replace('camera_', '')}`;
+        Object.assign(configObj, { rtsp_path: rp, go2rtc_id: gid, username: addForm.username, password: addForm.password });
+      } else if (addForm.type === 'modbus_tcp') {
+        Object.assign(configObj, { port: 502, unit_id: 1 });
+      }
+
+      await stationApi.createDevice({ stationId: selectedStationId, name: addForm.name.trim(), type: addForm.type, protocol, config: JSON.stringify(configObj) });
+      setAddModalOpen(false);
+      doRefresh();
+      showToast('Đã thêm thiết bị');
+    } catch (e: any) {
+      setAddError(e.message || 'Lỗi khi thêm thiết bị');
+    } finally {
+      setAddSaving(false);
     }
   };
 
@@ -833,6 +897,7 @@ export default function CentralDeviceView({
   // ── Clear search when switching stations ────────────────────
   const handleBackToStations = () => {
     onSelectStation(null);
+    setFilterStation('');
     setViewMode('grouped');
     setSelectedIds(new Set());
   };
@@ -935,75 +1000,99 @@ export default function CentralDeviceView({
               <ChevronLeft size={14} /> {selectedProvince || 'Tất cả trạm'}
             </button>
           )}
-          <h2 className="cdv-title">
-            {isDrilldown
-              ? currentStation?.name || 'Chi tiết'
-              : 'Thiết bị đa trạm'}
-          </h2>
 
-          {/* Auto-refresh indicator */}
-          <span className={`cdv-refresh-indicator ${refreshing ? 'active' : ''}`}>
-            <RotateCw size={10} className={refreshing ? 'cdv-spin' : ''} />
-            {autoRefresh ? `Tự động ${countdown}s` : 'Thủ công'}
-            <button onClick={() => setAutoRefresh(v => !v)}>
-              {autoRefresh ? 'Tắt' : 'Bật'}
-            </button>
-            <button onClick={doRefresh} disabled={refreshing}>
-              <RefreshCw size={10} />
-            </button>
-          </span>
-        </div>
-
-        <div className="cdv-toolbar-right">
-          {/* Search */}
-          <div className="cdv-search-box">
-            <Search size={12} />
-            <input
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Tìm tên hoặc IP..."
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery('')}><X size={11} /></button>
+          <div className="cdv-title-group">
+            <Cpu size={13} className="cdv-title-icon" />
+            <h2 className="cdv-title">
+              {isDrilldown ? currentStation?.name || 'Chi tiết' : 'Thiết bị đa trạm'}
+            </h2>
+            {isDrilldown && currentStation?.code && (
+              <span className="cdv-title-code">{currentStation.code}</span>
             )}
           </div>
 
-          {/* Status filter buttons */}
-          {(Object.keys(STATUS_FILTER_LABELS) as StatusFilter[]).map(key => (
-            <button
-              key={key}
-              className={`cdv-chip ${statusFilter === key ? 'active' : ''}`}
-              onClick={() => setStatusFilter(key)}
+          <button className="cdv-refresh-btn" onClick={doRefresh} disabled={refreshing} title="Làm mới">
+            <RefreshCw size={11} className={refreshing ? 'cdv-spin' : ''} />
+          </button>
+        </div>
+
+        <div className="cdv-toolbar-right">
+          {/* Province filter */}
+          {!isDrilldown && provinceOptions.length > 1 && (
+            <label className="cdv-filter-label">
+              <span>Tỉnh</span>
+              <select
+                className="cdv-select"
+                value={filterProvince}
+                onChange={e => {
+                  setFilterProvince(e.target.value);
+                  setFilterStation('');
+                  if (e.target.value) {
+                    setExpandedProvinces(new Set([e.target.value]));
+                  }
+                }}
+              >
+                <option value="">Tất cả tỉnh</option>
+                {provinceOptions.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* Station filter */}
+          {!isDrilldown && (
+            <label className="cdv-filter-label">
+              <span>Trạm</span>
+              <select
+                className="cdv-select"
+                value={filterStation}
+                onChange={e => {
+                  setFilterStation(e.target.value);
+                  if (e.target.value) {
+                    setSelectedProvince(stationSummaries.find(s => s.id === e.target.value)?.provinceName ?? null);
+                    onSelectStation(e.target.value);
+                    setViewMode('table');
+                  }
+                }}
+              >
+                <option value="">Tất cả trạm</option>
+                {stationOptions.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* Status filter */}
+          <label className="cdv-filter-label">
+            <span>Trạng thái</span>
+            <select
+              className="cdv-select"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value as StatusFilter)}
             >
-              {STATUS_FILTER_LABELS[key]}
-            </button>
-          ))}
+              {(Object.keys(STATUS_FILTER_LABELS) as StatusFilter[]).map(key => (
+                <option key={key} value={key}>{STATUS_FILTER_LABELS[key]}</option>
+              ))}
+            </select>
+          </label>
 
           {/* Type filter */}
           {allTypes.length > 0 && (
-            <select
-              className="cdv-select"
-              value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
-            >
-              <option value="">Tất cả loại</option>
-              {allTypes.map(t => (
-                <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>
-              ))}
-            </select>
-          )}
-
-          {/* View mode toggle (drilldown only) */}
-          {isDrilldown && (
-            <div className="cdv-view-toggle">
-              <button
-                className="active"
-                onClick={() => setViewMode('table')}
-                title="Bảng"
+            <label className="cdv-filter-label">
+              <span>Loại thiết bị</span>
+              <select
+                className="cdv-select"
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
               >
-                <List size={14} />
-              </button>
-            </div>
+                <option value="">Tất cả loại</option>
+                {allTypes.map(t => (
+                  <option key={t} value={t}>{TYPE_LABELS[t] || t}</option>
+                ))}
+              </select>
+            </label>
           )}
 
           {/* Export */}
@@ -1109,10 +1198,10 @@ export default function CentralDeviceView({
             )}
           </div>
 
-          {/* Add device */}
-          {onAddDevice && (
-            <button className="cdv-chip primary" onClick={onAddDevice}>
-              <Plus size={11} /> Thêm
+          {/* Add device — chỉ hiện khi đang xem 1 trạm cụ thể */}
+          {isDrilldown && (
+            <button className="cdv-chip primary" onClick={openAddModal}>
+              <Plus size={11} /> Thêm thiết bị
             </button>
           )}
         </div>
@@ -1158,13 +1247,13 @@ export default function CentralDeviceView({
         {/* ══════ DASHBOARD: All stations overview ══════ */}
         {!isDrilldown && stations.length > 0 && (
           <div className="cdv-dashboard">
-            {provinceStationGroups.length === 0 ? (
+            {visibleProvinceStationGroups.length === 0 ? (
               <div className="cdv-empty">
                 <span>Không có dữ liệu nào khớp với bộ lọc</span>
               </div>
             ) : (
               <div className="cdv-hierarchy">
-                {provinceStationGroups.map(({ summary, stations: provinceStations }) => {
+                {visibleProvinceStationGroups.map(({ summary, stations: provinceStations }) => {
                   const expanded = expandedProvinces.has(summary.name);
                   return (
                     <div key={summary.name} className="cdv-province-block">
@@ -1419,6 +1508,132 @@ export default function CentralDeviceView({
               </button>
               <button className="primary" onClick={saveEdit} disabled={editSaving}>
                 {editSaving ? 'Đang lưu...' : 'Lưu'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ ADD DEVICE MODAL ═══ */}
+      {addModalOpen && (
+        <div className="cdv-modal-backdrop" onClick={e => { if (e.target === e.currentTarget && !addSaving) setAddModalOpen(false); }}>
+          <div className="cdv-modal" style={{ minWidth: 360, maxWidth: 480 }}>
+            <div className="cdv-modal-header">
+              <Plus size={14} style={{ color: 'var(--admin-accent)' }} />
+              <b>Thêm thiết bị mới</b>
+            </div>
+
+            <label className="cdv-modal-field">
+              Loại thiết bị
+              <select
+                value={addForm.type}
+                onChange={e => setAddForm(f => ({ ...f, type: e.target.value }))}
+                style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', padding: '6px 8px', borderRadius: 2, fontSize: '.75rem' }}
+              >
+                {Object.entries(DEVICE_TYPE_LABELS).map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="cdv-modal-field">
+              Tên thiết bị *
+              <input autoFocus value={addForm.name} onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))} placeholder="VD: Camera Cổng chính" />
+            </label>
+
+            <label className="cdv-modal-field">
+              Địa chỉ IP
+              <input value={addForm.ip} onChange={e => setAddForm(f => ({ ...f, ip: e.target.value }))} placeholder="192.168.x.x" />
+            </label>
+
+            {addForm.type.startsWith('camera') && (
+              <>
+                <label className="cdv-modal-field">
+                  Username
+                  <input value={addForm.username} onChange={e => setAddForm(f => ({ ...f, username: e.target.value }))} placeholder="admin" />
+                </label>
+                <label className="cdv-modal-field">
+                  Password
+                  <div style={{ position: 'relative' }}>
+                    <input type={addShowPassword ? 'text' : 'password'} value={addForm.password} onChange={e => setAddForm(f => ({ ...f, password: e.target.value }))} placeholder="••••••" style={{ paddingRight: 32 }} />
+                    <button type="button" onClick={() => setAddShowPassword(v => !v)} style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer', padding: 0 }}>
+                      {addShowPassword ? <X size={12} /> : <Wifi size={12} />}
+                    </button>
+                  </div>
+                </label>
+              </>
+            )}
+
+            {(addForm.type === 'camera_cctv' || addForm.type === 'camera_pd') && (
+              <>
+                <label className="cdv-modal-field">
+                  RTSP Path <span style={{ color: 'var(--admin-text-muted)', fontWeight: 400 }}>(vd: /Streaming/Channels/101)</span>
+                  <input value={addForm.rtspPath} onChange={e => setAddForm(f => ({ ...f, rtspPath: e.target.value }))} placeholder="/Streaming/Channels/101" />
+                </label>
+                <label className="cdv-modal-field">
+                  Go2RTC ID <span style={{ color: 'var(--admin-text-muted)', fontWeight: 400 }}>(tự tạo nếu để trống)</span>
+                  <input value={addForm.go2rtcId} onChange={e => setAddForm(f => ({ ...f, go2rtcId: e.target.value }))} placeholder="camera_192_168_x_x_cctv" />
+                </label>
+              </>
+            )}
+
+            {addForm.type === 'camera_thermal' && (
+              <>
+                <label className="cdv-modal-field">
+                  RTSP Thermal
+                  <input value={addForm.rtspThermal} onChange={e => setAddForm(f => ({ ...f, rtspThermal: e.target.value }))} placeholder="rtsp://..." />
+                </label>
+                <label className="cdv-modal-field">
+                  Go2RTC Thermal ID
+                  <input value={addForm.go2rtcThermal} onChange={e => setAddForm(f => ({ ...f, go2rtcThermal: e.target.value }))} placeholder="cam_x_thermal" />
+                </label>
+              </>
+            )}
+
+            {addForm.type === 'camera_dual' && (
+              <>
+                <label className="cdv-modal-field">
+                  RTSP Optical
+                  <input value={addForm.rtspOptical} onChange={e => setAddForm(f => ({ ...f, rtspOptical: e.target.value }))} placeholder="rtsp://..." />
+                </label>
+                <label className="cdv-modal-field">
+                  Go2RTC Optical ID
+                  <input value={addForm.go2rtcOptical} onChange={e => setAddForm(f => ({ ...f, go2rtcOptical: e.target.value }))} placeholder="cam_x_optical" />
+                </label>
+                <label className="cdv-modal-field">
+                  RTSP Thermal
+                  <input value={addForm.rtspThermal} onChange={e => setAddForm(f => ({ ...f, rtspThermal: e.target.value }))} placeholder="rtsp://..." />
+                </label>
+                <label className="cdv-modal-field">
+                  Go2RTC Thermal ID
+                  <input value={addForm.go2rtcThermal} onChange={e => setAddForm(f => ({ ...f, go2rtcThermal: e.target.value }))} placeholder="cam_x_thermal" />
+                </label>
+              </>
+            )}
+
+            {addForm.type === 'plc_s7' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                <label className="cdv-modal-field">
+                  Rack
+                  <input value={addForm.rack} onChange={e => setAddForm(f => ({ ...f, rack: e.target.value }))} placeholder="0" />
+                </label>
+                <label className="cdv-modal-field">
+                  Slot
+                  <input value={addForm.slot} onChange={e => setAddForm(f => ({ ...f, slot: e.target.value }))} placeholder="1" />
+                </label>
+                <label className="cdv-modal-field">
+                  DB
+                  <input value={addForm.db} onChange={e => setAddForm(f => ({ ...f, db: e.target.value }))} placeholder="32" />
+                </label>
+              </div>
+            )}
+
+            {addError && <div className="cdv-modal-error">{addError}</div>}
+
+            <div className="cdv-modal-actions">
+              <button onClick={() => setAddModalOpen(false)} disabled={addSaving}>Hủy</button>
+              <button className="primary" onClick={saveNewDevice} disabled={addSaving}>
+                {addSaving ? 'Đang lưu...' : 'Thêm thiết bị'}
               </button>
             </div>
           </div>

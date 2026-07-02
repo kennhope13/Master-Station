@@ -31,7 +31,7 @@ public class LicenseService
     private readonly ConcurrentDictionary<string, ActiveSessionInfo> _activeSessions = new();
 
     public LicenseService(IServiceScopeFactory scopeFactory, IConfiguration config)
-        : this(scopeFactory, config, new LicenseManager(config))
+        : this(scopeFactory, config, new LicenseManager(config, scopeFactory))
     {
     }
 
@@ -253,7 +253,7 @@ public class LicenseService
                 info.Tier,
                 DateTime.UtcNow,
                 info.ExpiresAt,
-                new LicenseHardwareBinding(hardware.CpuId, hardware.MainboardUuid, hardware.OsDiskSerial, hardware.MachineName, hardware.Platform),
+                new LicenseHardwareBinding(hardware.CpuId, hardware.MainboardUuid, hardware.OsDiskSerial, hardware.MachineName, hardware.Platform, hardware.MacAddress),
                 new LicenseResourceBundle(info.MaxUsers, info.MaxStations, info.MaxCameras, info.MaxRoiPoints, info.MaxRoiRegions, info.MaxPdRegions),
                 _vendorSecret
             );
