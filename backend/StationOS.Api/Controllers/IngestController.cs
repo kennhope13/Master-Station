@@ -70,11 +70,13 @@ public class IngestController : ControllerBase
         }
 
         int saved = 0;
+        var addedIds = new HashSet<Guid>();
         foreach (var elem in items)
         {
             // Lấy ID — bỏ qua nếu đã tồn tại (idempotent)
             TryGuid(elem, "id", "id", out var id);
-            if (id != Guid.Empty && await _db.Alerts.AnyAsync(a => a.Id == id, ct)) continue;
+            if (id != Guid.Empty && (addedIds.Contains(id) || await _db.Alerts.AnyAsync(a => a.Id == id, ct))) continue;
+            if (id != Guid.Empty) addedIds.Add(id);
 
             var level = Str(elem, "level", "level") ?? "warning";
             if (string.IsNullOrEmpty(level)) continue;
@@ -193,9 +195,11 @@ public class IngestController : ControllerBase
         if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
 
         int saved = 0;
+        var addedIds = new HashSet<Guid>();
         foreach (var dto in items)
         {
-            if (await _db.DetectionEvents.AnyAsync(e => e.Id == dto.Id, ct)) continue;
+            if (addedIds.Contains(dto.Id) || await _db.DetectionEvents.AnyAsync(e => e.Id == dto.Id, ct)) continue;
+            addedIds.Add(dto.Id);
 
             _db.DetectionEvents.Add(new DetectionEvent
             {
@@ -250,10 +254,12 @@ public class IngestController : ControllerBase
         }
 
         int saved = 0;
+        var addedIds = new HashSet<Guid>();
         foreach (var elem in items)
         {
             if (!TryGuidProp(elem, "id", out var id)) continue;
-            if (await _db.Reports.AnyAsync(r => r.Id == id, ct)) continue;
+            if (addedIds.Contains(id) || await _db.Reports.AnyAsync(r => r.Id == id, ct)) continue;
+            addedIds.Add(id);
 
             var report = new Report { Id = id, StationId = station.Id, ScopeType = "station" };
             report.Type = StrProp(elem, "type") ?? "daily";
@@ -296,10 +302,12 @@ public class IngestController : ControllerBase
             => TryPropAL(e, name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
 
         int saved = 0;
+        var addedIds = new HashSet<Guid>();
         foreach (var elem in items)
         {
             if (!TryGuidAL(elem, "id", out var id)) continue;
-            if (await _db.AuditLogs.AnyAsync(a => a.Id == id, ct)) continue;
+            if (addedIds.Contains(id) || await _db.AuditLogs.AnyAsync(a => a.Id == id, ct)) continue;
+            addedIds.Add(id);
 
             var log = new AuditLog { Id = id, StationId = station.Id };
             log.Action    = StrAL(elem, "action") ?? "";
@@ -344,9 +352,12 @@ public class IngestController : ControllerBase
         }
 
         int saved = 0, updated = 0;
+        var addedIds = new HashSet<Guid>();
         foreach (var elem in items)
         {
             if (!TryGuidMT(elem, "id", out var id)) continue;
+            if (addedIds.Contains(id)) continue;
+            addedIds.Add(id);
 
             var existing = await _db.MaintenanceTasks.FindAsync([id], ct);
             if (existing != null)
