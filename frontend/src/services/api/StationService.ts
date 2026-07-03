@@ -10,8 +10,8 @@ import type { Station, CameraDevice } from '@/types/api.types';
 
 export class StationService {
   /** Lấy danh sách tất cả trạm điện đang quản lý. */
-  async getStations(): Promise<Station[]> {
-    return apiFetch<Station[]>('/stations');
+  async getStations(force = false): Promise<Station[]> {
+    return apiFetch<Station[]>('/stations', force);
   }
 
   /** Lấy id của trạm đầu tiên — dùng khi URL không chứa stationId. */
@@ -41,7 +41,7 @@ export class StationService {
   }
 
   /** Lấy KPI thực từ trạm con (bao gồm devices, alerts, sensor points, health scores). */
-  async getRemoteKpi(id: string): Promise<{
+  async getRemoteKpi(id: string, force = false): Promise<{
     devicesOnline: number;
     devicesTotal: number;
     alertsCount: number;
@@ -54,7 +54,7 @@ export class StationService {
     webUiUrl?: string;
     error?: string;
   }> {
-    return apiFetch(`/stations/${id}/remote-kpi`);
+    return apiFetch(`/stations/${id}/remote-kpi`, force);
   }
 
   /** Lấy danh sách camera từ trạm con qua proxy master station. */

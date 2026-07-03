@@ -147,15 +147,17 @@ async function getValidToken(): Promise<string | null> {
 }
 
 /** GET request với Bearer token tự động. Tự động tải lại và thử lại nếu token hết hạn. */
-export async function apiFetch<T>(path: string): Promise<T> {
+export async function apiFetch<T>(path: string, bypassCache = false): Promise<T> {
   const cacheKey = buildGetCacheKey(path);
-  const cached = readGetCache<T>(cacheKey);
-  if (cached !== null) {
-    return cached;
+  if (!bypassCache) {
+    const cached = readGetCache<T>(cacheKey);
+    if (cached !== null) {
+      return cached;
+    }
   }
 
   const inflight = inflightGetRequests.get(cacheKey);
-  if (inflight) {
+  if (inflight && !bypassCache) {
     return inflight as Promise<T>;
   }
 

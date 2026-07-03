@@ -26,7 +26,7 @@ export class DeviceService {
     }
     const q = type ? `?type=${type}` : '';
     const url = stationId ? `/stations/${stationId}/devices${q}` : `/devices${q}`;
-    const raw = await apiFetch<any[]>(url);
+    const raw = await apiFetch<any[]>(url, force);
     const data = raw.map(d => ({
       ...d,
       config: typeof d.config === 'string' ? JSON.parse(d.config) : (d.config ?? {})

@@ -582,7 +582,7 @@ export default function MultisitePage() {
     const stationsWithUrl = stations.filter(s => s.apiUrl);
     if (stationsWithUrl.length === 0) return;
     stationsWithUrl.forEach(s => {
-      stationApi.getRemoteKpi(s.id)
+      stationApi.getRemoteKpi(s.id, true)
         .then(kpi => setRemoteKpis(prev => ({ ...prev, [s.id]: kpi })))
         .catch(() => {});
     });
@@ -599,7 +599,7 @@ export default function MultisitePage() {
       if (!force && now - last < 5000) return;
       kpiRefreshAtRef.current[stationId] = now;
 
-      stationApi.getRemoteKpi(stationId)
+      stationApi.getRemoteKpi(stationId, force)
         .then(kpi => setRemoteKpis(prev => ({ ...prev, [stationId]: kpi })))
         .catch(() => {});
     };
@@ -1017,7 +1017,12 @@ export default function MultisitePage() {
   }, [views, selectedStationId, activeTab, isCentral, isLoadingStations]);
 
   const handleDeviceRefresh = useCallback(() => {
-    stations.forEach(s => fetchDevices(s.id));
+    stations.forEach(s => fetchDevices(s.id, true));
+    stations.filter(s => s.apiUrl).forEach(s => {
+      stationApi.getRemoteKpi(s.id, true)
+        .then(kpi => setRemoteKpis(prev => ({ ...prev, [s.id]: kpi })))
+        .catch(() => {});
+    });
   }, [stations, fetchDevices]);
 
   // Global counts for all stations

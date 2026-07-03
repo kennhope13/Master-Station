@@ -44,7 +44,7 @@ export const useStationStore = create<StationStore>()(
         if (inflight) return inflight;
 
         set({ isLoading: true, error: null });
-        inflight = stationService.getStations()
+        inflight = stationService.getStations(force)
           .then(stations => {
             set({ stations, isLoading: false, lastFetchedAt: Date.now() });
             return stations;
