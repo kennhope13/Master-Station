@@ -119,16 +119,18 @@ fi
 # ── 4. Khởi động Backend .NET ──────────────────────────────
 echo "[4/5] Khởi động Backend trạm tổng (port 6000)..."
 export DOTNET_CLI_HOME=/tmp
+export STATIONOS_LICENSE_DEBUG=1
+export STATIONOS_VENDOR_PUBLIC_KEY="$(python3 - <<'PY'
+import json
+from pathlib import Path
+path = Path("/home/admin-/Desktop/Master-Station/backend/StationOS.Api/appsettings.json")
+data = json.loads(path.read_text())
+print(data["License"]["VendorPublicKey"])
+PY
+)"
 
-# Dùng --no-build nếu binary đã tồn tại → khởi động tức thì (không mất 60-90s compile)
-BACKEND_BIN="$ROOT/backend/StationOS.Api/bin/Debug/net8.0/StationOS.Api"
-if [ -f "$BACKEND_BIN" ]; then
-    echo "  Binary đã có — dùng --no-build (khởi động nhanh)"
-    nohup dotnet run --no-build --project "$ROOT/backend/StationOS.Api" > "$ROOT/backend.log" 2>&1 &
-else
-    echo "  Lần đầu chạy — biên dịch backend (~60-90s)..."
-    nohup dotnet run --project "$ROOT/backend/StationOS.Api" > "$ROOT/backend.log" 2>&1 &
-fi
+echo "  Biên dịch backend trước khi chạy để tránh dính binary cũ..."
+nohup dotnet run --project "$ROOT/backend/StationOS.Api" > "$ROOT/backend.log" 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > "$RUN_DIR/backend.pid"
 echo "  Backend PID: $BACKEND_PID — đợi sẵn sàng..."

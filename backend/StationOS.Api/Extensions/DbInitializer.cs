@@ -8,7 +8,7 @@ namespace StationOS.Api.Extensions;
 
 public static class DbInitializer
 {
-    /// <summary>Khởi tạo cơ sở dữ liệu khi ứng dụng khởi động: tạo extension TimescaleDB, chạy migration, chuyển SensorReadings thành hypertable, seed admin và trạm mặc định, đồng bộ camera lên go2rtc.</summary>
+    /// <summary>Khởi tạo cơ sở dữ liệu khi ứng dụng khởi động: tạo extension TimescaleDB, chạy migration, chuyển SensorReadings thành hypertable, seed dữ liệu tối thiểu cho đăng nhập/phân quyền, đồng bộ camera lên go2rtc.</summary>
     /// <param name="app">WebApplication instance để lấy service provider.</param>
     public static async Task InitializeDatabaseAsync(this WebApplication app)
     {

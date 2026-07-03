@@ -48,7 +48,7 @@ function writeGetCache(cacheKey: string, data: unknown) {
   }
 }
 
-function clearGetCache() {
+export function clearGetCache() {
   try {
     const keysToRemove: string[] = [];
     for (let i = 0; i < sessionStorage.length; i += 1) {

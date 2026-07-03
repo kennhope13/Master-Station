@@ -19,6 +19,8 @@ import { stationApi } from '@/services/StationApiService';
 import { confirmDialog } from '@/utils/confirm';
 import './CentralDeviceView.css';
 
+const ALLOW_DEVICE_CREATION = false;
+
 // ── Types ─────────────────────────────────────────────────────
 type SortField = 'name' | 'type' | 'ip' | 'status';
 type SortDir = 'asc' | 'desc';
@@ -597,6 +599,7 @@ export default function CentralDeviceView({
   };
 
   const openAddModal = () => {
+    if (!ALLOW_DEVICE_CREATION) return;
     setAddForm({ ...ADD_FORM_INIT });
     setAddError('');
     setAddModalOpen(true);
@@ -1199,7 +1202,7 @@ export default function CentralDeviceView({
           </div>
 
           {/* Add device — chỉ hiện khi đang xem 1 trạm cụ thể */}
-          {isDrilldown && (
+          {isDrilldown && ALLOW_DEVICE_CREATION && (
             <button className="cdv-chip primary" onClick={openAddModal}>
               <Plus size={11} /> Thêm thiết bị
             </button>

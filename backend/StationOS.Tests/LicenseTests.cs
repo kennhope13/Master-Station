@@ -19,7 +19,8 @@ public class LicenseTests : IDisposable
 {
     private readonly AppDbContext _db;
     private readonly LicenseService _licenseService;
-    private const string TestSecret = "MY_SUPER_DUPER_TEST_VENDOR_SECRET_KEY_12345";
+    private static string TestSecret => Convert.ToBase64String(
+        SHA256.HashData(Encoding.UTF8.GetBytes("stationos-license-tests")));
 
     public LicenseTests()
     {
@@ -51,6 +52,7 @@ public class LicenseTests : IDisposable
 
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable("STATIONOS_VENDOR_SECRET", null);
         _db.Database.EnsureDeleted();
         _db.Dispose();
     }

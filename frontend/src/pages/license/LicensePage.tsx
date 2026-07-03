@@ -62,10 +62,7 @@ function readCachedLimits(): ResourceLimit[] {
 
 const RESOURCE_LABELS: Record<string, { label: string; icon: string }> = {
   stations:    { label: 'Trạm biến áp',      icon: '🏭' },
-  cameras:     { label: 'Camera',             icon: '📷' },
-  roi_points:  { label: 'Điểm giám sát nhiệt', icon: '🌡️' },
-  roi_regions: { label: 'Vùng nhiệt (ROI)',   icon: '🔥' },
-  pd_regions:  { label: 'Vùng phóng điện (PD)', icon: '⚡' },
+  cameras:     { label: 'Thiết bị',          icon: '📷' },
 };
 
 function isThermalDevice(device: Device) {
@@ -169,6 +166,9 @@ export default function LicensePage() {
   const mergeActualCounts = (baseLimits: ResourceLimit[], actualCounts: ResourceCountSummary) => {
     const actualByResource: Record<string, number> = actualCounts;
     return baseLimits.map(item => {
+      if (item.max <= 0) {
+        return { ...item, current: 0, exceeded: false };
+      }
       const actualCurrent = actualByResource[item.resource];
       const current = typeof actualCurrent === 'number'
         ? Math.max(item.current ?? 0, actualCurrent)
@@ -331,7 +331,11 @@ export default function LicensePage() {
       const data = await stationApi.importLicense(importFile);
       setImportMsg(data?.message ?? 'License đã nhập thành công!');
       setImportFile(null);
-      await refreshLicenseData(false);
+      setStatus(null);
+      setLimits([]);
+      setStatusLoading(true);
+      setLimitsLoading(true);
+      await refreshLicenseData(true);
     } catch (err: any) {
       setImportMsg(err?.message ?? 'Lỗi nhập license');
     } finally {
@@ -360,15 +364,15 @@ export default function LicensePage() {
         <div className="status-box">
           <div className="status-row">
             <span>Trạng thái</span>
-            <span className="status-badge demo">Chưa kích hoạt (Demo)</span>
+            <span className="status-badge neutral">Chưa kích hoạt</span>
           </div>
           <div className="status-row">
             <span>Người dùng đồng thời</span>
-            <span>Không giới hạn</span>
+            <span>0 / 0</span>
           </div>
           <div className="status-row">
             <span>Giới hạn tài nguyên</span>
-            <span style={{ color: '#ff8787', fontWeight: 'bold' }}>Mặc định 10 đơn vị/tài nguyên</span>
+            <span style={{ color: '#ff8787', fontWeight: 'bold' }}>0 / 0</span>
           </div>
         </div>
       );
@@ -422,20 +426,70 @@ export default function LicensePage() {
       );
     }
 
+    if (!status?.activated) {
+      const zeroResources = [
+        { resource: 'stations', current: 0, max: 0, exceeded: false },
+        { resource: 'cameras', current: 0, max: 0, exceeded: false },
+      ];
+
+      return (
+        <div className="resource-limits-section">
+          <h3>Giới hạn tài nguyên</h3>
+          <div className="no-license-warning" style={{
+            backgroundColor: 'rgba(255, 107, 107, 0.1)',
+            border: '1px solid rgba(255, 107, 107, 0.3)',
+            borderRadius: '6px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            fontSize: '14px',
+            color: '#ff8787',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span>⚠️</span>
+            <span>Chưa có license. Tất cả giới hạn hiện là 0/0.</span>
+          </div>
+          <div className="resource-grid">
+            {zeroResources.map((item) => {
+              const info = RESOURCE_LABELS[item.resource] ?? { label: item.resource, icon: '📦' };
+              return (
+                <div key={item.resource} className="resource-card">
+                  <div className="resource-icon">{info.icon}</div>
+                  <div className="resource-info">
+                    <div className="resource-name">{info.label}</div>
+                    <div className="resource-count">
+                      <span className="resource-current">{item.current}</span>
+                      <span className="resource-sep">/</span>
+                      <span className="resource-max">{item.max}</span>
+                    </div>
+                    <div className="resource-bar-bg">
+                      <div className="resource-bar-fill normal" style={{ width: '0%' }} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
     // Use limits from API if available, otherwise fall back to status fields
     const resourceData = limits.length > 0 ? limits : [
-      { resource: 'stations',    current: 0, max: status?.maxStations   && status.maxStations >= 999   ? -1 : (status?.maxStations ?? 10),   exceeded: false },
-      { resource: 'cameras',     current: 0, max: status?.maxCameras    && status.maxCameras >= 999    ? -1 : (status?.maxCameras ?? 10),    exceeded: false },
-      { resource: 'roi_points',  current: 0, max: status?.maxRoiPoints  && status.maxRoiPoints >= 999  ? -1 : (status?.maxRoiPoints ?? 10),  exceeded: false },
-      { resource: 'roi_regions', current: 0, max: status?.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status?.maxRoiRegions ?? 10), exceeded: false },
-      { resource: 'pd_regions',  current: 0, max: status?.maxPdRegions  && status.maxPdRegions >= 999  ? -1 : (status?.maxPdRegions ?? 10),  exceeded: false },
+      { resource: 'stations',    current: 0, max: status?.activated ? (status.maxStations   ?? 0) : 0, exceeded: false },
+      { resource: 'cameras',     current: 0, max: status?.activated ? (status.maxCameras    ?? 0) : 0, exceeded: false },
+      { resource: 'roi_points',  current: 0, max: status?.activated ? (status.maxRoiPoints  ?? 0) : 0, exceeded: false },
+      { resource: 'roi_regions', current: 0, max: status?.activated ? (status.maxRoiRegions ?? 0) : 0, exceeded: false },
+      { resource: 'pd_regions',  current: 0, max: status?.activated ? (status.maxPdRegions  ?? 0) : 0, exceeded: false },
     ];
+    const visibleResources = resourceData.filter(item => item.resource === 'stations' || item.resource === 'cameras');
 
     return (
       <div className="resource-limits-section">
         <h3>Giới hạn tài nguyên</h3>
         {!statusLoading && !status?.activated && (
-          <div className="demo-limit-warning" style={{ 
+          <div className="no-license-warning" style={{ 
             backgroundColor: 'rgba(255, 107, 107, 0.1)', 
             border: '1px solid rgba(255, 107, 107, 0.3)',
             borderRadius: '6px',
@@ -448,11 +502,11 @@ export default function LicensePage() {
             gap: '8px'
           }}>
             <span>⚠️</span>
-            <span>Hệ thống đang chạy ở chế độ Demo/Thử nghiệm. Mặc định là 10 đơn vị cho mỗi loại tài nguyên, nhưng không có giới hạn người dùng.</span>
+            <span>Chưa có license. Tất cả giới hạn hiện là 0/0.</span>
           </div>
         )}
         <div className="resource-grid">
-          {resourceData.map((item) => {
+          {visibleResources.map((item) => {
             const info = RESOURCE_LABELS[item.resource] ?? { label: item.resource, icon: '📦' };
             const isUnlimited = item.max === -1 || (item.max !== undefined && item.max >= 999);
             const pct = isUnlimited ? 0 : (item.max > 0 ? Math.min(100, (item.current / item.max) * 100) : 0);

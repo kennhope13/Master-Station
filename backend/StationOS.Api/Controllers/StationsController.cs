@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using StationOS.Data;
 using StationOS.Data.Entities;
 using StationOS.Services;
@@ -25,6 +26,7 @@ public class StationsController : ControllerBase
     private readonly IRealtimeNotifier _notifier;
     private readonly ILogger<StationsController> _logger;
     private readonly LicenseService _license;
+    private readonly bool _allowStationCreation;
     private const string DefaultApiUsername = "stationadmin";
     private const string DefaultApiPassword = "Station@123";
     private const string DefaultProvinceAdminPasswordSuffix = "@2026!";
@@ -75,7 +77,7 @@ public class StationsController : ControllerBase
         return true;
     }
 
-    public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory, CredentialEncryptionService crypto, InternalAuthService internalAuth, IRealtimeNotifier notifier, ILogger<StationsController> logger, LicenseService license)
+    public StationsController(AppDbContext db, PermissionService permissions, IHttpClientFactory httpClientFactory, CredentialEncryptionService crypto, InternalAuthService internalAuth, IRealtimeNotifier notifier, ILogger<StationsController> logger, LicenseService license, IConfiguration config)
     {
         _db = db;
         _permissions = permissions;
@@ -85,6 +87,7 @@ public class StationsController : ControllerBase
         _notifier = notifier;
         _logger = logger;
         _license = license;
+        _allowStationCreation = config.GetValue<bool?>("AppFeatures:AllowStationCreation") ?? false;
     }
 
     private static string NormalizeProvinceAccountToken(string? value)
@@ -303,6 +306,13 @@ public class StationsController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> Create([FromBody] StationRequest req)
     {
+        var licenseStatus = await _license.GetStatusAsync();
+        var isLicensed = licenseStatus != null && licenseStatus.IsValid;
+        if (!_allowStationCreation && !isLicensed)
+        {
+            return StatusCode(403, new { message = "Bản phát hành này không cho phép tạo trạm mới. Vui lòng kích hoạt License." });
+        }
+
         var limitInfo = await _license.CheckResourceLimitAsync("stations");
         if (limitInfo.Exceeded)
         {
@@ -838,13 +848,6 @@ public class StationsController : ControllerBase
         var rtspBase   = $"rtsp://{apiUri.Host}:8554";
         var webUiUrl   = $"{apiUri.Scheme}://{apiUri.Host}:4173";
 
-        var threshold = DateTime.UtcNow.AddMinutes(-5);
-        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
-        if (!isOnline)
-        {
-            return Ok(new { devicesOnline = 0, devicesTotal = 0, alertsCount = 0, points = Array.Empty<object>(), healthScores = Array.Empty<object>(), boundaries = Array.Empty<object>(), roiPoints = Array.Empty<object>(), go2rtcBase, rtspBase, webUiUrl, error = "station_offline" });
-        }
-
         try
         {
             // 1. Lấy token từ cache hoặc login
@@ -1049,11 +1052,6 @@ public class StationsController : ControllerBase
 
         var apiBase = station.ApiUrl.TrimEnd('/');
 
-        var threshold = DateTime.UtcNow.AddMinutes(-5);
-        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
-        if (!isOnline)
-            return Ok(Array.Empty<object>());
-
         try
         {
             var token = await GetOrFetchTokenAsync(station, apiBase);
@@ -1159,13 +1157,6 @@ public class StationsController : ControllerBase
         var go2rtcBase = $"{uri.Scheme}://{uri.Host}:1984";
         var rtspBase   = $"rtsp://{uri.Host}:8554";
 
-        var threshold = DateTime.UtcNow.AddMinutes(-5);
-        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
-        if (!isOnline)
-        {
-            return Ok(new { go2rtcBase, rtspBase, cameras = Array.Empty<object>(), error = "station_offline" });
-        }
-
         try
         {
             var token = await GetOrFetchTokenAsync(station, apiBase);
@@ -1268,13 +1259,6 @@ public class StationsController : ControllerBase
             return NotFound(new { error = "no_url" });
 
         var apiBase = station.ApiUrl.TrimEnd('/');
-        var threshold = DateTime.UtcNow.AddMinutes(-5);
-        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
-        if (!isOnline)
-        {
-            return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến." });
-        }
-
         try
         {
             var token = await GetOrFetchTokenAsync(station, apiBase);
@@ -1322,13 +1306,6 @@ public class StationsController : ControllerBase
             return NotFound(new { error = "station_not_found" });
 
         var apiBase = station.ApiUrl.TrimEnd('/');
-        var threshold = DateTime.UtcNow.AddMinutes(-5);
-        bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
-        if (!isOnline)
-        {
-            return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến." });
-        }
-
         try
         {
             var token = await GetOrFetchTokenAsync(station, apiBase);

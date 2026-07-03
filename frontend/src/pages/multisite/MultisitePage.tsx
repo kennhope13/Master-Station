@@ -15,6 +15,7 @@ import {
   Play, CheckCircle2, Trash2, ChevronUp, Wrench
 } from 'lucide-react';
 import { stationApi } from '@/services/StationApiService';
+import { systemService } from '@/services/api/SystemService';
 import { authService } from '@/services/AuthService';
 import { fmtDateTime, cleanAlertMessage, fmtTimeRange } from '@/utils/format';
 import { API_BASE_URL } from '@/utils/env';
@@ -22,6 +23,7 @@ import { isCentralUser } from '@/utils/centralAccess';
 import DateFilterButton from '@/components/ui/DateFilterButton';
 import { createRealtimeHub } from '@/services/realtime.service';
 import { showToast } from '@/utils/toast';
+import { clearGetCache } from '@/services/api/BaseApiService';
 
 const CentralAnalyticsLayout = lazy(() => import('@/pages/analytics/CentralAnalyticsLayout'));
 const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView'));
@@ -172,15 +174,41 @@ function compactStationTitle(name?: string): string {
   return name.replace(/^trạm biến áp\s*/i, 'TBA ');
 }
 
+function removeDiacritics(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+}
+
 function normalizeProvinceToken(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^tỉnh\s+/i, '')
-    .replace(/^thành phố\s+/i, '')
+  return removeDiacritics(value.trim().toLowerCase())
+    .replace(/^tinh\s+/i, '')
+    .replace(/^thanh pho\s+/i, '')
     .replace(/^tp\.\s*/i, '')
     .replace(/^tp\s+/i, '')
     .trim();
+}
+
+function findBestProvinceMatch(address: string, provincesList: Province[]): Province | undefined {
+  if (!address) return undefined;
+  const addressTokens = removeDiacritics(address.trim().toLowerCase());
+
+  // 1st pass: Match the full name (e.g. "tinh tay ninh") to avoid accidental sub-word matches in other fields
+  const firstPass = provincesList.find(p => {
+    if (!p.name) return false;
+    const fullName = removeDiacritics(p.name.trim().toLowerCase());
+    return addressTokens.includes(fullName);
+  });
+  if (firstPass) return firstPass;
+
+  // 2nd pass: Fallback to normalized province token (e.g. "tay ninh") or code
+  return provincesList.find(p => {
+    const n = normalizeProvinceToken(p.name || '');
+    const c = normalizeProvinceToken(p.code || '');
+    return (n && addressTokens.includes(n)) || (c && addressTokens.includes(c));
+  });
 }
 
 function parseIsoDate(value: string): Date {
@@ -436,6 +464,15 @@ export default function MultisitePage() {
     boundaries?: Array<{ id: string; deviceId: string; name: string; type: string; severityLevel: string; enabled: boolean }>;
   }>>({});
   const [isAuthReady, setIsAuthReady] = useState(() => !!authService.getToken());
+  const [allowStationCreation, setAllowStationCreation] = useState(false);
+  
+  useEffect(() => {
+    systemService.getLicenseStatus().then(status => {
+      setAllowStationCreation(!!status?.isValid);
+    }).catch(() => {
+      setAllowStationCreation(false);
+    });
+  }, []);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [userDropdownPos, setUserDropdownPos] = useState({ top: 0, left: 0 });
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -470,14 +507,26 @@ export default function MultisitePage() {
   }, [callerProvinceIds, currentUser?.team_id, isProvinceAdmin, isTeamLeader, provinces, teams]);
 
   const openAddStationModal = () => {
+    if (!allowStationCreation) return;
     if ((isProvinceAdmin || isTeamLeader) && visibleProvinces.length > 0) {
       setNewStationProvinceId(visibleProvinces[0]!.id);
     }
     setIsAddModalOpen(true);
   };
 
+
+
+  // Clear GET cache once on component mount
   useEffect(() => {
-    stationApi.getProvinces().then(setProvinces).catch(() => {});
+    clearGetCache();
+  }, []);
+
+  // Fetch provinces whenever the auth token becomes available/changes
+  useEffect(() => {
+    if (!token) return; // wait for token
+    stationApi.getProvinces().then(setProvinces).catch((err) => {
+      console.error('Failed to load provinces:', err);
+    });
     stationApi.getTeams().then(setTeams).catch(() => {});
   }, [token]);
 
@@ -671,6 +720,20 @@ export default function MultisitePage() {
     } catch { return withScheme; }
   };
 
+  /** Suy URL giao diện web từ URL API theo quy ước port của StationOS. */
+  const deriveWebUrl = (apiUrl: string): string => {
+    const trimmed = apiUrl.trim().replace(/\/$/, '');
+    if (!trimmed) return '';
+    try {
+      const u = new URL(trimmed);
+      const webPort = u.port === '5000' ? '4173' : u.port === '6000' ? '6173' : u.port;
+      if (webPort) u.port = webPort;
+      return u.toString().replace(/\/$/, '');
+    } catch {
+      return trimmed;
+    }
+  };
+
   const handleTestConnection = async () => {
     if (!newStationApiUrl.trim()) return;
     const url = resolveApiUrl(newStationApiUrl);
@@ -697,8 +760,15 @@ export default function MultisitePage() {
       if (data.length > 0) {
         setNewStationLat(parseFloat(data[0].lat).toFixed(6));
         setNewStationLng(parseFloat(data[0].lon).toFixed(6));
-        if (!newStationAddress.trim() || data[0].display_name) {
-          setNewStationAddress(data[0].display_name);
+        const displayName = data[0].display_name || '';
+        if (!newStationAddress.trim() || displayName) {
+          setNewStationAddress(displayName);
+        }
+        if (displayName) {
+          const matched = findBestProvinceMatch(displayName, provinces);
+          if (matched) {
+            setNewStationProvinceId(matched.id);
+          }
         }
         setGeoStatus('found');
       } else {
@@ -710,8 +780,33 @@ export default function MultisitePage() {
   };
 
   const handleAddStationSubmit = async () => {
-    if (!newStationProvinceId) {
-      alert('Vui lòng chọn tỉnh cho trạm');
+    let finalProvinceId = newStationProvinceId;
+
+    // Always re-evaluate the matched province from the address string to ensure accuracy
+    if (newStationAddress.trim()) {
+      let provList = provinces;
+      if (provList.length === 0) {
+        try {
+          const tk = useAuthStore.getState().token;
+          const res = await fetch(`${API_BASE_URL}/api/v1/provinces`, {
+            headers: tk ? { Authorization: `Bearer ${tk}` } : {},
+          });
+          if (res.ok) {
+            provList = await res.json();
+            setProvinces(provList);
+          }
+        } catch (e) {
+          console.error('Failed to fetch provinces on submit:', e);
+        }
+      }
+      const matched = findBestProvinceMatch(newStationAddress, provList);
+      if (matched) {
+        finalProvinceId = matched.id;
+      }
+    }
+
+    if (!finalProvinceId) {
+      alert('Không thể tự động nhận diện Tỉnh từ địa chỉ. Vui lòng bấm nút Tìm tọa độ để nhận diện địa chỉ tự động.');
       return;
     }
     if (!newStationName.trim()) {
@@ -741,10 +836,12 @@ export default function MultisitePage() {
         newStationCode.trim(),
         JSON.stringify(locationObj),
         resolveApiUrl(newStationApiUrl),
-        newStationWebUrl.trim() ? normalizeUrl(newStationWebUrl.trim().replace(/\/$/, '')) : undefined,
+        newStationWebUrl.trim()
+          ? normalizeUrl(newStationWebUrl.trim().replace(/\/$/, ''))
+          : deriveWebUrl(resolveApiUrl(newStationApiUrl)),
         newStationApiPassword.trim() || undefined,
         'stationadmin',
-        newStationProvinceId
+        finalProvinceId
       );
 
       setNewStationName(''); setNewStationCode('');
@@ -1982,7 +2079,7 @@ export default function MultisitePage() {
               }}
             >
               <div style={{ padding: '0 8px 6px 8px', borderBottom: '1px solid var(--admin-border-light)' }}>
-                {canManageStations && (
+                {allowStationCreation && canManageStations && (
                   <button
                     className="btn-industrial"
                     style={{
@@ -2008,7 +2105,7 @@ export default function MultisitePage() {
               <div className="custom-hud-scroll" style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
                 {visibleProvinceGroups.length === 0 ? (
                   <div style={{ padding: 12, textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: '0.65rem' }}>
-                    Trống
+                    Chưa có trạm nào được cấu hình.
                   </div>
                 ) : (
                   selectedProvince ? (
@@ -2606,8 +2703,8 @@ export default function MultisitePage() {
               boxShadow: '0 10px 40px rgba(0,0,0,0.5)', borderRadius: 0, backdropFilter: 'blur(10px)'
             }}>
               <AlertTriangle size={36} style={{ color: 'var(--admin-warning)', marginBottom: 12, display: 'inline-block' }} />
-              <h3 style={{ color: 'var(--admin-text)', margin: '0 0 6px 0', fontSize: '0.85rem' }}>Chưa Cập Nhật Trạm Biến Áp</h3>
-              <p style={{ margin: 0, fontSize: '0.75rem' }}>Vui lòng khởi tạo trạm trong giao diện Quản lý hệ thống.</p>
+              <h3 style={{ color: 'var(--admin-text)', margin: '0 0 6px 0', fontSize: '0.85rem' }}>Chưa có trạm nào</h3>
+              <p style={{ margin: 0, fontSize: '0.75rem' }}>Bản phát hành này không cho phép tạo trạm mới.</p>
             </div>
           )}
         </>
@@ -2650,7 +2747,7 @@ export default function MultisitePage() {
 
             {/* Modal Body */}
             <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ display: 'none', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>TỈNH / VÙNG *</label>
                 <select
                   value={newStationProvinceId}
@@ -2813,6 +2910,9 @@ export default function MultisitePage() {
                     ● Không thể kết nối tới trạm con (Vẫn có thể lưu trạm, hệ thống sẽ tự kết nối sau)
                   </span>
                 )}
+                <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
+                  Gợi ý: `4173/5173/6173` là cổng giao diện web, còn backend API thường chạy ở `5000`.
+                </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>

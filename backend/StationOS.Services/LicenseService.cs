@@ -24,6 +24,7 @@ namespace StationOS.Services;
 public class LicenseService
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly string? _vendorPrivateKey;
     private readonly string _vendorSecret;
     private readonly LicenseManager _licenseManager;
 
@@ -40,9 +41,11 @@ public class LicenseService
     {
         _scopeFactory = scopeFactory;
         _licenseManager = licenseManager;
+        _vendorPrivateKey = Environment.GetEnvironmentVariable("STATIONOS_VENDOR_PRIVATE_KEY")
+                            ?? config["License:VendorPrivateKey"];
         _vendorSecret = Environment.GetEnvironmentVariable("STATIONOS_VENDOR_SECRET") 
                         ?? config["License:VendorSecret"] 
-                        ?? throw new InvalidOperationException("Khóa bí mật nhà cung cấp (VendorSecret) chưa được cấu hình. Vui lòng thiết lập biến môi trường STATIONOS_VENDOR_SECRET.");
+                        ?? string.Empty;
     }
 
     // ── Default resource limits per tier ──────────────────────
@@ -50,8 +53,8 @@ public class LicenseService
     {
         return tier switch
         {
-            "SOLO" => (1,   1,   2,   10,  5,   5),
-            "TEAM" => (5,   10,  8,   500, 30,  30),
+            "SOLO" => (1,   1,   2,   999, 999, 999),
+            "TEAM" => (5,   10,  8,   999, 999, 999),
             "ENT"  => (999, 999, 999, 999, 999, 999),
             _      => (-1, -1, -1, -1, -1, -1)
         };
@@ -255,6 +258,7 @@ public class LicenseService
                 info.ExpiresAt,
                 new LicenseHardwareBinding(hardware.CpuId, hardware.MainboardUuid, hardware.OsDiskSerial, hardware.MachineName, hardware.Platform, hardware.MacAddress),
                 new LicenseResourceBundle(info.MaxUsers, info.MaxStations, info.MaxCameras, info.MaxRoiPoints, info.MaxRoiRegions, info.MaxPdRegions),
+                _vendorPrivateKey,
                 _vendorSecret
             );
             await File.WriteAllTextAsync(Path.Combine(licDir, "base.lic"), structured);
@@ -345,38 +349,13 @@ public class LicenseService
         var maxUsers = fileSnapshot.HasLicense ? fileSnapshot.MaxUsers : license?.MaxUsers ?? 10;
         var maxStations = fileSnapshot.HasLicense ? fileSnapshot.MaxStations : license?.MaxStations ?? 10;
         var maxCameras = fileSnapshot.HasLicense ? fileSnapshot.MaxCameras : license?.MaxCameras ?? 10;
-        var maxRoiPoints = fileSnapshot.HasLicense ? fileSnapshot.MaxRoiPoints : license?.MaxRoiPoints ?? 10;
-        var maxRoiRegions = fileSnapshot.HasLicense ? fileSnapshot.MaxRoiRegions : license?.MaxRoiRegions ?? 10;
-        var maxPdRegions = fileSnapshot.HasLicense ? fileSnapshot.MaxPdRegions : license?.MaxPdRegions ?? 10;
-
         int current = 0;
         int max = 999;
 
-        // Chưa có license → mặc định giới hạn 10 cho mỗi loại tài nguyên (Trial/Demo)
+        // Chưa có license → không cho hiển thị giới hạn sử dụng
         if (!fileSnapshot.HasLicense && license == null)
         {
-            switch (resource.ToLower())
-            {
-                case "stations":
-                    current = await db.Stations.CountAsync();
-                    break;
-                case "cameras":
-                case "devices":
-                    current = await db.Devices.CountAsync();
-                    break;
-                case "roi_points":
-                    current = await db.RoiPoints.CountAsync();
-                    break;
-                case "roi_regions":
-                    current = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "roi");
-                    break;
-                case "pd_regions":
-                    current = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "pd");
-                    break;
-            }
-            max = 10;
-            var exceededTrial = current >= max;
-            return new ResourceLimitInfo(resource, current, max, exceededTrial);
+            return new ResourceLimitInfo(resource, 0, 0, false);
         }
 
         switch (resource.ToLower())
@@ -392,20 +371,20 @@ public class LicenseService
                 break;
             case "roi_points":
                 current = await db.RoiPoints.CountAsync();
-                max = fileSnapshot.HasLicense ? maxRoiPoints : license!.MaxRoiPoints;
+                max = fileSnapshot.HasLicense ? fileSnapshot.MaxRoiPoints : (license?.MaxRoiPoints ?? 0);
                 break;
             case "roi_regions":
                 current = await db.Set<StationOS.Data.Entities.Boundary>()
                     .CountAsync(b => b.Type.ToLower() == "roi");
-                max = fileSnapshot.HasLicense ? maxRoiRegions : license!.MaxRoiRegions;
+                max = fileSnapshot.HasLicense ? fileSnapshot.MaxRoiRegions : (license?.MaxRoiRegions ?? 0);
                 break;
             case "pd_regions":
                 current = await db.Set<StationOS.Data.Entities.Boundary>()
                     .CountAsync(b => b.Type.ToLower() == "pd");
-                max = fileSnapshot.HasLicense ? maxPdRegions : license!.MaxPdRegions;
+                max = fileSnapshot.HasLicense ? fileSnapshot.MaxPdRegions : (license?.MaxPdRegions ?? 0);
                 break;
             default:
-                return new ResourceLimitInfo(resource, 0, 999, false);
+                return new ResourceLimitInfo(resource, 0, 0, false);
         }
 
         var exceeded = max < 999 && current >= max;
@@ -423,13 +402,25 @@ public class LicenseService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var license = await GetActiveLicenseAsync(db);
+        if (!fileSnapshot.HasLicense && license == null)
+        {
+            return new List<ResourceLimitInfo>
+            {
+                new("stations", 0, 0, false),
+                new("cameras", 0, 0, false),
+                new("roi_points", 0, 0, false),
+                new("roi_regions", 0, 0, false),
+                new("pd_regions", 0, 0, false),
+            };
+        }
+
         var stationCount = await db.Stations.CountAsync();
         var cameraCount = await db.Devices.CountAsync();
         var roiPointCount = await db.RoiPoints.CountAsync();
         var roiRegionCount = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "roi");
         var pdRegionCount = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "pd");
 
-        var defaultMax = 10;
+        var defaultMax = 0;
         var useFileLicense = fileSnapshot.HasLicense;
 
         return new List<ResourceLimitInfo>
@@ -457,7 +448,7 @@ public class LicenseService
     /// Gọi sau khi login thành công.
     /// Trả false nếu đã đủ concurrent users (không tính phiên bypass).
     /// Bypass: tài khoản "multi" hoặc role "admin" không bị tính vào giới hạn.
-    /// Nếu chưa có license thì vẫn cho vào (demo mode).
+    /// Nếu chưa có license thì vẫn cho vào để giữ tương thích luồng hiện tại.
     /// </summary>
     public async Task<(bool allowed, string reason)> TryAcquireSessionAsync(
         string tokenHash, DateTime expiresAt, string username, string role)
@@ -480,7 +471,7 @@ public class LicenseService
 
         var effectiveMaxUsers = fileSnapshot.HasLicense ? fileSnapshot.MaxUsers : license?.MaxUsers ?? 10;
 
-        // Chưa có license → cho vào (demo mode) nhưng gắn cờ
+        // Chưa có license → cho vào nhưng gắn cờ
         if (!fileSnapshot.HasLicense && license == null)
         {
             _activeSessions[tokenHash] = new ActiveSessionInfo(

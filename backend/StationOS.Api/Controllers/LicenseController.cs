@@ -34,7 +34,24 @@ public class LicenseController : ControllerBase
     {
         var status = await _license.GetStatusAsync();
         if (status == null)
-            return Ok(new { activated = false });
+        {
+            return Ok(new
+            {
+                activated     = false,
+                tier          = "",
+                maxUsers      = 0,
+                maxStations   = 0,
+                maxCameras    = 0,
+                maxRoiPoints  = 0,
+                maxRoiRegions = 0,
+                maxPdRegions  = 0,
+                expiresAt     = (DateTime?)null,
+                activatedAt   = (DateTime?)null,
+                activeSessions = 0,
+                isValid       = false,
+                daysRemaining = 0
+            });
+        }
 
         return Ok(new
         {

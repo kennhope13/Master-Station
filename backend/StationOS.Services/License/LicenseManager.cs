@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using StationOS.Data;
 using StationOS.Data.Entities;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 namespace StationOS.Services.Licensing;
 
@@ -26,13 +27,13 @@ public sealed record EffectiveLicenseSnapshot(
 {
     public static EffectiveLicenseSnapshot Empty { get; } = new(
         false,
-        "demo",
-        10,
-        10,
-        10,
-        10,
-        10,
-        10,
+        "",
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
         null,
         DateTime.UtcNow,
         null,
@@ -51,6 +52,8 @@ public sealed record LicenseImportOutcome(
 
 public sealed class LicenseManager
 {
+    private readonly string? _vendorPublicKey;
+    private readonly string? _vendorPrivateKey;
     private readonly string _vendorSecret;
     private readonly string _licensesDirectory;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -60,13 +63,21 @@ public sealed class LicenseManager
 
     public LicenseManager(IConfiguration configuration, IServiceScopeFactory scopeFactory)
     {
+        _vendorPublicKey = Environment.GetEnvironmentVariable("STATIONOS_VENDOR_PUBLIC_KEY")
+            ?? configuration["License:VendorPublicKey"];
+        _vendorPrivateKey = Environment.GetEnvironmentVariable("STATIONOS_VENDOR_PRIVATE_KEY")
+            ?? configuration["License:VendorPrivateKey"];
         _vendorSecret = Environment.GetEnvironmentVariable("STATIONOS_VENDOR_SECRET")
             ?? configuration["License:VendorSecret"]
-            ?? throw new InvalidOperationException("Thiếu License:VendorSecret / STATIONOS_VENDOR_SECRET.");
+            ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_vendorPublicKey) && string.IsNullOrWhiteSpace(_vendorSecret))
+            throw new InvalidOperationException("Thiếu License:VendorPublicKey / STATIONOS_VENDOR_PUBLIC_KEY hoặc License:VendorSecret / STATIONOS_VENDOR_SECRET.");
 
         _scopeFactory = scopeFactory;
         _licensesDirectory = Path.Combine(AppContext.BaseDirectory, "Licenses");
         Directory.CreateDirectory(_licensesDirectory);
+        Console.WriteLine($"[LICENSE-STARTUP] publicKeyFingerprint={ComputePemFingerprint(_vendorPublicKey)} privateKeyConfigured={!string.IsNullOrWhiteSpace(_vendorPrivateKey)} secretConfigured={!string.IsNullOrWhiteSpace(_vendorSecret)}");
         ReloadLicenses();
     }
 
@@ -99,7 +110,7 @@ public sealed class LicenseManager
                 try
                 {
                     var content = File.ReadAllText(file);
-                    if (!LicenseParser.TryParseDocument(content, _vendorSecret, _currentFingerprint, out var doc, out _))
+                    if (!LicenseParser.TryParseDocument(content, _vendorPublicKey, _vendorSecret, _currentFingerprint, out var doc, out _))
                         continue;
 
                     loaded.Add(doc with { SourcePath = file });
@@ -170,7 +181,7 @@ public sealed class LicenseManager
             content = await reader.ReadToEndAsync();
         }
 
-        if (!LicenseParser.TryParseDocument(content, _vendorSecret, currentFingerprint, out var doc, out var error))
+        if (!LicenseParser.TryParseDocument(content, _vendorPublicKey, _vendorSecret, currentFingerprint, out var doc, out var error))
             return new LicenseImportOutcome(false, error);
 
         if (doc!.Kind == LicensePackageKind.Addon)
@@ -207,7 +218,7 @@ public sealed class LicenseManager
             content = await reader.ReadToEndAsync();
         }
 
-        var ok = LicenseParser.TryParseDocument(content, _vendorSecret, GetCurrentFingerprint(), out var doc, out var error);
+        var ok = LicenseParser.TryParseDocument(content, _vendorPublicKey, _vendorSecret, GetCurrentFingerprint(), out var doc, out var error);
         return ok ? (true, "", doc) : (false, error, null);
     }
 
@@ -251,6 +262,30 @@ public sealed class LicenseManager
         catch (DbUpdateException)
         {
             // Unique index trên AddonId chặn race condition nạp trùng đồng thời — bỏ qua an toàn.
+        }
+    }
+
+    private static string ComputePemFingerprint(string? pem)
+    {
+        if (string.IsNullOrWhiteSpace(pem))
+            return "(empty)";
+
+        var cleaned = pem
+            .Replace("-----BEGIN PUBLIC KEY-----", string.Empty)
+            .Replace("-----END PUBLIC KEY-----", string.Empty)
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty)
+            .Trim();
+
+        try
+        {
+            var bytes = Convert.FromBase64String(cleaned);
+            var hash = SHA256.HashData(bytes);
+            return Convert.ToHexString(hash);
+        }
+        catch
+        {
+            return "(invalid-pem)";
         }
     }
 }

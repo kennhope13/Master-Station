@@ -5,7 +5,7 @@
 // Export: systemService (singleton), dùng qua StationApiService facade
 // ============================================================
 
-import { apiFetch, apiMutate } from './BaseApiService';
+import { apiFetch, apiMutate, clearGetCache } from './BaseApiService';
 import { authService } from '../AuthService';
 import type { UserItem, SmtpConfig, SyncStatus, PermissionInfo, Province, Team } from '@/types/api.types';
 
@@ -74,7 +74,7 @@ export class SystemService {
 
   /** Lấy danh sách tỉnh khả dụng. */
   async getProvinces(): Promise<Province[]> {
-    return apiFetch<Province[]>('/provinces');
+    return apiFetch<Province[]>(`/provinces?_t=${Date.now()}`);
   }
 
   /** Tạo tài khoản mới. data cần có username, password, role, fullname. */
@@ -191,7 +191,9 @@ export class SystemService {
       const err = await res.json().catch(() => ({ message: res.statusText }));
       throw new Error(err.message || 'Import thất bại');
     }
-    return res.json();
+    const data = await res.json();
+    clearGetCache();
+    return data;
   }
 }
 

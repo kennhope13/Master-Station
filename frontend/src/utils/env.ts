@@ -20,9 +20,10 @@ export const GO2RTC_URL: string = (() => {
 })();
 
 // URL gốc của backend API — dùng cho REST và WebSocket SignalR
-const rawApi = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:6000';
+const rawApi = (import.meta.env.VITE_API_URL as string | undefined) || '';
 /** URL gốc của backend REST API và SignalR — tự thay localhost bằng hostname thực. */
 export const API_BASE_URL: string = (() => {
+  if (!rawApi) return ''; // Dùng relative path qua Vite proxy
   if (typeof window !== 'undefined' && window.location) {
     const hostname = window.location.hostname;
     if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {

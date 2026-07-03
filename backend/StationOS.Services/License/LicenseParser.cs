@@ -68,7 +68,8 @@ public static class LicenseParser
 {
     public static bool TryParseDocument(
         string content,
-        string vendorSecret,
+        string? vendorPublicKey,
+        string? legacyVendorSecret,
         HardwareFingerprintSnapshot currentFingerprint,
         out LicenseDocument? document,
         out string errorMessage)
@@ -109,7 +110,8 @@ public static class LicenseParser
 
             var hardware = ParseHardware(root.TryGetProperty("hardware", out var hardwareElement) ? hardwareElement : default);
             var limits = ParseLimits(root.TryGetProperty("limits", out var limitsElement) ? limitsElement : default, kind);
-            var signature = (root.GetStringOrDefault("signature") ?? string.Empty).Trim().ToUpperInvariant();
+            var signatureAlgorithm = (root.GetStringOrDefault("signatureAlgorithm") ?? root.GetStringOrDefault("signature_algorithm") ?? string.Empty).Trim().ToLowerInvariant();
+            var signature = (root.GetStringOrDefault("signature") ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(signature))
             {
                 errorMessage = "Thiếu chữ ký license";
@@ -117,12 +119,18 @@ public static class LicenseParser
             }
 
             var payload = BuildCanonicalPayload(kind, licenseId, addonId, baseLicenseId, tier, issuedAtUtc, expiresAtUtc.Value, hardware, limits);
-            var expectedSignature = ComputeSignature(vendorSecret, payload);
-            if (!string.Equals(signature, expectedSignature, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(Environment.GetEnvironmentVariable("STATIONOS_LICENSE_DEBUG"), "1", StringComparison.OrdinalIgnoreCase))
+            {
+                var fingerprintHash = HardwareFingerprint.ComputeFingerprintHash(hardware.ToSnapshot());
+                Console.WriteLine($"[LICENSE-DEBUG] fingerprintHash: {fingerprintHash}");
+                Console.WriteLine($"[LICENSE-DEBUG] canonical ({payload.Length} chars): {payload}");
+                Console.WriteLine($"[LICENSE-DEBUG] signatureAlgorithm: {signatureAlgorithm}");
+                Console.WriteLine($"[LICENSE-DEBUG] publicKeyFingerprint: {ComputePemFingerprint(vendorPublicKey)}");
+            }
+            if (!VerifySignature(signature, payload, signatureAlgorithm, vendorPublicKey, legacyVendorSecret))
             {
                 var rawPayload = BuildRawJsonPayload(root);
-                var rawExpectedSignature = ComputeSignature(vendorSecret, rawPayload);
-                if (!string.Equals(signature, rawExpectedSignature, StringComparison.OrdinalIgnoreCase))
+                if (!VerifySignature(signature, rawPayload, signatureAlgorithm, vendorPublicKey, legacyVendorSecret))
                 {
                     errorMessage = "Chữ ký license không hợp lệ";
                     return false;
@@ -205,6 +213,97 @@ public static class LicenseParser
         return Convert.ToHexString(hash)[..8];
     }
 
+    private static string SignPayload(string payload, string? vendorPrivateKey, string? legacyVendorSecret, out string signatureAlgorithm)
+    {
+        if (!string.IsNullOrWhiteSpace(vendorPrivateKey))
+        {
+            signatureAlgorithm = "rsa-sha256";
+            return SignWithRsaPrivateKey(vendorPrivateKey, payload);
+        }
+
+        if (!string.IsNullOrWhiteSpace(legacyVendorSecret))
+        {
+            signatureAlgorithm = "hmac-sha256";
+            return ComputeSignature(legacyVendorSecret, payload);
+        }
+
+        throw new InvalidOperationException("Thiếu khóa ký license. Vui lòng cấu hình License:VendorPrivateKey hoặc License:VendorSecret.");
+    }
+
+    private static bool VerifySignature(string signature, string payload, string? signatureAlgorithm, string? vendorPublicKey, string? legacyVendorSecret)
+    {
+        if (string.Equals(signatureAlgorithm, "rsa-sha256", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(signatureAlgorithm, "rsa", StringComparison.OrdinalIgnoreCase))
+        {
+            return !string.IsNullOrWhiteSpace(vendorPublicKey) && VerifyWithRsaPublicKey(vendorPublicKey, payload, signature);
+        }
+
+        if (string.Equals(signatureAlgorithm, "hmac-sha256", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(signatureAlgorithm, "hmac", StringComparison.OrdinalIgnoreCase))
+        {
+            return !string.IsNullOrWhiteSpace(legacyVendorSecret) &&
+                   string.Equals(signature, ComputeSignature(legacyVendorSecret, payload), StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (!string.IsNullOrWhiteSpace(vendorPublicKey) && VerifyWithRsaPublicKey(vendorPublicKey, payload, signature))
+            return true;
+
+        if (!string.IsNullOrWhiteSpace(legacyVendorSecret) &&
+            string.Equals(signature, ComputeSignature(legacyVendorSecret, payload), StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
+    }
+
+    private static string SignWithRsaPrivateKey(string privateKeyPem, string payload)
+    {
+        using var rsa = RSA.Create();
+        rsa.ImportFromPem(privateKeyPem);
+        var data = Encoding.UTF8.GetBytes(payload);
+        var signature = rsa.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        return Convert.ToBase64String(signature);
+    }
+
+    private static bool VerifyWithRsaPublicKey(string publicKeyPem, string payload, string signature)
+    {
+        try
+        {
+            using var rsa = RSA.Create();
+            rsa.ImportFromPem(publicKeyPem);
+            var data = Encoding.UTF8.GetBytes(payload);
+            var signatureBytes = Convert.FromBase64String(signature);
+            return rsa.VerifyData(data, signatureBytes, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string ComputePemFingerprint(string? pem)
+    {
+        if (string.IsNullOrWhiteSpace(pem))
+            return "(empty)";
+
+        var cleaned = pem
+            .Replace("-----BEGIN PUBLIC KEY-----", string.Empty)
+            .Replace("-----END PUBLIC KEY-----", string.Empty)
+            .Replace("\r", string.Empty)
+            .Replace("\n", string.Empty)
+            .Trim();
+
+        try
+        {
+            var bytes = Convert.FromBase64String(cleaned);
+            var hash = SHA256.HashData(bytes);
+            return Convert.ToHexString(hash);
+        }
+        catch
+        {
+            return "(invalid-pem)";
+        }
+    }
+
     private static string BuildRawJsonPayload(JsonElement root)
     {
         using var doc = BuildSignatureDocument(root);
@@ -225,10 +324,11 @@ public static class LicenseParser
         DateTime expiresAtUtc,
         LicenseHardwareBinding hardware,
         LicenseResourceBundle limits,
-        string vendorSecret)
+        string? vendorPrivateKey = null,
+        string? legacyVendorSecret = null)
     {
         var payload = BuildCanonicalPayload(kind, licenseId, addonId, baseLicenseId, tier, issuedAtUtc, expiresAtUtc, hardware, limits);
-        var signature = ComputeSignature(vendorSecret, payload);
+        var signature = SignPayload(payload, vendorPrivateKey, legacyVendorSecret, out var signatureAlgorithm);
         var payloadObject = new
         {
             version = 1,
@@ -257,6 +357,7 @@ public static class LicenseParser
                 roiRegions = limits.RoiRegions,
                 pdRegions = limits.PdRegions,
             },
+            signatureAlgorithm,
             signature
         };
 
@@ -313,7 +414,9 @@ public static class LicenseParser
     {
         if (element.ValueKind != JsonValueKind.Object)
         {
-            return kind == LicensePackageKind.Addon ? new LicenseResourceBundle() : new LicenseResourceBundle(1, 1, 2, 10, 5, 5);
+            return kind == LicensePackageKind.Addon
+                ? new LicenseResourceBundle()
+                : new LicenseResourceBundle(1, 1, 2, 999, 999, 999);
         }
 
         int ReadInt(params string[] names)
@@ -372,6 +475,7 @@ public static class LicenseParser
             ["tier"] = root.GetStringOrDefault("tier"),
             ["issuedAtUtc"] = root.GetStringOrDefault("issuedAtUtc") ?? root.GetStringOrDefault("issued_at_utc") ?? root.GetStringOrDefault("issuedAt"),
             ["expiresAtUtc"] = root.GetStringOrDefault("expiresAtUtc") ?? root.GetStringOrDefault("expires_at_utc") ?? root.GetStringOrDefault("expiresAt"),
+            ["signatureAlgorithm"] = root.GetStringOrDefault("signatureAlgorithm") ?? root.GetStringOrDefault("signature_algorithm"),
             ["hardware"] = root.TryGetProperty("hardware", out var hardwareElement) && hardwareElement.ValueKind == JsonValueKind.Object
                 ? JsonSerializer.Deserialize<Dictionary<string, object?>>(hardwareElement.GetRawText())
                 : null,

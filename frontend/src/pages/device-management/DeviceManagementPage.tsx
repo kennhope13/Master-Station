@@ -19,6 +19,8 @@ import { MULTISITE_DRILL_STATION_KEY } from '@/utils/centralAccess';
 
 import ActionDropdown, { ActionDropdownItem } from '@/components/ui/ActionDropdown';
 
+const ALLOW_DEVICE_CREATION = false;
+
 
 const FALLBACK_POINTS = [
   ...(PT_CAM_IDS as readonly string[]).map(id => ({ value: id, label: `Điểm camera ${id} — Nhiệt độ (°C)` })),
@@ -391,6 +393,7 @@ export default function DeviceManagementPage({
 
   /** Mở modal thêm hoặc sửa thiết bị, nạp dữ liệu hiện tại vào form nếu sửa. */
   const openDeviceModal = (d?: Device) => {
+    if (!ALLOW_DEVICE_CREATION && !d) return;
     setEditingId(d?.id ?? null);
     setTestConnResult({ show: false });
     setShowPassword(false);
@@ -678,13 +681,15 @@ export default function DeviceManagementPage({
               >
                 QUÉT MẠNG LAN
               </button>
-              <button 
-                className="btn-industrial btn-primary" 
-                style={{ padding: '6px 16px', fontSize: '.75rem', fontWeight: 800 }}
-                onClick={() => openDeviceModal()}
-              >
-                + THÊM THIẾT BỊ
-              </button>
+              {ALLOW_DEVICE_CREATION && (
+                <button 
+                  className="btn-industrial btn-primary" 
+                  style={{ padding: '6px 16px', fontSize: '.75rem', fontWeight: 800 }}
+                  onClick={() => openDeviceModal()}
+                >
+                  + THÊM THIẾT BỊ
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -702,7 +707,9 @@ export default function DeviceManagementPage({
             </div>
             <div className="page-toolbar-group">
               <button className="btn-industrial" style={{ height: 32, padding: '0 16px', fontSize: '.72rem', fontWeight: 700 }} onClick={() => setIsScanModalOpen(true)}>Dò tìm thiết bị</button>
-              <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800 }} onClick={() => openDeviceModal()}>+ Thêm thiết bị</button>
+              {ALLOW_DEVICE_CREATION && (
+                <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800 }} onClick={() => openDeviceModal()}>+ Thêm thiết bị</button>
+              )}
             </div>
           </div>
         )}
