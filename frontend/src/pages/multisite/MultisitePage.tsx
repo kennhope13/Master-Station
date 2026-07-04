@@ -1440,41 +1440,7 @@ export default function MultisitePage() {
         <div key={mapHostKey} ref={mapRef} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, background: '#1a1a2e' }} />
       )}
 
-      {activeTab === 'overview' && selectedProvince && (
-        <button
-          onClick={() => {
-            setSelectedProvince(null);
-            setSelectedStationId(null);
-          }}
-          style={{
-            position: 'absolute',
-            top: 80,
-            left: 14,
-            zIndex: 1008,
-            width: 36,
-            height: 36,
-            padding: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: 'none',
-            background: 'transparent',
-            color: 'var(--admin-accent)',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.color = '#fff';
-            e.currentTarget.style.transform = 'translateX(-4px)';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.color = 'var(--admin-accent)';
-            e.currentTarget.style.transform = 'none';
-          }}
-        >
-          <ArrowLeft size={28} strokeWidth={3} style={{ position: 'relative', top: 1 }} />
-        </button>
-      )}
+
 
       {/* TOP FLOATING HEADER HUD */}
       <div className="multisite-hud-panel multisite-hud-row" style={{
@@ -2043,46 +2009,111 @@ export default function MultisitePage() {
               flexDirection: 'column'
             }}
           >
-            <button
-              onClick={() => setShowLeftPanel(!showLeftPanel)}
-              style={{
-                position: 'absolute',
-                left: showLeftPanel ? 0 : -24,
-                top: 0,
-                width: 24,
-                height: 24,
-                background: 'var(--admin-overlay)',
-                backdropFilter: 'blur(10px)',
-                border: '1px solid var(--admin-border)',
-                borderRight: showLeftPanel ? 'none' : '1px solid var(--admin-border)',
-                color: 'var(--admin-text)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                pointerEvents: 'all',
-                borderRadius: 0,
-                boxShadow: '-2px 0 10px rgba(0,0,0,0.1)',
-                zIndex: 1002
-              }}
-              title={showLeftPanel ? 'Thu nhỏ' : 'Mở rộng'}
-            >
-              {showLeftPanel ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-            </button>
+            {!showLeftPanel && (
+              <button
+                onClick={() => setShowLeftPanel(true)}
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 0,
+                  width: 24,
+                  height: 24,
+                  background: 'var(--admin-overlay)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid var(--admin-border)',
+                  borderRight: 'none',
+                  color: 'var(--admin-text)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  pointerEvents: 'all',
+                  borderRadius: 0,
+                  boxShadow: '-2px 0 10px rgba(0,0,0,0.1)',
+                  zIndex: 1002
+                }}
+                title="Mở rộng"
+              >
+                <ChevronLeft size={14} />
+              </button>
+            )}
 
             <div
               className="multisite-hud-panel"
               style={{
-                height: 'auto',
-                maxHeight: '100%',
-                padding: showLeftPanel ? '6px 0 0 0' : '0',
+                height: '100%',
+                padding: 0,
                 borderRadius: 0,
                 pointerEvents: 'all',
                 overflow: 'hidden',
                 opacity: showLeftPanel ? 1 : 0,
-                transition: 'opacity 0.2s ease'
+                transition: 'opacity 0.2s ease',
+                borderTop: 'none',
+                borderBottom: 'none',
+                borderRight: 'none',
+                display: 'flex',
+                flexDirection: 'column'
               }}
             >
+              {showLeftPanel && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 10px',
+                  borderBottom: '1px solid var(--admin-border-light)',
+                  position: 'relative'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, paddingLeft: selectedProvince ? 14 : 0 }}>
+                    {selectedProvince && (
+                      <button
+                        onClick={() => {
+                          setSelectedProvince(null);
+                          setSelectedStationId(null);
+                        }}
+                        title="Quay lại"
+                        style={{
+                          position: 'absolute',
+                          left: 4,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--admin-accent)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: 2
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = '#fff')}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--admin-accent)')}
+                      >
+                        <ArrowLeft size={13} strokeWidth={2.5} />
+                      </button>
+                    )}
+                    <span style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--admin-text-muted)', letterSpacing: '0.05em' }}>
+                      DANH SÁCH TRẠM
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowLeftPanel(false)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--admin-text-muted)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: 2
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--admin-text)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--admin-text-muted)')}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              )}
+
               <div style={{ padding: '0 8px 6px 8px', borderBottom: '1px solid var(--admin-border-light)' }}>
                 {allowStationCreation && canManageStations && (
                   <button
@@ -2344,7 +2375,7 @@ export default function MultisitePage() {
             <div
               className="multisite-page-right-panel"
               style={{
-                position: 'absolute', top: 74, left: 64, bottom: 0,
+                position: 'absolute', top: 74, left: 0, bottom: 0,
                 width: showRightPanel ? 280 : 0,
                 zIndex: 1000, pointerEvents: 'none',
                 transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -2352,62 +2383,100 @@ export default function MultisitePage() {
                 flexDirection: 'column'
               }}
             >
-              <button
-                onClick={() => setShowRightPanel(!showRightPanel)}
-                style={{
-                  position: 'absolute',
-                  right: showRightPanel ? 0 : -24,
-                  top: 0,
-                  width: 24,
-                  height: 24,
-                  background: 'var(--admin-overlay)',
-                  backdropFilter: 'blur(10px)',
-                  border: '1px solid var(--admin-border)',
-                  borderLeft: showRightPanel ? 'none' : '1px solid var(--admin-border)',
-                  color: 'var(--admin-text)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  pointerEvents: 'all',
-                  borderRadius: 0,
-                  boxShadow: '2px 0 10px rgba(0,0,0,0.1)',
-                  zIndex: 1002
-                }}
-                title={showRightPanel ? 'Thu nhỏ' : 'Mở rộng'}
-              >
-                {showRightPanel ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-              </button>
+              {!showRightPanel && (
+                <button
+                  onClick={() => setShowRightPanel(true)}
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: 24,
+                    height: 24,
+                    background: 'var(--admin-overlay)',
+                    backdropFilter: 'blur(10px)',
+                    border: '1px solid var(--admin-border)',
+                    borderLeft: 'none',
+                    color: 'var(--admin-text)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    pointerEvents: 'all',
+                    borderRadius: 0,
+                    boxShadow: '2px 0 10px rgba(0,0,0,0.1)',
+                    zIndex: 1002
+                  }}
+                  title="Mở rộng"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              )}
 
               <div
                 className="multisite-hud-panel"
                 style={{
-                  height: 'auto',
-                  maxHeight: '100%',
-                  margin: showRightPanel ? '0 0 0 0' : '0',
+                  height: '100%',
+                  margin: 0,
                   padding: showRightPanel ? '8px 10px' : '0',
                   borderRadius: 0, pointerEvents: 'all',
                   overflow: 'hidden',
                   opacity: showRightPanel ? 1 : 0,
-                  transition: 'opacity 0.2s ease'
+                  transition: 'opacity 0.2s ease',
+                  borderTop: 'none',
+                  borderBottom: 'none',
+                  borderLeft: 'none',
+                  borderRight: '1px solid var(--admin-border)'
                 }}
               >
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 6 }}>
 
                   {/* Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 6, borderBottom: '1px solid var(--admin-border-light)' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: '0.58rem', fontWeight: 900, color: 'var(--admin-text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        Trạm con
-                      </div>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--admin-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {selectedView.station.code || selectedView.station.id.slice(0, 8).toUpperCase()}
-                      </div>
-                      <div style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {selectedView.station.name}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 6, borderBottom: '1px solid var(--admin-border-light)', position: 'relative' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', minWidth: 0, paddingLeft: 16 }}>
+                      <button
+                        onClick={() => {
+                          setSelectedProvince(null);
+                          setSelectedStationId(null);
+                        }}
+                        title="Quay lại"
+                        style={{
+                          position: 'absolute',
+                          left: -8,
+                          top: 3,
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--admin-accent)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: 2,
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = '#fff')}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--admin-accent)')}
+                      >
+                        <ArrowLeft size={16} strokeWidth={2.5} />
+                      </button>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 900, color: 'var(--admin-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {selectedView.station.code || selectedView.station.id.slice(0, 8).toUpperCase()}
+                        </div>
+                        <div style={{ fontSize: '0.58rem', color: 'var(--admin-text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {selectedView.station.name}
+                        </div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      <button
+                        onClick={() => setShowRightPanel(false)}
+                        title="Thu nhỏ"
+                        style={{
+                          background: 'transparent', border: '1px solid var(--admin-border)',
+                          cursor: 'pointer', color: 'var(--admin-text-muted)',
+                          padding: '3px 5px', display: 'flex', alignItems: 'center'
+                        }}
+                      >
+                        <ChevronLeft size={10} />
+                      </button>
                       <button
                         onClick={() => { setEditingStation(selectedView.station); setEditWebUrl(selectedView.station.webUrl || ''); setEditApiPassword(''); }}
                         title="Cấu hình URL giao diện web"
@@ -2428,9 +2497,6 @@ export default function MultisitePage() {
                         }}
                       >
                         LỊCH SỬ
-                      </button>
-                      <button onClick={() => setSelectedStationId(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--admin-text-muted)', padding: 2, display: 'flex' }}>
-                        <X size={12} />
                       </button>
                     </div>
                   </div>
