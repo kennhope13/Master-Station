@@ -343,6 +343,28 @@ export default function LicensePage() {
     }
   };
 
+  const handleClear = async () => {
+    const confirmed = window.confirm('Bạn có chắc muốn xóa license hiện tại đang áp dụng trên ứng dụng này?');
+    if (!confirmed) return;
+
+    setLoading(true);
+    setImportMsg('');
+    try {
+      const data = await stationApi.clearLicense();
+      setImportMsg(data?.message ?? 'Đã xóa license hiện tại!');
+      setImportFile(null);
+      setStatus(null);
+      setLimits([]);
+      setStatusLoading(true);
+      setLimitsLoading(true);
+      await refreshLicenseData(true);
+    } catch (err: any) {
+      setImportMsg(err?.message ?? 'Lỗi xóa license hiện tại');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getTierClass = (tier: string) => {
     if (tier === 'solo') return 'solo';
     if (tier === 'team') return 'team';
@@ -600,6 +622,8 @@ export default function LicensePage() {
                   </button>
                 )}
               </div>
+
+
 
               {importFile && (
                 <div className="license-file-name">📄 {importFile.name}</div>
