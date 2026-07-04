@@ -1731,7 +1731,7 @@ export default function MultisitePage() {
                     top: userDropdownPos.top,
                     left: userDropdownPos.left,
                     transform: 'translateX(-50%)',
-                    background: 'var(--admin-layer-2, #1e293b)',
+                    background: 'var(--admin-panel, #0f172a)',
                     border: '1px solid var(--admin-border, #334155)',
                     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
                     padding: '4px 0',
