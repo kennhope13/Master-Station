@@ -12,6 +12,7 @@ interface LicenseStatus {
   maxUsers?: number;
   maxStations?: number;
   maxCameras?: number;
+  maxSensors?: number;
   maxRoiPoints?: number;
   maxRoiRegions?: number;
   maxPdRegions?: number;
@@ -32,13 +33,14 @@ interface ResourceLimit {
 type ResourceCountSummary = {
   stations: number;
   cameras: number;
+  sensors: number;
   roi_points: number;
   roi_regions: number;
   pd_regions: number;
 };
 
 const LICENSE_STATUS_CACHE_KEY = 'license-page-status-cache';
-const LICENSE_LIMITS_CACHE_KEY = 'license-page-limits-cache-v2';
+const LICENSE_LIMITS_CACHE_KEY = 'license-page-limits-cache-v3';
 
 function readCachedStatus(): LicenseStatus | null {
   try {
@@ -62,7 +64,8 @@ function readCachedLimits(): ResourceLimit[] {
 
 const RESOURCE_LABELS: Record<string, { label: string; icon: string }> = {
   stations:    { label: 'Trạm biến áp',      icon: '🏭' },
-  cameras:     { label: 'Thiết bị',          icon: '📷' },
+  cameras:     { label: 'Camera',            icon: '📷' },
+  sensors:     { label: 'Sensor',            icon: '📡' },
 };
 
 function isThermalDevice(device: Device) {
@@ -84,6 +87,10 @@ function isPdDevice(device: Device) {
 
 function isCameraDevice(device: Device) {
   return device.type.startsWith('camera') || device.protocol?.toLowerCase() === 'rtsp';
+}
+
+function isSensorDevice(device: Device) {
+  return !isCameraDevice(device);
 }
 
 export default function LicensePage() {
@@ -157,6 +164,7 @@ export default function LicensePage() {
     return {
       stations: stations.length,
       cameras: devices.filter(isCameraDevice).length,
+      sensors: devices.filter(isSensorDevice).length,
       roi_points,
       roi_regions,
       pd_regions,
@@ -208,6 +216,7 @@ export default function LicensePage() {
       const mergedLimits = data.length > 0 ? mergeActualCounts(data, actualCounts) : [
         { resource: 'stations', current: actualCounts.stations, max: status?.maxStations && status.maxStations >= 999 ? -1 : (status?.maxStations ?? 10), exceeded: false },
         { resource: 'cameras', current: actualCounts.cameras, max: status?.maxCameras && status.maxCameras >= 999 ? -1 : (status?.maxCameras ?? 10), exceeded: false },
+        { resource: 'sensors', current: actualCounts.sensors, max: status?.maxSensors && status.maxSensors >= 999 ? -1 : (status?.maxSensors ?? 10), exceeded: false },
         { resource: 'roi_points', current: actualCounts.roi_points, max: status?.maxRoiPoints && status.maxRoiPoints >= 999 ? -1 : (status?.maxRoiPoints ?? 10), exceeded: false },
         { resource: 'roi_regions', current: actualCounts.roi_regions, max: status?.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status?.maxRoiRegions ?? 10), exceeded: false },
         { resource: 'pd_regions', current: actualCounts.pd_regions, max: status?.maxPdRegions && status.maxPdRegions >= 999 ? -1 : (status?.maxPdRegions ?? 10), exceeded: false },
@@ -452,6 +461,7 @@ export default function LicensePage() {
       const zeroResources = [
         { resource: 'stations', current: 0, max: 0, exceeded: false },
         { resource: 'cameras', current: 0, max: 0, exceeded: false },
+        { resource: 'sensors', current: 0, max: 0, exceeded: false },
       ];
 
       return (
@@ -501,11 +511,12 @@ export default function LicensePage() {
     const resourceData = limits.length > 0 ? limits : [
       { resource: 'stations',    current: 0, max: status?.activated ? (status.maxStations   ?? 0) : 0, exceeded: false },
       { resource: 'cameras',     current: 0, max: status?.activated ? (status.maxCameras    ?? 0) : 0, exceeded: false },
+      { resource: 'sensors',     current: 0, max: status?.activated ? (status.maxSensors    ?? 0) : 0, exceeded: false },
       { resource: 'roi_points',  current: 0, max: status?.activated ? (status.maxRoiPoints  ?? 0) : 0, exceeded: false },
       { resource: 'roi_regions', current: 0, max: status?.activated ? (status.maxRoiRegions ?? 0) : 0, exceeded: false },
       { resource: 'pd_regions',  current: 0, max: status?.activated ? (status.maxPdRegions  ?? 0) : 0, exceeded: false },
     ];
-    const visibleResources = resourceData.filter(item => item.resource === 'stations' || item.resource === 'cameras');
+    const visibleResources = resourceData.filter(item => item.resource === 'stations' || item.resource === 'cameras' || item.resource === 'sensors');
 
     return (
       <div className="resource-limits-section">

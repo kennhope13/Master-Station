@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { LayoutList, Trash2, Settings, Zap, Thermometer, Eye, EyeOff, ShieldAlert, Flame } from 'lucide-react';
 import { stationApi, Device, CameraDevice, Rule } from '@/services/StationApiService';
+import { systemService } from '@/services/api/SystemService';
 import { confirmDialog } from '@/utils/confirm';
 import { DEVICE_TYPE_LABELS } from '@/constants/devices';
 import { PT_TEMP_1, PT_TEMP_2, PT_TEMP_3, PT_PD, PT_CAM_IDS, TEMP_LABELS, CAM_POINT_LABELS } from '@/constants/points';
@@ -18,8 +19,6 @@ import FireAlarmConfigTab from './components/FireAlarmConfigTab';
 import { MULTISITE_DRILL_STATION_KEY } from '@/utils/centralAccess';
 
 import ActionDropdown, { ActionDropdownItem } from '@/components/ui/ActionDropdown';
-
-const ALLOW_DEVICE_CREATION = false;
 
 
 const FALLBACK_POINTS = [
@@ -60,6 +59,16 @@ export default function DeviceManagementPage({
   const [stationId, setStationId] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
+  const [licenseLimits, setLicenseLimits] = useState<any[]>([]);
+
+  const loadLicenseLimits = async () => {
+    try {
+      const data = await systemService.getLicenseLimits();
+      setLicenseLimits(data);
+    } catch (e) {
+      console.error('Lỗi khi tải giới hạn license:', e);
+    }
+  };
 
   // Trạng thái modal thêm/sửa thiết bị
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
@@ -83,6 +92,14 @@ export default function DeviceManagementPage({
     port: 502, unitId: 1,
     enableHealthScore: false
   });
+
+  const cameraLimit = licenseLimits.find(l => l.resource === 'cameras');
+  const sensorLimit = licenseLimits.find(l => l.resource === 'sensors');
+  const licenseResource = formData.type.startsWith('camera') ? 'cameras' : 'sensors';
+  const resourceLimit = licenseResource === 'cameras' ? cameraLimit : sensorLimit;
+  const resourceLimitMax = Number(resourceLimit?.max ?? 0);
+  const resourceLimitCurrent = Number(resourceLimit?.current ?? 0);
+  const isCapacityReached = !editingId && resourceLimitMax > 0 && resourceLimitMax < 999 && resourceLimitCurrent >= resourceLimitMax;
 
 
   const activeRoiTab = parseInt(searchParams.get('roiTab') || '0', 10);
@@ -152,6 +169,10 @@ export default function DeviceManagementPage({
     maintType: 'inspection',
     maintDays: 30
   });
+
+  useEffect(() => {
+    loadLicenseLimits();
+  }, []);
 
   const loadRulesForDevice = async (dev: Device) => {
     setRulesLoading(true);
@@ -355,6 +376,7 @@ export default function DeviceManagementPage({
       } else {
         setDevices([]);
       }
+      await loadLicenseLimits();
     } catch (e) {
       console.error(e);
     } finally {
@@ -393,7 +415,6 @@ export default function DeviceManagementPage({
 
   /** Mở modal thêm hoặc sửa thiết bị, nạp dữ liệu hiện tại vào form nếu sửa. */
   const openDeviceModal = (d?: Device) => {
-    if (!ALLOW_DEVICE_CREATION && !d) return;
     setEditingId(d?.id ?? null);
     setTestConnResult({ show: false });
     setShowPassword(false);
@@ -480,7 +501,13 @@ export default function DeviceManagementPage({
       loadDevices();
       alert(`${editingId ? 'Đã cập nhật' : 'Đã thêm'} thiết bị`);
     } catch (e: any) {
-      alert(`Lỗi: ${e.message}`);
+      let msg = e.message;
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.message) msg = parsed.message;
+        else if (parsed.error) msg = parsed.error;
+      } catch {}
+      alert(`Lỗi: ${msg}`);
     } finally {
       setIsSaving(false);
     }
@@ -681,15 +708,23 @@ export default function DeviceManagementPage({
               >
                 QUÉT MẠNG LAN
               </button>
-              {ALLOW_DEVICE_CREATION && (
-                <button 
-                  className="btn-industrial btn-primary" 
-                  style={{ padding: '6px 16px', fontSize: '.75rem', fontWeight: 800 }}
-                  onClick={() => openDeviceModal()}
-                >
-                  + THÊM THIẾT BỊ
-                </button>
+              {cameraLimit && (
+                <span style={{ fontSize: '.72rem', color: cameraLimit.exceeded ? 'var(--admin-danger)' : 'var(--admin-text-muted)', alignSelf: 'center', marginRight: 12 }}>
+                  Camera: {cameraLimit.current}/{cameraLimit.max}
+                </span>
               )}
+              {sensorLimit && (
+                <span style={{ fontSize: '.72rem', color: sensorLimit.exceeded ? 'var(--admin-danger)' : 'var(--admin-text-muted)', alignSelf: 'center', marginRight: 12 }}>
+                  Sensor: {sensorLimit.current}/{sensorLimit.max}
+                </span>
+              )}
+              <button 
+                className="btn-industrial btn-primary" 
+                style={{ padding: '6px 16px', fontSize: '.75rem', fontWeight: 800 }}
+                onClick={() => openDeviceModal()}
+              >
+                + THÊM THIẾT BỊ
+              </button>
             </div>
           </div>
         </div>
@@ -707,9 +742,17 @@ export default function DeviceManagementPage({
             </div>
             <div className="page-toolbar-group">
               <button className="btn-industrial" style={{ height: 32, padding: '0 16px', fontSize: '.72rem', fontWeight: 700 }} onClick={() => setIsScanModalOpen(true)}>Dò tìm thiết bị</button>
-              {ALLOW_DEVICE_CREATION && (
-                <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800 }} onClick={() => openDeviceModal()}>+ Thêm thiết bị</button>
+              {cameraLimit && (
+                <span style={{ fontSize: '.72rem', color: cameraLimit.exceeded ? 'var(--admin-danger)' : 'var(--admin-text-muted)', alignSelf: 'center', marginRight: 12 }}>
+                  Camera: {cameraLimit.current}/{cameraLimit.max}
+                </span>
               )}
+              {sensorLimit && (
+                <span style={{ fontSize: '.72rem', color: sensorLimit.exceeded ? 'var(--admin-danger)' : 'var(--admin-text-muted)', alignSelf: 'center', marginRight: 12 }}>
+                  Sensor: {sensorLimit.current}/{sensorLimit.max}
+                </span>
+              )}
+              <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800 }} onClick={() => openDeviceModal()}>+ Thêm thiết bị</button>
             </div>
           </div>
         )}
@@ -983,12 +1026,17 @@ export default function DeviceManagementPage({
                   {testConnResult.msg}
                 </div>
               )}
+              {isCapacityReached && (
+                <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--admin-tag-danger-bg)', color: 'var(--admin-danger)', fontSize: '.75rem', fontWeight: 700, border: '1px solid var(--admin-border)' }}>
+                  ⚠️ Đã đạt giới hạn {licenseResource === 'cameras' ? 'camera' : 'sensor'} tối đa của License ({resourceLimit?.max}). Không thể thêm mới.
+                </div>
+              )}
             </div>
             <div className="modal-footer">
               <button className="btn-industrial" onClick={testModalConn}>Test kết nối</button>
               <div style={{ flex: 1 }}></div>
               <button className="btn-industrial" onClick={() => setIsDeviceModalOpen(false)}>Hủy</button>
-              <button className="btn-industrial btn-primary" onClick={saveDevice} disabled={isSaving}>{isSaving ? '⏳ Đang lưu...' : 'Lưu thiết bị'}</button>
+              <button className="btn-industrial btn-primary" onClick={saveDevice} disabled={isSaving || isCapacityReached}>{isSaving ? '⏳ Đang lưu...' : 'Lưu thiết bị'}</button>
             </div>
           </div>
         </div>

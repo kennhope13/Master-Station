@@ -30,7 +30,7 @@ interface NavItem { id: string; path: string; icon: React.ReactNode; label: stri
 
 const CENTRAL_NAV: NavItem[] = [
   { id: 'multisite', path: '/multisite', icon: <Map size={19} strokeWidth={1.5} />, label: 'Tổng quan', permission: 'station:view' },
-  { id: 'alerts-history', path: '/alerts-history', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký', permission: 'rule:view' },
+  { id: 'alerts-history', path: '/alerts-history', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký cảnh báo', permission: 'rule:view' },
 ];
 
 const CENTRAL_ADMIN_NAV: NavItem[] = [
@@ -41,7 +41,7 @@ const CENTRAL_ADMIN_NAV: NavItem[] = [
 const CHILD_NAV: NavItem[] = [
   { id: 'dashboard', path: '/dashboard', icon: <LayoutDashboard size={19} strokeWidth={1.5} />, label: 'Tổng quan', permission: 'station:view' },
   { id: 'realtime', path: '/realtime', icon: <Video size={19} strokeWidth={1.5} />, label: 'Trực tiếp', permission: 'device:view' },
-  { id: 'alerts-history', path: '/alerts-history', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký', permission: 'rule:view' },
+  { id: 'alerts-history', path: '/alerts-history', icon: <FileArchive size={19} strokeWidth={1.5} />, label: 'Nhật ký cảnh báo', permission: 'rule:view' },
   { id: 'analytics', path: '/analytics', icon: <LineChart size={19} strokeWidth={1.5} />, label: 'Phân tích', permission: 'report:view' },
   { id: 'maintenance', path: '/maintenance', icon: <Wrench size={19} strokeWidth={1.5} />, label: 'Bảo trì', permission: 'maintenance:view' },
 ];
@@ -104,7 +104,16 @@ export default function AppShell() {
 
   // Nếu là tài khoản trạm tổng/cấp tỉnh nhưng đang ở route con mà không chọn trạm drill-down, tự động chuyển về /multisite
   useEffect(() => {
-    if (isCentralUser && !viewingStationId && location.pathname !== '/multisite' && location.pathname !== '/' && location.pathname !== '/license') {
+    const allowedCentralPaths = new Set([
+      '/multisite',
+      '/',
+      '/license',
+      '/alerts-history',
+      '/alert-detail',
+      '/audit-log',
+    ]);
+
+    if (isCentralUser && !viewingStationId && !allowedCentralPaths.has(location.pathname)) {
       navigate('/multisite', { replace: true });
     }
   }, [isCentralUser, viewingStationId, location.pathname, navigate]);
@@ -477,6 +486,9 @@ export default function AppShell() {
   const renderNav = (items: NavItem[]) =>
     items
       .filter(i => {
+        if (i.id === 'alerts-history') {
+          return true;
+        }
         if (i.permission) {
           return authService.hasPermission(i.permission);
         }

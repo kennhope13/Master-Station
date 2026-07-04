@@ -57,7 +57,9 @@ public class TeamsControllerTests
         Environment.SetEnvironmentVariable("STATIONOS_ENCRYPTION_KEY", Convert.ToBase64String(testKeyBytes));
         var crypto = new CredentialEncryptionService(mockConfig.Object, mockCryptoLogger.Object);
 
-        return new TeamsController(db, permissionService, hubContext.Object, crypto);
+        var controller = new TeamsController(db, permissionService, hubContext.Object, crypto);
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+        return controller;
     }
 
     [Fact]

@@ -24,6 +24,16 @@ public class LicenseTests : IDisposable
 
     public LicenseTests()
     {
+        // Clear Licenses directory to prevent leftover files from polluting tests
+        var licensesDir = Path.Combine(AppContext.BaseDirectory, "Licenses");
+        if (Directory.Exists(licensesDir))
+        {
+            foreach (var file in Directory.GetFiles(licensesDir))
+            {
+                try { File.Delete(file); } catch {}
+            }
+        }
+
         // 1. Setup Environment Secret
         Environment.SetEnvironmentVariable("STATIONOS_VENDOR_SECRET", TestSecret);
 
@@ -81,9 +91,9 @@ public class LicenseTests : IDisposable
         Assert.Equal(5, result.MaxUsers);
         Assert.Equal(10, result.MaxStations);
         Assert.Equal(8, result.MaxCameras);
-        Assert.Equal(500, result.MaxRoiPoints);
-        Assert.Equal(30, result.MaxRoiRegions);
-        Assert.Equal(30, result.MaxPdRegions);
+        Assert.Equal(0, result.MaxRoiPoints);
+        Assert.Equal(0, result.MaxRoiRegions);
+        Assert.Equal(0, result.MaxPdRegions);
         Assert.Equal(new DateTime(2029, 12, 31, 0, 0, 0, DateTimeKind.Utc), result.ExpiresAt);
     }
 
@@ -101,7 +111,7 @@ public class LicenseTests : IDisposable
         Assert.Equal(3, result.MaxUsers); // Custom max users override
         Assert.Equal(1, result.MaxStations); // Defaults for SOLO
         Assert.Equal(2, result.MaxCameras);
-        Assert.Equal(10, result.MaxRoiPoints);
+        Assert.Equal(0, result.MaxRoiPoints);
     }
 
     [Fact]
@@ -119,7 +129,7 @@ public class LicenseTests : IDisposable
         Assert.Equal(15, result.MaxStations);
         Assert.Equal(20, result.MaxCameras);
         Assert.Equal(400, result.MaxRoiPoints);
-        Assert.Equal(30, result.MaxRoiRegions); // default TEAM
+        Assert.Equal(0, result.MaxRoiRegions); // default TEAM
     }
 
     [Fact]

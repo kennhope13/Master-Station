@@ -46,12 +46,16 @@ public class StationsControllerTests
 
         var mockHttpClientFactory = new Mock<IHttpClientFactory>();
         var mockConfig = new Mock<IConfiguration>();
+        var mockSection = new Mock<IConfigurationSection>();
+        mockSection.Setup(s => s.Value).Returns("true");
+        mockConfig.Setup(c => c.GetSection("AppFeatures:AllowStationCreation")).Returns(mockSection.Object);
         var mockCryptoLogger = new Mock<ILogger<CredentialEncryptionService>>();
         var mockNotifier = new Mock<IRealtimeNotifier>();
         var mockControllerLogger = new Mock<ILogger<StationsController>>();
 
         var testKeyBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("TEST_KEY"));
         Environment.SetEnvironmentVariable("STATIONOS_ENCRYPTION_KEY", Convert.ToBase64String(testKeyBytes));
+        Environment.SetEnvironmentVariable("STATIONOS_VENDOR_SECRET", Convert.ToBase64String(testKeyBytes));
 
         var crypto = new CredentialEncryptionService(mockConfig.Object, mockCryptoLogger.Object);
         var internalAuth = new InternalAuthService(mockConfig.Object);
@@ -76,7 +80,8 @@ public class StationsControllerTests
             internalAuth,
             mockNotifier.Object,
             mockControllerLogger.Object,
-            licenseService);
+            licenseService,
+            mockConfig.Object);
     }
 
     [Fact]

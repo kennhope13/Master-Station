@@ -19,8 +19,6 @@ import { stationApi } from '@/services/StationApiService';
 import { confirmDialog } from '@/utils/confirm';
 import './CentralDeviceView.css';
 
-const ALLOW_DEVICE_CREATION = false;
-
 // ── Types ─────────────────────────────────────────────────────
 type SortField = 'name' | 'type' | 'ip' | 'status';
 type SortDir = 'asc' | 'desc';
@@ -599,7 +597,6 @@ export default function CentralDeviceView({
   };
 
   const openAddModal = () => {
-    if (!ALLOW_DEVICE_CREATION) return;
     setAddForm({ ...ADD_FORM_INIT });
     setAddError('');
     setAddModalOpen(true);
@@ -622,13 +619,18 @@ export default function CentralDeviceView({
         protocol = 'json';
       } else if (addForm.type === 'camera_dual') {
         protocol = 'rtsp';
-        const gOpt = addForm.go2rtcOptical.trim() || `cam_${ip.replace(/\./g, '_')}_optical`;
-        const gThr = addForm.go2rtcThermal.trim() || `cam_${ip.replace(/\./g, '_')}_thermal`;
-        Object.assign(configObj, { rtsp_optical: addForm.rtspOptical.trim(), go2rtc_optical: gOpt, rtsp_thermal: addForm.rtspThermal.trim(), go2rtc_thermal: gThr, username: addForm.username, password: addForm.password });
+        const ipTag = ip.replace(/\./g, '_');
+        const gOpt = addForm.go2rtcOptical.trim() || `cam_${ipTag || 'camera'}_optical`;
+        const gThr = addForm.go2rtcThermal.trim() || `cam_${ipTag || 'camera'}_thermal`;
+        const rtspOptical = addForm.rtspOptical.trim() || '/Streaming/Channels/101';
+        const rtspThermal = addForm.rtspThermal.trim() || '/Streaming/Channels/201';
+        Object.assign(configObj, { rtsp_optical: rtspOptical, go2rtc_optical: gOpt, rtsp_thermal: rtspThermal, go2rtc_thermal: gThr, username: addForm.username, password: addForm.password });
       } else if (addForm.type === 'camera_thermal') {
         protocol = 'rtsp';
-        const gThr = addForm.go2rtcThermal.trim() || `cam_${ip.replace(/\./g, '_')}_thermal`;
-        Object.assign(configObj, { rtsp_thermal: addForm.rtspThermal.trim(), go2rtc_thermal: gThr, username: addForm.username, password: addForm.password });
+        const ipTag = ip.replace(/\./g, '_');
+        const gThr = addForm.go2rtcThermal.trim() || `cam_${ipTag || 'camera'}_thermal`;
+        const rtspThermal = addForm.rtspThermal.trim() || '/Streaming/Channels/201';
+        Object.assign(configObj, { rtsp_thermal: rtspThermal, go2rtc_thermal: gThr, username: addForm.username, password: addForm.password });
       } else if (addForm.type.startsWith('camera')) {
         protocol = 'rtsp';
         let rp = addForm.rtspPath.trim();
@@ -644,7 +646,13 @@ export default function CentralDeviceView({
       doRefresh();
       showToast('Đã thêm thiết bị');
     } catch (e: any) {
-      setAddError(e.message || 'Lỗi khi thêm thiết bị');
+      let msg = e.message;
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.message) msg = parsed.message;
+        else if (parsed.error) msg = parsed.error;
+      } catch {}
+      setAddError(msg || 'Lỗi khi thêm thiết bị');
     } finally {
       setAddSaving(false);
     }
@@ -1202,7 +1210,7 @@ export default function CentralDeviceView({
           </div>
 
           {/* Add device — chỉ hiện khi đang xem 1 trạm cụ thể */}
-          {isDrilldown && ALLOW_DEVICE_CREATION && (
+          {isDrilldown && (
             <button className="cdv-chip primary" onClick={openAddModal}>
               <Plus size={11} /> Thêm thiết bị
             </button>

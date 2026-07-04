@@ -205,13 +205,11 @@ export default function AlertsHistoryPage() {
     <div className="rtm-page industrial-theme">
       <header className="rtm-bar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 15, marginRight: 10 }}>
-          <span 
-            style={{ 
-              fontSize: '0.75rem', 
-              fontWeight: 900, 
-              color: 'var(--admin-accent, #00ebc7)', 
-              borderBottom: '2px solid var(--admin-accent, #00ebc7)', 
-              paddingBottom: 2, 
+          <span
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 900,
+              color: 'var(--admin-accent, #00ebc7)',
               letterSpacing: '0.08em',
               whiteSpace: 'nowrap'
             }}

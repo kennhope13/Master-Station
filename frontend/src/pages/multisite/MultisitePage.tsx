@@ -30,14 +30,13 @@ const CentralDeviceView = lazy(() => import('@/pages/multisite/CentralDeviceView
 const MultisiteLiveWall = lazy(() => import('@/pages/multisite/MultisiteLiveWall'));
 const UserManagementPage = lazy(() => import('@/pages/user-management/UserManagementPage'));
 
-type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'alerts_history' | 'maintenance' | 'audit_log' | 'users';
+type MultisiteTab = 'overview' | 'analytics' | 'devices' | 'truc_tiep' | 'maintenance' | 'audit_log' | 'users';
 
 const MULTISITE_TAB_TITLES: Record<MultisiteTab, string> = {
   overview: 'TỔNG QUAN',
   truc_tiep: 'TRỰC TIẾP',
   analytics: 'PHÂN TÍCH',
   devices: 'THIẾT BỊ',
-  alerts_history: 'LỊCH SỬ CẢNH BÁO',
   maintenance: 'BẢO TRÌ',
   audit_log: 'NHẬT KÝ',
   users: 'NGƯỜI DÙNG',
@@ -453,6 +452,7 @@ export default function MultisitePage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isOpeningStation, setIsOpeningStation] = useState(false);
   const [editingStation, setEditingStation] = useState<import('@/types/api.types').Station | null>(null);
+  const [editApiUrl, setEditApiUrl] = useState('');
   const [editWebUrl, setEditWebUrl] = useState('');
   const [editApiPassword, setEditApiPassword] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -1574,7 +1574,7 @@ export default function MultisitePage() {
                 Thiết bị
               </button>
             )}
-             {authService.hasPermission('maintenance:view') && (
+            {authService.hasPermission('maintenance:view') && (
               <button
                 onClick={() => activateTab('maintenance')}
                 className="btn-industrial"
@@ -1861,24 +1861,6 @@ export default function MultisitePage() {
               teams={teams}
             />
           </Suspense>
-        </div>
-      )}
-
-      {activeTab === 'alerts_history' && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 74,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 2,
-            overflow: 'auto',
-            background: 'var(--admin-bg, #0b1220)',
-            padding: 0
-          }}
-        >
-          <CentralAlertsHistoryView stations={stations} provinces={provinces} teams={teams} />
         </div>
       )}
 
@@ -2478,8 +2460,13 @@ export default function MultisitePage() {
                         <ChevronLeft size={10} />
                       </button>
                       <button
-                        onClick={() => { setEditingStation(selectedView.station); setEditWebUrl(selectedView.station.webUrl || ''); setEditApiPassword(''); }}
-                        title="Cấu hình URL giao diện web"
+                        onClick={() => {
+                          setEditingStation(selectedView.station);
+                          setEditApiUrl(selectedView.station.apiUrl || '');
+                          setEditWebUrl(selectedView.station.webUrl || '');
+                          setEditApiPassword('');
+                        }}
+                        title="Cấu hình trạm con"
                         style={{
                           background: 'transparent', border: '1px solid var(--admin-border)',
                           cursor: 'pointer', color: 'var(--admin-text-muted)',
@@ -3070,15 +3057,24 @@ export default function MultisitePage() {
             <div className="modal-body" style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
-                  URL API BACKEND (chỉ đọc)
+                  URL API BACKEND *
                 </label>
-                <div style={{
-                  padding: '7px 10px', background: 'var(--admin-layer-1)',
-                  border: '1px solid var(--admin-border)', fontSize: '0.75rem',
-                  color: 'var(--admin-text-muted)', fontFamily: 'var(--admin-font-mono)'
-                }}>
-                  {editingStation.apiUrl || '(chưa cấu hình)'}
-                </div>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="http://192.168.10.103:5000"
+                  value={editApiUrl}
+                  onChange={e => setEditApiUrl(e.target.value)}
+                  onFocus={e => { if (!editApiUrl) setEditApiUrl(editingStation.apiUrl || ''); }}
+                  style={{
+                    background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
+                    padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none', width: '100%', boxSizing: 'border-box',
+                    fontFamily: 'var(--admin-font-mono)'
+                  }}
+                />
+                <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
+                  Nhập IP/host backend của trạm con, hệ thống sẽ chuẩn hóa thành URL đầy đủ.
+                </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
@@ -3086,7 +3082,6 @@ export default function MultisitePage() {
                 </label>
                 <input
                   type="text"
-                  autoFocus
                   placeholder="http://192.168.10.102:4173"
                   defaultValue={editingStation.webUrl || ''}
                   onChange={e => setEditWebUrl(e.target.value)}
@@ -3139,24 +3134,30 @@ export default function MultisitePage() {
                 style={{ padding: '6px 16px', fontSize: '0.75rem' }}>Hủy</button>
               <button
                 className="btn-industrial btn-primary"
-                disabled={isSavingEdit || (!editWebUrl.trim() && !editingStation.webUrl && !editApiPassword.trim())}
+                disabled={isSavingEdit || (!editApiUrl.trim() && !editingStation.apiUrl && !editWebUrl.trim() && !editingStation.webUrl && !editApiPassword.trim())}
                 onClick={async () => {
                   setIsSavingEdit(true);
                   try {
+                    const apiUrlNorm = editApiUrl.trim()
+                      ? resolveApiUrl(editApiUrl.trim().replace(/\/$/, ''))
+                      : editingStation.apiUrl;
                     const webUrlNorm = editWebUrl.trim()
                       ? normalizeUrl(editWebUrl.trim().replace(/\/$/, ''))
-                      : editingStation.webUrl;
+                      : apiUrlNorm
+                        ? deriveWebUrl(apiUrlNorm)
+                        : editingStation.webUrl;
                     await stationApi.updateStation(editingStation.id, {
                       name: editingStation.name,
                       code: editingStation.code,
                       location: editingStation.location,
-                      apiUrl: editingStation.apiUrl,
+                      apiUrl: apiUrlNorm,
                       apiUsername: editingStation.apiUsername || 'stationadmin',
                       apiPassword: editApiPassword.trim() || undefined,
                       webUrl: webUrlNorm,
                       status: editingStation.status
                     });
                     setEditingStation(null);
+                    setEditApiUrl('');
                     setEditWebUrl('');
                     setEditApiPassword('');
                     await fetchStations(true);

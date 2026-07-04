@@ -14,6 +14,7 @@ public sealed record LicenseResourceBundle(
     int Users = 0,
     int Stations = 0,
     int Cameras = 0,
+    int Sensors = 0,
     int RoiPoints = 0,
     int RoiRegions = 0,
     int PdRegions = 0
@@ -24,13 +25,20 @@ public sealed record LicenseResourceBundle(
             left.Users + right.Users,
             left.Stations + right.Stations,
             left.Cameras + right.Cameras,
+            left.Sensors + right.Sensors,
             left.RoiPoints + right.RoiPoints,
             left.RoiRegions + right.RoiRegions,
             left.PdRegions + right.PdRegions
         );
 
-    public string ToCanonicalString() =>
-        $"users={Users};stations={Stations};cameras={Cameras};roi_points={RoiPoints};roi_regions={RoiRegions};pd_regions={PdRegions}";
+    public string ToCanonicalString()
+    {
+        var sensorPart = Sensors > 0 ? $"sensors={Sensors};" : "";
+        return $"users={Users};stations={Stations};cameras={Cameras};{sensorPart}roi_points={RoiPoints};roi_regions={RoiRegions};pd_regions={PdRegions}";
+    }
+
+    public string ToCanonicalStringIncludingSensors() =>
+        $"users={Users};stations={Stations};cameras={Cameras};sensors={Sensors};roi_points={RoiPoints};roi_regions={RoiRegions};pd_regions={PdRegions}";
 }
 
 public sealed record LicenseHardwareBinding(
@@ -119,15 +127,19 @@ public static class LicenseParser
             }
 
             var payload = BuildCanonicalPayload(kind, licenseId, addonId, baseLicenseId, tier, issuedAtUtc, expiresAtUtc.Value, hardware, limits);
+            var payloadWithSensors = BuildCanonicalPayload(kind, licenseId, addonId, baseLicenseId, tier, issuedAtUtc, expiresAtUtc.Value, hardware, limits, includeSensors: true);
             if (string.Equals(Environment.GetEnvironmentVariable("STATIONOS_LICENSE_DEBUG"), "1", StringComparison.OrdinalIgnoreCase))
             {
                 var fingerprintHash = HardwareFingerprint.ComputeFingerprintHash(hardware.ToSnapshot());
                 Console.WriteLine($"[LICENSE-DEBUG] fingerprintHash: {fingerprintHash}");
                 Console.WriteLine($"[LICENSE-DEBUG] canonical ({payload.Length} chars): {payload}");
+                if (!string.Equals(payload, payloadWithSensors, StringComparison.Ordinal))
+                    Console.WriteLine($"[LICENSE-DEBUG] canonicalWithSensors ({payloadWithSensors.Length} chars): {payloadWithSensors}");
                 Console.WriteLine($"[LICENSE-DEBUG] signatureAlgorithm: {signatureAlgorithm}");
                 Console.WriteLine($"[LICENSE-DEBUG] publicKeyFingerprint: {ComputePemFingerprint(vendorPublicKey)}");
             }
-            if (!VerifySignature(signature, payload, signatureAlgorithm, vendorPublicKey, legacyVendorSecret))
+            if (!VerifySignature(signature, payload, signatureAlgorithm, vendorPublicKey, legacyVendorSecret)
+                && !VerifySignature(signature, payloadWithSensors, signatureAlgorithm, vendorPublicKey, legacyVendorSecret))
             {
                 var rawPayload = BuildRawJsonPayload(root);
                 if (!VerifySignature(signature, rawPayload, signatureAlgorithm, vendorPublicKey, legacyVendorSecret))
@@ -189,7 +201,8 @@ public static class LicenseParser
         DateTime issuedAtUtc,
         DateTime expiresAtUtc,
         LicenseHardwareBinding hardware,
-        LicenseResourceBundle limits)
+        LicenseResourceBundle limits,
+        bool includeSensors = false)
     {
         return string.Join("|", new[]
         {
@@ -201,7 +214,7 @@ public static class LicenseParser
             issuedAtUtc.ToUniversalTime().ToString("O"),
             expiresAtUtc.ToUniversalTime().ToString("O"),
             HardwareFingerprint.ComputeFingerprintHash(hardware.ToSnapshot()),
-            limits.ToCanonicalString()
+            includeSensors ? limits.ToCanonicalStringIncludingSensors() : limits.ToCanonicalString()
         });
     }
 
@@ -353,6 +366,7 @@ public static class LicenseParser
                 users = limits.Users,
                 stations = limits.Stations,
                 cameras = limits.Cameras,
+                sensors = limits.Sensors,
                 roiPoints = limits.RoiPoints,
                 roiRegions = limits.RoiRegions,
                 pdRegions = limits.PdRegions,
@@ -416,7 +430,7 @@ public static class LicenseParser
         {
             return kind == LicensePackageKind.Addon
                 ? new LicenseResourceBundle()
-                : new LicenseResourceBundle(1, 1, 2, 0, 0, 0);
+                : new LicenseResourceBundle(1, 1, 2, 2, 0, 0, 0);
         }
 
         int ReadInt(params string[] names)
@@ -433,6 +447,7 @@ public static class LicenseParser
             ReadInt("users", "maxUsers", "max_users", "addUsers", "add_users"),
             ReadInt("stations", "maxStations", "max_stations", "addStations", "add_stations"),
             ReadInt("cameras", "maxCameras", "max_cameras", "addCameras", "add_cameras"),
+            ReadInt("sensors", "maxSensors", "max_sensors", "addSensors", "add_sensors"),
             ReadInt("roiPoints", "maxRoiPoints", "max_roi_points", "addRoiPoints", "add_roi_points"),
             ReadInt("roiRegions", "maxRoiRegions", "max_roi_regions", "addRoiRegions", "add_roi_regions"),
             ReadInt("pdRegions", "maxPdRegions", "max_pd_regions", "addPdRegions", "add_pd_regions")

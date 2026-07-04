@@ -171,8 +171,9 @@ public class SecurityTests
     {
         using var db = CreateInMemoryDb();
         var authConfig = new Mock<IConfiguration>();
-        authConfig.Setup(c => c["ConnectionStrings:Default"])
-            .Returns("Host=localhost;Port=6432;Database=StationOS_Central;Username=postgres;Password=postgres123");
+        var mockConnSection = new Mock<IConfigurationSection>();
+        mockConnSection.Setup(s => s["Default"]).Returns("Host=localhost;Port=6432;Database=StationOS_Central;Username=postgres;Password=postgres123");
+        authConfig.Setup(c => c.GetSection("ConnectionStrings")).Returns(mockConnSection.Object);
 
         var crypto = new CredentialEncryptionService(authConfig.Object, _mockLogger.Object);
         var authService = new AuthService(db, authConfig.Object, crypto);
@@ -206,8 +207,9 @@ public class SecurityTests
         Assert.StartsWith("enc:v1:", provinceAdmin.ProvisionedPassword);
         Assert.True(BCrypt.Net.BCrypt.Verify("TinhTN@2026!", provinceAdmin.PasswordHash));
 
-        var stationAdmin = await db.Users.SingleAsync(u => u.Role == "admin_station" && u.StationIds != null && u.StationIds.Contains(station.Id));
-        Assert.Equal("admintramtn01", stationAdmin.Username);
+        var stationAdmin = await db.Users.SingleAsync(u => u.Role == "admin_station" && u.Username == "admintramtn01");
+        Assert.NotNull(stationAdmin.StationIds);
+        Assert.Contains(station.Id, stationAdmin.StationIds);
         Assert.True(stationAdmin.MustChangePassword);
         Assert.StartsWith("enc:v1:", stationAdmin.ProvisionedPassword);
         Assert.True(BCrypt.Net.BCrypt.Verify("TramTN01@26", stationAdmin.PasswordHash));

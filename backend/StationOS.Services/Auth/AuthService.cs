@@ -334,6 +334,7 @@ public class AuthService
         {
             var hasStationAdmin = await _db.Users.AnyAsync(u =>
                 u.Role == "admin_station" &&
+                u.Username != "stationadmin" &&
                 u.StationIds != null &&
                 u.StationIds.Contains(station.Id));
 

@@ -42,7 +42,6 @@ public class DevicesController : ControllerBase
     private readonly InternalAuthService _internalAuth;
     private readonly IRealtimeNotifier _notifier;
     private readonly LicenseService _license;
-    private readonly bool _allowDeviceCreation;
 
     public DevicesController(AppDbContext db, DeviceService deviceService, PermissionService permissions,
                              IConfiguration config, HikvisionIsapiService isapi, CredentialEncryptionService crypto,
@@ -61,7 +60,6 @@ public class DevicesController : ControllerBase
         _internalAuth = internalAuth;
         _notifier = notifier;
         _license = license;
-        _allowDeviceCreation = config.GetValue<bool?>("AppFeatures:AllowDeviceCreation") ?? false;
     }
 
     /// <summary>
@@ -92,6 +90,11 @@ public class DevicesController : ControllerBase
         var extra = _config["Security:TrustedNetworks"] ?? "172.,100.";
         return extra.Split(',').Any(p => ip.StartsWith(p.Trim()));
     }
+
+    private static string GetLicenseResourceForDeviceType(string? type)
+        => !string.IsNullOrWhiteSpace(type) && type.StartsWith("camera", StringComparison.OrdinalIgnoreCase)
+            ? "cameras"
+            : "sensors";
 
     /// <summary>
     /// Lấy danh sách toàn bộ thiết bị (Hỗ trợ AI Engine tự nhận diện ID)
@@ -381,11 +384,6 @@ public class DevicesController : ControllerBase
     [HttpPost("devices/auto-configure")]
     public async Task<IActionResult> AutoConfigure([FromBody] AutoConfigureRequest req)
     {
-        if (!_allowDeviceCreation)
-        {
-            return StatusCode(403, new { message = "Bản phát hành này không cho phép thêm thiết bị mới." });
-        }
-
         var limitInfo = await _license.CheckResourceLimitAsync("cameras");
         if (limitInfo.Exceeded)
         {
@@ -526,15 +524,11 @@ public class DevicesController : ControllerBase
     [HasPermission("device:manage")]
     public async Task<IActionResult> Create([FromBody] CreateDeviceRequest req)
     {
-        if (!_allowDeviceCreation)
-        {
-            return StatusCode(403, new { message = "Bản phát hành này không cho phép thêm thiết bị mới." });
-        }
-
-        var limitInfo = await _license.CheckResourceLimitAsync("cameras");
+        var limitInfo = await _license.CheckResourceLimitAsync(GetLicenseResourceForDeviceType(req.Type));
         if (limitInfo.Exceeded)
         {
-            return BadRequest(new { message = $"Đã đạt giới hạn số lượng thiết bị/camera của bản quyền ({limitInfo.Max} thiết bị). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
+            var resourceLabel = limitInfo.Resource == "cameras" ? "camera" : "sensor/thiết bị đo";
+            return BadRequest(new { message = $"Đã đạt giới hạn số lượng {resourceLabel} của bản quyền ({limitInfo.Max}). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
         }
         var station = await _db.Stations.FindAsync(req.StationId);
         if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))

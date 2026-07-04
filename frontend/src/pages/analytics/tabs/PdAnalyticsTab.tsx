@@ -7,11 +7,13 @@ import { stationApi, Device } from '@/services/StationApiService';
 import { createRealtimeHub } from '@/services/realtime.service';
 import { RotateCw, Zap } from 'lucide-react';
 
+const todayIsoDate = () => new Date().toISOString().split('T')[0] || '';
+
 export default function PdAnalyticsTab() {
   const [cameras, setCameras] = useState<Device[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(todayIsoDate());
   
   const [aiStats, setAiStats] = useState<{ db?: number | null, hz?: number | null, active_boundary?: string | null }>({});
   const [eventHistory, setEventHistory] = useState<any[]>([]);

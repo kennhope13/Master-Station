@@ -1,20 +1,22 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Search, RefreshCw, ChevronRight, ChevronLeft, LayoutGrid, Database } from 'lucide-react';
 import { stationApi, Station } from '@/services/StationApiService';
 import { authService } from '@/services/AuthService';
 import { isCentralUser } from '@/utils/centralAccess';
 import { fmtDateTime } from '@/utils/format';
 import DateFilterButton from '@/components/ui/DateFilterButton';
-import { Province, Team } from '@/types/api.types';
+import { Province, Team, NotifyLogEntry, RuleTriggerLogEntry } from '@/types/api.types';
 import './AuditLogPage.css';
 
-type TabId = 'all' | 'audit' | 'login';
+type ModeTab = 'system' | 'alerts';
+type SystemFilter = 'all' | 'audit' | 'login';
+type AlertFilter = 'all' | 'rule' | 'notify';
 
 interface LogItem {
   ts: string;
-  type: string;
+  type: 'audit' | 'login' | 'rule' | 'notify';
   action: string;
   info: string;
   who: string;
@@ -94,6 +96,8 @@ function formatActionLabel(type: string, action: string, entity?: string) {
     delete: `Xóa ${entityLabel}`,
     ack_alert: 'Xác nhận cảnh báo',
     close_alert: 'Đóng cảnh báo',
+    rule_trigger: 'Kích hoạt rule',
+    notify: 'Gửi thông báo',
     login: 'Đăng nhập',
     auth: 'Xác thực'
   };
@@ -104,8 +108,9 @@ function formatActionLabel(type: string, action: string, entity?: string) {
 
 export default function AuditLogPage({ embeddedMode = 'default', stationIdOverride = null }: AuditLogPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const activeTab = (searchParams.get('auditTab') as TabId) || 'all';
+  const activeMode = (searchParams.get('auditTab') as ModeTab) || 'system';
+  const [systemFilter, setSystemFilter] = useState<SystemFilter>('all');
+  const [alertFilter, setAlertFilter] = useState<AlertFilter>('all');
   const [filterFrom, setFilterFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [filterTo, setFilterTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(false);
@@ -133,42 +138,86 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
     }
   }, [isCentralMode]);
 
+  useEffect(() => {
+    setSelectedLog(null);
+  }, [activeMode, filterStation]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     const from = dates.from ? new Date(dates.from).toISOString() : undefined;
     const to = dates.to ? new Date(dates.to + (dates.to.includes('T') ? '' : 'T23:59:59')).toISOString() : undefined;
-    const params = { from, to, limit: 500, stationId: filterStation || undefined };
     try {
-      const [audit, logins] = await Promise.all([stationApi.getAuditLogs(params), stationApi.getLoginLogs(params)]);
-      const merged = [
-        ...audit.map(l => ({
-          ts: l.ts,
-          type: 'audit',
-          action: l.action,
-          info: l.entityType?.toUpperCase() || 'SYS',
-          who: l.fullName || l.username || 'system',
-          stationId: l.stationId,
-          stationName: l.stationName,
-          accountStationId: l.accountStationId,
-          accountStationName: l.accountStationName,
-          raw: l
-        })),
-        ...logins.map(l => ({
-          ts: l.ts,
-          type: 'login',
-          action: 'Auth',
-          info: 'LOGIN',
-          who: l.username || 'system',
-          stationId: l.stationId,
-          stationName: l.stationName,
-          accountStationId: l.accountStationId,
-          accountStationName: l.accountStationName,
-          raw: l
-        }))
-      ].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
-      setLogs(merged);
+      const station = filterStation ? stationsList.find(s => s.id === filterStation) : null;
+      const useRemoteStation = !!station?.apiUrl;
+
+      if (activeMode === 'alerts') {
+        const params = { from, to, limit: 500, stationId: filterStation || undefined };
+        const [ruleTriggers, notifyLogs] = await Promise.all([
+          useRemoteStation && filterStation
+            ? stationApi.getRemoteRuleTriggerLogs(filterStation, params)
+            : stationApi.getRuleTriggerLogs(params),
+          useRemoteStation && filterStation
+            ? stationApi.getRemoteNotifyLogs(filterStation, params)
+            : stationApi.getNotifyLogs(params),
+        ]);
+
+        const merged = [
+          ...ruleTriggers.map((l: RuleTriggerLogEntry) => ({
+            ts: l.triggeredAt,
+            type: 'rule' as const,
+            action: 'rule_trigger',
+            info: l.ruleName || l.deviceName || 'RULE',
+            who: 'HỆ THỐNG',
+            stationId: l.stationId,
+            stationName: l.stationName,
+            raw: l
+          })),
+          ...notifyLogs.map((l: NotifyLogEntry) => ({
+            ts: l.sentAt,
+            type: 'notify' as const,
+            action: 'notify',
+            info: l.channel?.toUpperCase() || 'NOTIFY',
+            who: l.recipient || 'HỆ THỐNG',
+            stationId: l.stationId,
+            stationName: l.stationName,
+            raw: l
+          }))
+        ].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+
+        setLogs(merged);
+      } else {
+        const params = { from, to, limit: 500, stationId: filterStation || undefined };
+        const [audit, logins] = await Promise.all([stationApi.getAuditLogs(params), stationApi.getLoginLogs(params)]);
+        const merged = [
+          ...audit.map(l => ({
+            ts: l.ts,
+            type: 'audit' as const,
+            action: l.action,
+            info: l.entityType?.toUpperCase() || 'SYS',
+            who: l.fullName || l.username || 'system',
+            stationId: l.stationId,
+            stationName: l.stationName,
+            accountStationId: l.accountStationId,
+            accountStationName: l.accountStationName,
+            raw: l
+          })),
+          ...logins.map(l => ({
+            ts: l.ts,
+            type: 'login' as const,
+            action: 'auth',
+            info: 'LOGIN',
+            who: l.username || 'system',
+            stationId: l.stationId,
+            stationName: l.stationName,
+            accountStationId: l.accountStationId,
+            accountStationName: l.accountStationName,
+            raw: l
+          }))
+        ].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+        setLogs(merged);
+      }
     } catch (e) { console.error(e); } finally { setLoading(false); }
-  }, [dates, filterStation]);
+  }, [activeMode, dates, filterStation, stationsList]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -185,15 +234,22 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   }, [isCentralMode, stationsList, teamsList, filterProvince, filterTeam]);
 
   const filtered = useMemo(() => {
-    let source = activeTab === 'all' ? logs : logs.filter(l => l.type === activeTab);
+    const typeFilter = activeMode === 'system' ? systemFilter : alertFilter;
+    let source = typeFilter === 'all' ? logs : logs.filter(l => l.type === typeFilter);
     // Khi chưa chọn trạm cụ thể nhưng đang lọc theo tỉnh/tổ → lọc client-side
     if (!filterStation && filteredStationIds && (filterProvince || filterTeam)) {
       source = source.filter(l => l.stationId ? filteredStationIds.has(l.stationId) : false);
     }
     if (!searchText) return source;
     const q = searchText.toLowerCase();
-    return source.filter(l => l.action.toLowerCase().includes(q) || l.info.toLowerCase().includes(q) || l.who.toLowerCase().includes(q));
-  }, [logs, activeTab, searchText, filterStation, filteredStationIds, filterProvince, filterTeam]);
+    return source.filter(l =>
+      l.action.toLowerCase().includes(q) ||
+      l.info.toLowerCase().includes(q) ||
+      l.who.toLowerCase().includes(q) ||
+      formatActionLabel(l.type, l.action, l.raw?.entityType).toLowerCase().includes(q) ||
+      String(l.raw?.ruleName ?? l.raw?.deviceName ?? l.raw?.recipient ?? '').toLowerCase().includes(q)
+    );
+  }, [logs, activeMode, systemFilter, alertFilter, searchText, filterStation, filteredStationIds, filterProvince, filterTeam]);
 
   const groupedStations = useMemo(() => {
     const grouped = new Map<string, { id: string; name: string; items: LogItem[] }>();
@@ -215,8 +271,8 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
     return stationsList.find(s => s.id === filterStation) || null;
   }, [filterStation, stationsList]);
 
-  const stationAuditCount = useMemo(() => filtered.filter(l => l.type === 'audit').length, [filtered]);
-  const stationLoginCount = useMemo(() => filtered.filter(l => l.type === 'login').length, [filtered]);
+  const stationAuditCount = useMemo(() => filtered.filter(l => l.type === 'audit' || l.type === 'rule').length, [filtered]);
+  const stationLoginCount = useMemo(() => filtered.filter(l => l.type === 'login' || l.type === 'notify').length, [filtered]);
 
   const exportCsv = () => {
     if (filtered.length === 0) {
@@ -226,7 +282,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
     const headers = ['Thời gian', 'Loại', 'Tài khoản', 'Hành động', 'Chi tiết/Đối tượng', 'Trạm'];
     const rows = filtered.map(l => [
       fmtDateTime(l.ts),
-      l.type === 'audit' ? 'Hệ thống' : 'Đăng nhập',
+      l.type === 'audit' ? 'Hệ thống' : l.type === 'login' ? 'Đăng nhập' : l.type === 'rule' ? 'Rule' : 'Thông báo',
       l.who,
       formatActionLabel(l.type, l.action, l.raw?.entityType),
       l.info,
@@ -251,7 +307,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
     }
     const rows = filtered.map(l => ({
       'Thời gian': fmtDateTime(l.ts),
-      'Loại': l.type === 'audit' ? 'Hệ thống' : 'Đăng nhập',
+      'Loại': l.type === 'audit' ? 'Hệ thống' : l.type === 'login' ? 'Đăng nhập' : l.type === 'rule' ? 'Rule' : 'Thông báo',
       'Tài khoản': l.who,
       'Hành động': formatActionLabel(l.type, l.action, l.raw?.entityType),
       'Chi tiết/Đối tượng': l.info,
@@ -274,7 +330,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
     const rowsHtml = filtered.map(l => `
       <tr>
         <td style="padding:6px 8px;border:1px solid #e5e7eb;white-space:nowrap;">${fmtDateTime(l.ts)}</td>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.type === 'audit' ? 'Hệ thống' : 'Đăng nhập'}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.type === 'audit' ? 'Hệ thống' : l.type === 'login' ? 'Đăng nhập' : l.type === 'rule' ? 'Rule' : 'Thông báo'}</td>
         <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.who}</td>
         <td style="padding:6px 8px;border:1px solid #e5e7eb;">${formatActionLabel(l.type, l.action, l.raw?.entityType)}</td>
         <td style="padding:6px 8px;border:1px solid #e5e7eb;">${l.info}</td>
@@ -305,31 +361,34 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
       <header className="rtm-bar">
         <div style={{ display: 'flex', alignItems: 'center', gap: 15, marginRight: 10 }}>
           <span 
-            onClick={() => navigate('/alerts-history')}
+            onClick={() => setSearchParams(prev => { prev.set('auditTab', 'alerts'); return prev; })}
             style={{ 
               fontSize: '0.75rem', 
               fontWeight: 900, 
-              color: 'var(--admin-text-muted, #64748b)', 
+              color: activeMode === 'alerts' ? 'var(--admin-accent, #00ebc7)' : 'var(--admin-text-muted, #64748b)',
               cursor: 'pointer', 
               paddingBottom: 2, 
               letterSpacing: '0.08em',
               whiteSpace: 'nowrap',
-              transition: 'color 0.2s'
+              transition: 'color 0.2s',
+              borderBottom: activeMode === 'alerts' ? '2px solid var(--admin-accent, #00ebc7)' : 'none'
             }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--admin-text, #f1f5f9)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--admin-text-muted, #64748b)'}
+            onMouseLeave={(e) => e.currentTarget.style.color = activeMode === 'alerts' ? 'var(--admin-accent, #00ebc7)' : 'var(--admin-text-muted, #64748b)'}
           >
             NHẬT KÝ CẢNH BÁO
           </span>
           <span 
+            onClick={() => setSearchParams(prev => { prev.set('auditTab', 'system'); return prev; })}
             style={{ 
               fontSize: '0.75rem', 
               fontWeight: 900, 
-              color: 'var(--admin-accent, #00ebc7)', 
-              borderBottom: '2px solid var(--admin-accent, #00ebc7)', 
+              color: activeMode === 'system' ? 'var(--admin-accent, #00ebc7)' : 'var(--admin-text-muted, #64748b)',
+              borderBottom: activeMode === 'system' ? '2px solid var(--admin-accent, #00ebc7)' : 'none',
               paddingBottom: 2, 
               letterSpacing: '0.08em',
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
+              cursor: 'pointer'
             }}
           >
             NHẬT KÝ HỆ THỐNG
@@ -349,13 +408,22 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
         <div className="nvr-ep-filters" style={{ display:'flex', gap: 10, alignItems: 'center' }}>
            <span className="rtm-title" style={{ letterSpacing: 1, fontSize: 9 }}>LOẠI:</span>
            <AuditFilterDropdown
-             value={activeTab}
-             onChange={value => setSearchParams({ auditTab: value })}
-             options={[
-               { value: 'all', label: 'TẤT CẢ' },
-               { value: 'audit', label: 'HÀNH ĐỘNG' },
-               { value: 'login', label: 'ĐĂNG NHẬP' }
-             ]}
+             value={activeMode === 'system' ? systemFilter : alertFilter}
+             onChange={value => {
+               if (activeMode === 'system') setSystemFilter(value as SystemFilter);
+               else setAlertFilter(value as AlertFilter);
+             }}
+             options={activeMode === 'system'
+               ? [
+                   { value: 'all', label: 'TẤT CẢ' },
+                   { value: 'audit', label: 'HÀNH ĐỘNG' },
+                   { value: 'login', label: 'ĐĂNG NHẬP' }
+                 ]
+               : [
+                   { value: 'all', label: 'TẤT CẢ' },
+                   { value: 'rule', label: 'KÍCH HOẠT RULE' },
+                   { value: 'notify', label: 'THÔNG BÁO' }
+                 ]}
            />
            <DateFilterButton
              from={filterFrom}
@@ -415,7 +483,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
               title="Xóa bộ lọc"
               onClick={() => { setFilterProvince(''); setFilterTeam(''); setFilterStation(''); }}
               style={{ fontSize: 10, width: 'auto', padding: '0 8px', gap: 4, display: 'flex', alignItems: 'center' }}
-            >
+              >
               ✕ XÓA LỌC
             </button>
           )}
@@ -458,8 +526,8 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
                        <div className="main-stat">{group.items.length}</div>
                        <div className="sub-stat">LOGS</div>
                        <div className="stat-split">
-                          <div><span>AUDIT</span><b>{group.items.filter(i => i.type === 'audit').length}</b></div>
-                          <div><span>LOGIN</span><b>{group.items.filter(i => i.type === 'login').length}</b></div>
+                          <div><span>{activeMode === 'system' ? 'AUDIT' : 'RULE'}</span><b>{activeMode === 'system' ? group.items.filter(i => i.type === 'audit').length : group.items.filter(i => i.type === 'rule').length}</b></div>
+                          <div><span>{activeMode === 'system' ? 'LOGIN' : 'NOTIFY'}</span><b>{activeMode === 'system' ? group.items.filter(i => i.type === 'login').length : group.items.filter(i => i.type === 'notify').length}</b></div>
                        </div>
                     </div>
                  </div>
@@ -469,7 +537,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
             <div className="nvr-log-area">
               <div className="station-detail-head">
                 <div>
-                  <div className="station-detail-kicker">NHẬT KÝ TRẠM</div>
+                  <div className="station-detail-kicker">{activeMode === 'system' ? 'NHẬT KÝ TRẠM' : 'NHẬT KÝ CẢNH BÁO TRẠM'}</div>
                   <div className="station-detail-name">{selectedStationInfo?.name || filtered[0]?.stationName || 'TRUNG TÂM'}</div>
                 </div>
                 <div className="station-detail-stats">
@@ -478,11 +546,11 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
                     <b>{filtered.length}</b>
                   </div>
                   <div className="station-detail-stat">
-                    <span>HÀNH ĐỘNG</span>
+                    <span>{activeMode === 'system' ? 'HÀNH ĐỘNG' : 'RULE'}</span>
                     <b>{stationAuditCount}</b>
                   </div>
                   <div className="station-detail-stat">
-                    <span>ĐĂNG NHẬP</span>
+                    <span>{activeMode === 'system' ? 'ĐĂNG NHẬP' : 'THÔNG BÁO'}</span>
                     <b>{stationLoginCount}</b>
                   </div>
                 </div>
@@ -512,7 +580,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
               <span className="nvr-ep-tab-arrow">{isEpOpen ? <ChevronRight size={10}/> : <ChevronLeft size={10}/>}</span>
               <span className="nvr-ep-tab-label">CHI TIẾT</span>
            </button>
-           <div className="nvr-ep-body">
+              <div className="nvr-ep-body">
               <div className="nvr-ep-hdr"><div className="nvr-ep-title">THÔNG TIN CHI TIẾT</div></div>
               <div className="nvr-ep-list">
                  {selectedLog ? (
@@ -523,14 +591,38 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
                         <small>{fmtDateTime(selectedLog.ts)}</small>
                       </div>
 
-                      <div className="detail-grid">
-                        <div className="detail-card"><span>ĐỐI TƯỢNG</span><b>{selectedLog.info}</b></div>
-                        <div className="detail-card"><span>THAO TÁC GỐC</span><b>{selectedLog.action}</b></div>
-                        <div className="detail-card"><span>THỰC HIỆN</span><b>{selectedLog.who}</b></div>
-                        <div className="detail-card"><span>TRẠM BỊ TÁC ĐỘNG</span><b>{selectedLog.stationName || 'TRUNG TÂM'}</b></div>
-                        <div className="detail-card"><span>TRẠM CỦA TÀI KHOẢN</span><b>{selectedLog.accountStationName || selectedLog.stationName || 'N/A'}</b></div>
-                        <div className="detail-card"><span>THỜI GIAN</span><b>{fmtDateTime(selectedLog.ts)}</b></div>
-                      </div>
+                      {activeMode === 'alerts' ? (
+                        <div className="detail-grid">
+                          {selectedLog.type === 'rule' ? (
+                            <>
+                              <div className="detail-card"><span>RULE</span><b>{selectedLog.raw?.ruleName || selectedLog.info}</b></div>
+                              <div className="detail-card"><span>THIẾT BỊ</span><b>{selectedLog.raw?.deviceName || '—'}</b></div>
+                              <div className="detail-card"><span>GIÁ TRỊ</span><b>{selectedLog.raw?.valueAtTrigger ?? '—'}</b></div>
+                              <div className="detail-card"><span>TRẠM</span><b>{selectedLog.stationName || 'TRUNG TÂM'}</b></div>
+                              <div className="detail-card"><span>ĐIỀU KIỆN</span><b>{selectedLog.raw?.conditionSnapshot || '—'}</b></div>
+                              <div className="detail-card"><span>THỜI GIAN</span><b>{fmtDateTime(selectedLog.ts)}</b></div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="detail-card"><span>KÊNH</span><b>{selectedLog.raw?.channel || selectedLog.info}</b></div>
+                              <div className="detail-card"><span>NGƯỜI NHẬN</span><b>{selectedLog.raw?.recipient || selectedLog.who}</b></div>
+                              <div className="detail-card"><span>TRẠNG THÁI</span><b>{selectedLog.raw?.status || '—'}</b></div>
+                              <div className="detail-card"><span>TRẠM</span><b>{selectedLog.stationName || 'TRUNG TÂM'}</b></div>
+                              <div className="detail-card"><span>LỖI</span><b>{selectedLog.raw?.errorMessage || '—'}</b></div>
+                              <div className="detail-card"><span>THỜI GIAN</span><b>{fmtDateTime(selectedLog.ts)}</b></div>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="detail-grid">
+                          <div className="detail-card"><span>ĐỐI TƯỢNG</span><b>{selectedLog.info}</b></div>
+                          <div className="detail-card"><span>THAO TÁC GỐC</span><b>{selectedLog.action}</b></div>
+                          <div className="detail-card"><span>THỰC HIỆN</span><b>{selectedLog.who}</b></div>
+                          <div className="detail-card"><span>TRẠM BỊ TÁC ĐỘNG</span><b>{selectedLog.stationName || 'TRUNG TÂM'}</b></div>
+                          <div className="detail-card"><span>TRẠM CỦA TÀI KHOẢN</span><b>{selectedLog.accountStationName || selectedLog.stationName || 'N/A'}</b></div>
+                          <div className="detail-card"><span>THỜI GIAN</span><b>{fmtDateTime(selectedLog.ts)}</b></div>
+                        </div>
+                      )}
                       {selectedLog.type === 'audit' && (
                         <div className="diff-area">
                            <div className="diff-box">

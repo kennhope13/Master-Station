@@ -14,6 +14,7 @@ public sealed record EffectiveLicenseSnapshot(
     int MaxUsers,
     int MaxStations,
     int MaxCameras,
+    int MaxSensors,
     int MaxRoiPoints,
     int MaxRoiRegions,
     int MaxPdRegions,
@@ -28,6 +29,7 @@ public sealed record EffectiveLicenseSnapshot(
     public static EffectiveLicenseSnapshot Empty { get; } = new(
         false,
         "",
+        0,
         0,
         0,
         0,
@@ -156,6 +158,7 @@ public sealed class LicenseManager
                 effective.Users <= 0 ? 10 : effective.Users,
                 effective.Stations <= 0 ? validBase.Limits.Stations : effective.Stations,
                 effective.Cameras <= 0 ? validBase.Limits.Cameras : effective.Cameras,
+                effective.Sensors <= 0 ? (validBase.Limits.Sensors > 0 ? validBase.Limits.Sensors : effective.Cameras) : effective.Sensors,
                 effective.RoiPoints <= 0 ? validBase.Limits.RoiPoints : effective.RoiPoints,
                 effective.RoiRegions <= 0 ? validBase.Limits.RoiRegions : effective.RoiRegions,
                 effective.PdRegions <= 0 ? validBase.Limits.PdRegions : effective.PdRegions,

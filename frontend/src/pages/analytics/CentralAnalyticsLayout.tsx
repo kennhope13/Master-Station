@@ -40,12 +40,25 @@ interface StationAnalyticsSnapshot {
   hottestPoint: { value: number; label: string } | null;
 }
 
+type MetricRow = {
+  key: string;
+  label: string;
+  value: string;
+  meta: string;
+  time: string;
+};
+
 // ── Helpers ────────────────────────────────────────────────────
 
 const isThermalPoint = (point: SensorPoint) =>
   point.unit?.includes('C') || /nhiet|temp|thermal/i.test(point.pointId || '');
 
 const isPdPoint = (point: SensorPoint) => /pd|phong_dien/i.test(point.pointId || '');
+
+const sortMetricRows = (a: MetricRow, b: MetricRow) =>
+  a.label.localeCompare(b.label, 'vi', { numeric: true });
+
+const todayIsoDate = () => new Date().toISOString().split('T')[0] || '';
 
 const getHealthClass = (score: number | null) => {
   if (score == null) return { label: 'Chưa đủ dữ liệu', color: 'var(--admin-text-muted)' };
@@ -199,7 +212,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Record<string, boolean>>({});
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(todayIsoDate());
   const [roiPoints, setRoiPoints] = useState<any[]>([]);
   const [boundaries, setBoundaries] = useState<any[]>([]);
   const [remoteKpi, setRemoteKpi] = useState<any | null>(null);
@@ -260,7 +273,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
     if (!point?.time) return '';
     const time = String(point.time);
     const parts = time.includes('T') ? time.split('T') : time.split(' ');
-    return parts.length > 1 ? parts[1].slice(0, 8) : time.slice(11, 19);
+    return parts.length > 1 ? (parts[1] || '').slice(0, 8) : time.slice(11, 19);
   };
 
   const resolvePointValue = (item: any) => {
@@ -283,7 +296,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
         meta: point.deviceId || point.pointId || '—',
         time: formatRemotePointTime(point),
       }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'vi', { numeric: true }));
+      .sort(sortMetricRows);
   }, [remotePoints]);
 
   const pdPointRows = useMemo(() => {
@@ -296,7 +309,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
         meta: point.deviceId || point.pointId || '—',
         time: formatRemotePointTime(point),
       }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'vi', { numeric: true }));
+      .sort(sortMetricRows);
   }, [remotePoints]);
 
   const thermalBoundaryRows = useMemo(() => {
@@ -312,7 +325,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
           time: point ? formatRemotePointTime(point) : '',
         };
       })
-      .sort((a, b) => a.label.localeCompare(b.label, 'vi', { numeric: true }));
+      .sort(sortMetricRows);
   }, [remoteKpi, remotePointMap]);
 
   const pdBoundaryRows = useMemo(() => {
@@ -328,7 +341,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
           time: point ? formatRemotePointTime(point) : '',
         };
       })
-      .sort((a, b) => a.label.localeCompare(b.label, 'vi', { numeric: true }));
+      .sort(sortMetricRows);
   }, [remoteKpi, remotePointMap]);
 
   const thermalRoiRows = useMemo(() => {
@@ -345,7 +358,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
       });
 
     if (roiRows.length > 0) {
-      return roiRows.sort((a, b) => a.label.localeCompare(b.label, 'vi', { numeric: true }));
+      return roiRows.sort(sortMetricRows);
     }
 
     return remotePoints
@@ -357,7 +370,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
         meta: point.pointId || point.deviceId || '—',
         time: formatRemotePointTime(point),
       }))
-      .sort((a, b) => a.label.localeCompare(b.label, 'vi', { numeric: true }));
+      .sort(sortMetricRows);
   }, [remoteKpi, remotePointMap, remotePoints]);
 
   const allRemotePointRows = useMemo(() => {
@@ -446,21 +459,20 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
         for (let i = 1; i <= 21; i++) {
           const d = new Date(base);
           d.setDate(base.getDate() - i);
-          fallbackDates.push(d.toISOString().split('T')[0]);
+          fallbackDates.push(d.toISOString().split('T')[0] || requestedDate);
         }
       } catch {
         // giữ nguyên fallbackDates với ngày hiện tại
       }
 
-      const queryAttempts = [
-        selectedCamera?.id ? { device_id: selectedCamera.id } : null,
-        selectedCamera?.config?.go2rtc_thermal ? { stream_id: selectedCamera.config.go2rtc_thermal } : null,
-        selectedCamera?.config?.go2rtc_id ? { stream_id: selectedCamera.config.go2rtc_id } : null,
-        selectedCamera?.config?.ip ? { camera_ip: selectedCamera.config.ip } : null,
-        directPoints?.[0]?.deviceId ? { device_id: directPoints[0].deviceId } : null,
-        remoteKpi?.points?.[0]?.deviceId ? { device_id: remoteKpi.points[0].deviceId } : null,
-        null,
-      ].filter((item): item is Record<string, string> => !!item);
+      const queryAttempts: Record<string, string>[] = [];
+      if (selectedCamera?.id) queryAttempts.push({ device_id: selectedCamera.id });
+      if (selectedCamera?.config?.go2rtc_thermal) queryAttempts.push({ stream_id: selectedCamera.config.go2rtc_thermal });
+      if (selectedCamera?.config?.go2rtc_id) queryAttempts.push({ stream_id: selectedCamera.config.go2rtc_id });
+      if (selectedCamera?.config?.ip) queryAttempts.push({ camera_ip: selectedCamera.config.ip });
+      if (directPoints?.[0]?.deviceId) queryAttempts.push({ device_id: directPoints[0].deviceId });
+      if (remoteKpi?.points?.[0]?.deviceId) queryAttempts.push({ device_id: remoteKpi.points[0].deviceId });
+      queryAttempts.push({});
 
       let resolvedHistory: Array<Record<string, any>> = [];
       let resolvedTargets: string[] = [];
@@ -599,8 +611,8 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
           });
           setCameras(thermalDevices);
           if (thermalDevices.length > 0) {
-            const thermalCam = thermalDevices.find(c => c.name?.toLowerCase().includes('thermal') || c.config?.go2rtc_thermal);
-            setSelectedCamera(thermalCam || thermalDevices[0]);
+            const thermalCam = thermalDevices.find(c => c.name?.toLowerCase().includes('thermal') || c.config?.go2rtc_thermal) || thermalDevices[0];
+            setSelectedCamera(thermalCam ?? null);
           } else {
             setSelectedCamera(null);
           }
@@ -623,6 +635,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
           return;
         }
 
+        if (!selectedCamera?.id) return;
         const [pts, bounds] = await Promise.all([
           stationApi.getRoiPoints(selectedCamera.id),
           stationApi.getBoundaries(selectedCamera.id, 'roi')
@@ -661,6 +674,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
       const dateParts = String(datePart).split('-');
       if (dateParts.length < 3) return h.timestamp;
       const [year, month, day] = dateParts;
+      if (!year || !month || !day) return h.timestamp;
       const now = new Date();
       const isToday = now.getFullYear() === parseInt(year) && (now.getMonth() + 1) === parseInt(month) && now.getDate() === parseInt(day);
       return isToday ? timePart : `${day}/${month} ${timePart}`;
@@ -975,7 +989,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
           <MetricSectionCard
             title="ĐIỂM NHIỆT TRẠM CON"
             accent="#A855F7"
-            rows={thermalRoiRows.length > 0 ? thermalRoiRows : allRemotePointRows.filter(row => /NHIỆT/i.test(row.meta || '') || /nhiet|temp|thermal/i.test(row.label))}
+            rows={thermalRoiRows.length > 0 ? thermalRoiRows : allRemotePointRows.filter((row: MetricRow) => /NHIỆT/i.test(row.meta || '') || /nhiet|temp|thermal/i.test(row.label))}
             emptyText="Trạm con chưa trả về điểm nhiệt."
           />
         </div>
@@ -1100,7 +1114,7 @@ function PdAnalyticsPanel({ station, devices }: { station: Station; devices: Dev
   const [cameras, setCameras] = useState<Device[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<Device | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(todayIsoDate());
   const [eventHistory, setEventHistory] = useState<any[]>([]);
   const [boundaries, setBoundaries] = useState<any[]>([]);
   const [cameraMenuOpen, setCameraMenuOpen] = useState(false);

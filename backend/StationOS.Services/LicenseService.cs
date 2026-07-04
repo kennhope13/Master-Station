@@ -49,15 +49,15 @@ public class LicenseService
     }
 
     // ── Default resource limits per tier ──────────────────────
-    private static (int maxUsers, int maxStations, int maxCameras, int maxRoiPoints, int maxRoiRegions, int maxPdRegions) GetTierDefaults(string tier)
+    private static (int maxUsers, int maxStations, int maxCameras, int maxSensors, int maxRoiPoints, int maxRoiRegions, int maxPdRegions) GetTierDefaults(string tier)
     {
         return tier switch
         {
             // ROI / PD không còn mặc định vô hạn. Bản license gốc tập trung vào trạm và thiết bị/camera.
-            "SOLO" => (1,   1,   2,   0,   0,   0),
-            "TEAM" => (5,   10,  8,   0,   0,   0),
-            "ENT"  => (999, 999, 999, 0,   0,   0),
-            _      => (-1, -1, -1, -1, -1, -1)
+            "SOLO" => (1,   1,   2,   2,   0,   0,   0),
+            "TEAM" => (5,   10,  8,   8,   0,   0,   0),
+            "ENT"  => (999, 999, 999, 999, 0,   0,   0),
+            _      => (-1, -1, -1, -1, -1, -1, -1)
         };
     }
 
@@ -72,7 +72,7 @@ public class LicenseService
         var normalizedKey = key.ToUpper().Trim();
         if (normalizedKey == "STATION-MONITOR-ENTERPRISE-UNLIMITED")
         {
-            return new LicenseKeyInfo(true, "ent", 99999, 99999, 99999, 99999, 99999, 99999, DateTime.UtcNow.AddYears(100), "");
+            return new LicenseKeyInfo(true, "ent", 99999, 99999, 99999, 99999, 99999, 99999, 99999, DateTime.UtcNow.AddYears(100), "");
         }
 
         var parts = normalizedKey.Split('-');
@@ -82,6 +82,7 @@ public class LicenseService
         int maxUsers;
         int maxStations;
         int maxCameras;
+        int maxSensors;
         int maxRoiPoints;
         int maxRoiRegions;
         int maxPdRegions;
@@ -107,6 +108,7 @@ public class LicenseService
                 return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
             if (!int.TryParse(parts[parts.Length - 6], out maxCameras) || maxCameras < 1)
                 return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
+            maxSensors = maxCameras;
             if (!int.TryParse(parts[parts.Length - 5], out maxRoiPoints) || maxRoiPoints < 1)
                 return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
             if (!int.TryParse(parts[parts.Length - 4], out maxRoiRegions) || maxRoiRegions < 1)
@@ -138,6 +140,7 @@ public class LicenseService
             maxUsers      = defaults.maxUsers;
             maxStations   = defaults.maxStations;
             maxCameras    = defaults.maxCameras;
+            maxSensors    = defaults.maxSensors;
             maxRoiPoints  = defaults.maxRoiPoints;
             maxRoiRegions = defaults.maxRoiRegions;
             maxPdRegions  = defaults.maxPdRegions;
@@ -159,6 +162,7 @@ public class LicenseService
                         return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
                     if (!int.TryParse(parts[3], out maxCameras) || maxCameras < 1)
                         return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
+                    maxSensors = maxCameras;
                     if (!int.TryParse(parts[4], out maxRoiPoints) || maxRoiPoints < 1)
                         return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
                     nonce  = parts[5];
@@ -169,6 +173,7 @@ public class LicenseService
                         return LicenseKeyInfo.Error("MaxDevices/Stations phải là số nguyên dương");
                     if (!int.TryParse(parts[3], out maxCameras) || maxCameras < 1)
                         return LicenseKeyInfo.Error("MaxCameras phải là số nguyên dương");
+                    maxSensors = maxCameras;
                     if (!int.TryParse(parts[4], out maxRoiPoints) || maxRoiPoints < 1)
                         return LicenseKeyInfo.Error("MaxRoiPoints phải là số nguyên dương");
                     if (!int.TryParse(parts[5], out maxRoiRegions) || maxRoiRegions < 1)
@@ -199,10 +204,10 @@ public class LicenseService
         var expiresUtc = DateTime.SpecifyKind(expiresAt, DateTimeKind.Utc);
         if (DateTime.UtcNow > expiresUtc)
             return new LicenseKeyInfo(false, tier.ToLower(), maxUsers, maxStations, maxCameras,
-                maxRoiPoints, maxRoiRegions, maxPdRegions, expiresUtc, "License đã hết hạn");
+                maxSensors, maxRoiPoints, maxRoiRegions, maxPdRegions, expiresUtc, "License đã hết hạn");
 
         return new LicenseKeyInfo(true, tier.ToLower(), maxUsers, maxStations, maxCameras,
-            maxRoiPoints, maxRoiRegions, maxPdRegions, expiresUtc, "");
+            maxSensors, maxRoiPoints, maxRoiRegions, maxPdRegions, expiresUtc, "");
     }
 
     private string ComputeHmac8(string payload)
@@ -258,7 +263,7 @@ public class LicenseService
                 DateTime.UtcNow,
                 info.ExpiresAt,
                 new LicenseHardwareBinding(hardware.CpuId, hardware.MainboardUuid, hardware.OsDiskSerial, hardware.MachineName, hardware.Platform, hardware.MacAddress),
-                new LicenseResourceBundle(info.MaxUsers, info.MaxStations, info.MaxCameras, info.MaxRoiPoints, info.MaxRoiRegions, info.MaxPdRegions),
+                new LicenseResourceBundle(info.MaxUsers, info.MaxStations, info.MaxCameras, info.MaxSensors, info.MaxRoiPoints, info.MaxRoiRegions, info.MaxPdRegions),
                 _vendorPrivateKey,
                 _vendorSecret
             );
@@ -340,6 +345,7 @@ public class LicenseService
                 fileSnapshot.MaxUsers,
                 fileSnapshot.MaxStations,
                 fileSnapshot.MaxCameras,
+                fileSnapshot.MaxSensors,
                 fileSnapshot.MaxRoiPoints,
                 fileSnapshot.MaxRoiRegions,
                 fileSnapshot.MaxPdRegions,
@@ -371,6 +377,7 @@ public class LicenseService
             license.MaxUsers,
             license.MaxStations,
             license.MaxCameras,
+            license.MaxCameras,
             license.MaxRoiPoints,
             license.MaxRoiRegions,
             license.MaxPdRegions,
@@ -398,6 +405,7 @@ public class LicenseService
         var maxUsers = fileSnapshot.HasLicense ? fileSnapshot.MaxUsers : license?.MaxUsers ?? 10;
         var maxStations = fileSnapshot.HasLicense ? fileSnapshot.MaxStations : license?.MaxStations ?? 10;
         var maxCameras = fileSnapshot.HasLicense ? fileSnapshot.MaxCameras : license?.MaxCameras ?? 10;
+        var maxSensors = fileSnapshot.HasLicense ? fileSnapshot.MaxSensors : maxCameras;
         int current = 0;
         int max = 999;
 
@@ -414,9 +422,16 @@ public class LicenseService
                 max = fileSnapshot.HasLicense ? maxStations : license!.MaxStations;
                 break;
             case "cameras":
+                current = await db.Devices.CountAsync(d => d.Type.ToLower().StartsWith("camera"));
+                max = fileSnapshot.HasLicense ? maxCameras : license!.MaxCameras;
+                break;
+            case "sensors":
+                current = await db.Devices.CountAsync(d => !d.Type.ToLower().StartsWith("camera"));
+                max = fileSnapshot.HasLicense ? maxSensors : license!.MaxCameras;
+                break;
             case "devices":
                 current = await db.Devices.CountAsync();
-                max = fileSnapshot.HasLicense ? maxCameras : license!.MaxCameras;
+                max = (fileSnapshot.HasLicense ? maxCameras : license!.MaxCameras) + (fileSnapshot.HasLicense ? maxSensors : license!.MaxCameras);
                 break;
             case "roi_points":
                 current = await db.RoiPoints.CountAsync();
@@ -457,6 +472,7 @@ public class LicenseService
             {
                 new("stations", 0, 0, false),
                 new("cameras", 0, 0, false),
+                new("sensors", 0, 0, false),
                 new("roi_points", 0, 0, false),
                 new("roi_regions", 0, 0, false),
                 new("pd_regions", 0, 0, false),
@@ -464,7 +480,8 @@ public class LicenseService
         }
 
         var stationCount = await db.Stations.CountAsync();
-        var cameraCount = await db.Devices.CountAsync();
+        var cameraCount = await db.Devices.CountAsync(d => d.Type.ToLower().StartsWith("camera"));
+        var sensorCount = await db.Devices.CountAsync(d => !d.Type.ToLower().StartsWith("camera"));
         var roiPointCount = await db.RoiPoints.CountAsync();
         var roiRegionCount = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "roi");
         var pdRegionCount = await db.Boundaries.CountAsync(b => b.Type.ToLower() == "pd");
@@ -476,6 +493,7 @@ public class LicenseService
         {
             new("stations", stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? defaultMax), IsExceeded(stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? defaultMax))),
             new("cameras", cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? defaultMax), IsExceeded(cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? defaultMax))),
+            new("sensors", sensorCount, useFileLicense ? fileSnapshot.MaxSensors : (license?.MaxCameras ?? defaultMax), IsExceeded(sensorCount, useFileLicense ? fileSnapshot.MaxSensors : (license?.MaxCameras ?? defaultMax))),
             new("roi_points", roiPointCount, useFileLicense ? fileSnapshot.MaxRoiPoints : (license?.MaxRoiPoints ?? defaultMax), IsExceeded(roiPointCount, useFileLicense ? fileSnapshot.MaxRoiPoints : (license?.MaxRoiPoints ?? defaultMax))),
             new("roi_regions", roiRegionCount, useFileLicense ? fileSnapshot.MaxRoiRegions : (license?.MaxRoiRegions ?? defaultMax), IsExceeded(roiRegionCount, useFileLicense ? fileSnapshot.MaxRoiRegions : (license?.MaxRoiRegions ?? defaultMax))),
             new("pd_regions", pdRegionCount, useFileLicense ? fileSnapshot.MaxPdRegions : (license?.MaxPdRegions ?? defaultMax), IsExceeded(pdRegionCount, useFileLicense ? fileSnapshot.MaxPdRegions : (license?.MaxPdRegions ?? defaultMax))),
@@ -595,6 +613,7 @@ public record LicenseStatusDto(
     int MaxUsers,
     int MaxStations,
     int MaxCameras,
+    int MaxSensors,
     int MaxRoiPoints,
     int MaxRoiRegions,
     int MaxPdRegions,
@@ -618,6 +637,7 @@ public record LicenseKeyInfo(
     int MaxUsers,
     int MaxStations,
     int MaxCameras,
+    int MaxSensors,
     int MaxRoiPoints,
     int MaxRoiRegions,
     int MaxPdRegions,
@@ -626,7 +646,7 @@ public record LicenseKeyInfo(
 )
 {
     public static LicenseKeyInfo Error(string message) =>
-        new(false, "", 0, 0, 0, 0, 0, 0, default, message);
+        new(false, "", 0, 0, 0, 0, 0, 0, 0, default, message);
 }
 
 public record ResourceLimitInfo(

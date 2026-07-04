@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { stationApi, Device } from '@/services/StationApiService';
 import { Eye, EyeOff, Camera, Thermometer, CheckCircle2, X } from 'lucide-react';
+import { systemService } from '@/services/api/SystemService';
 
 type FormData = {
   name: string; type: string; ip: string;
@@ -48,11 +49,19 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
   const [hadPassword, setHadPassword] = useState(false);
   const [fetchedPassword, setFetchedPassword] = useState('');
   const [testConnResult, setTestConnResult] = useState<{ show: boolean; success?: boolean; msg?: string }>({ show: false });
+  const [licenseLimits, setLicenseLimits] = useState<any[]>([]);
 
   const editingId = editingDevice?.id ?? null;
+  const ipTag = formData.ip.trim().replace(/\./g, '_');
+  const licenseResource = formData.type.startsWith('camera') ? 'cameras' : 'sensors';
+  const resourceLimit = licenseLimits.find(l => l.resource === licenseResource);
+  const resourceLimitMax = Number(resourceLimit?.max ?? 0);
+  const resourceLimitCurrent = Number(resourceLimit?.current ?? 0);
+  const isCapacityReached = !editingId && resourceLimitMax > 0 && resourceLimitMax < 999 && resourceLimitCurrent >= resourceLimitMax;
 
   useEffect(() => {
     if (!open) return;
+    systemService.getLicenseLimits().then(setLicenseLimits).catch(console.error);
     setTestConnResult({ show: false });
     setFetchedPassword('');
     if (editingDevice) {
@@ -96,12 +105,14 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
         Object.assign(configObj, { rack: formData.rack, slot: formData.slot, db: formData.db, offset: 0, length: formData.length, poll_interval_s: formData.pollIntervalS, enableHealthScore: formData.enableHealthScore });
       } else if (formData.type === 'camera_dual') {
         protocol = 'rtsp';
-        const gOptical = formData.go2rtcOptical.trim() || `cam_${formData.ip.replace(/\./g, '_')}_optical`;
-        const gThermal = formData.go2rtcThermal.trim() || `cam_${formData.ip.replace(/\./g, '_')}_thermal`;
+        const gOptical = formData.go2rtcOptical.trim() || `cam_${ipTag || 'camera'}_optical`;
+        const gThermal = formData.go2rtcThermal.trim() || `cam_${ipTag || 'camera'}_thermal`;
+        const rtspOptical = formData.rtspOptical.trim() || '/Streaming/Channels/101';
+        const rtspThermal = formData.rtspThermal.trim() || '/Streaming/Channels/201';
         Object.assign(configObj, {
-          rtsp_optical: formData.rtspOptical.trim(),
+          rtsp_optical: rtspOptical,
           go2rtc_optical: gOptical,
-          rtsp_thermal: formData.rtspThermal.trim(),
+          rtsp_thermal: rtspThermal,
           go2rtc_thermal: gThermal,
           username: formData.username,
           password: effectivePassword,
@@ -111,9 +122,10 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
         });
       } else if (formData.type === 'camera_thermal') {
         protocol = 'rtsp';
-        const gThermal = formData.go2rtcThermal.trim() || `cam_${formData.ip.replace(/\./g, '_')}_thermal`;
+        const gThermal = formData.go2rtcThermal.trim() || `cam_${ipTag || 'camera'}_thermal`;
+        const rtspThermal = formData.rtspThermal.trim() || '/Streaming/Channels/201';
         Object.assign(configObj, {
-          rtsp_thermal: formData.rtspThermal.trim(), go2rtc_thermal: gThermal,
+          rtsp_thermal: rtspThermal, go2rtc_thermal: gThermal,
           username: formData.username, password: effectivePassword,
           ...(formData.jetsonIp.trim() ? { jetson_ip: formData.jetsonIp.trim() } : {})
         });
@@ -137,7 +149,13 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
       onClose();
       alert(`${editingId ? 'Đã cập nhật' : 'Đã thêm'} thiết bị`);
     } catch (e: any) {
-      alert(`Lỗi: ${e.message}`);
+      let msg = e.message;
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.message) msg = parsed.message;
+        else if (parsed.error) msg = parsed.error;
+      } catch {}
+      alert(`Lỗi: ${msg}`);
     } finally {
       setIsSaving(false);
     }
@@ -330,12 +348,17 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
               {testConnResult.msg}
             </div>
           )}
+          {isCapacityReached && (
+            <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--admin-tag-danger-bg)', color: 'var(--admin-danger)', fontSize: '.75rem', fontWeight: 700, border: '1px solid var(--admin-border)' }}>
+              ⚠️ Đã đạt giới hạn {licenseResource === 'cameras' ? 'camera' : 'sensor'} tối đa của License ({resourceLimit?.max}). Không thể thêm mới.
+            </div>
+          )}
         </div>
         <div className="modal-footer">
           <button className="btn-industrial" onClick={testConn}>Test kết nối</button>
           <div style={{ flex: 1 }} />
           <button className="btn-industrial" onClick={onClose}>Hủy</button>
-          <button className="btn-industrial btn-primary" onClick={saveDevice} disabled={isSaving}>{isSaving ? '⏳ Đang lưu...' : 'Lưu thiết bị'}</button>
+          <button className="btn-industrial btn-primary" onClick={saveDevice} disabled={isSaving || isCapacityReached}>{isSaving ? '⏳ Đang lưu...' : 'Lưu thiết bị'}</button>
         </div>
       </div>
     </div>
