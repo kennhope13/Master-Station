@@ -1125,6 +1125,308 @@ public class StationsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Proxy danh sách người dùng từ trạm con.
+    /// Dùng cho multisite central để hiển thị tài khoản đang tồn tại ở trạm có kết nối.
+    /// </summary>
+    [HttpGet("{id}/remote-users")]
+    public async Task<IActionResult> GetRemoteUsers(Guid id)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return Ok(Array.Empty<object>());
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return Ok(Array.Empty<object>());
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var res = await client.GetAsync($"{apiBase}/api/v1/users");
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return Ok(Array.Empty<object>());
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                res = await client.GetAsync($"{apiBase}/api/v1/users");
+            }
+
+            if (!res.IsSuccessStatusCode)
+                return Ok(Array.Empty<object>());
+
+            var json = await res.Content.ReadFromJsonAsync<JsonElement>();
+            var arr = json.ValueKind == JsonValueKind.Array ? json
+                    : json.TryGetProperty("items", out var items) ? items
+                    : json.TryGetProperty("data", out var data) ? data
+                    : default;
+
+            if (arr.ValueKind != JsonValueKind.Array)
+                return Ok(Array.Empty<object>());
+
+            var result = arr.EnumerateArray().Select(u => new
+            {
+                id = GetProp(u, "id"),
+                username = GetProp(u, "username"),
+                fullName = GetProp(u, "fullName"),
+                email = GetProp(u, "email"),
+                role = GetProp(u, "role"),
+                isActive = GetBoolProp(u, "isActive"),
+                stationIds = GetStringArrayProp(u, "stationIds"),
+                provinceIds = GetStringArrayProp(u, "provinceIds"),
+                permissions = GetStringArrayProp(u, "permissions"),
+                teamId = GetProp(u, "teamId"),
+                createdAt = GetProp(u, "createdAt"),
+                initialPassword = GetProp(u, "initialPassword"),
+                sourceStationId = id,
+                sourceStationName = station.Name,
+                isRemote = true
+            }).ToList();
+
+            return Ok(result);
+        }
+        catch
+        {
+            return Ok(Array.Empty<object>());
+        }
+    }
+
+    /// <summary>Proxy audit log từ trạm con.</summary>
+    [HttpGet("{id}/remote-audit-logs")]
+    public async Task<IActionResult> GetRemoteAuditLogs(
+        Guid id,
+        [FromQuery] string? action,
+        [FromQuery] string? entityType,
+        [FromQuery] Guid? userId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] Guid? stationId,
+        [FromQuery] int limit = 200)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return Ok(Array.Empty<object>());
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return Ok(Array.Empty<object>());
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var qp = new List<string> { $"limit={limit}" };
+            if (!string.IsNullOrWhiteSpace(action)) qp.Add($"action={Uri.EscapeDataString(action)}");
+            if (!string.IsNullOrWhiteSpace(entityType)) qp.Add($"entityType={Uri.EscapeDataString(entityType)}");
+            if (userId.HasValue) qp.Add($"userId={userId.Value}");
+            if (from.HasValue) qp.Add($"from={Uri.EscapeDataString(from.Value.ToString("o"))}");
+            if (to.HasValue) qp.Add($"to={Uri.EscapeDataString(to.Value.ToString("o"))}");
+            if (stationId.HasValue) qp.Add($"stationId={stationId.Value}");
+
+            var res = await client.GetAsync($"{apiBase}/api/v1/logs/audit?{string.Join("&", qp)}");
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return Ok(Array.Empty<object>());
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                res = await client.GetAsync($"{apiBase}/api/v1/logs/audit?{string.Join("&", qp)}");
+            }
+
+            if (!res.IsSuccessStatusCode)
+                return Ok(Array.Empty<object>());
+
+            station.LastContactAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            var body = await res.Content.ReadAsStringAsync();
+            return Content(body, "application/json");
+        }
+        catch
+        {
+            return Ok(Array.Empty<object>());
+        }
+    }
+
+    /// <summary>Proxy login log từ trạm con.</summary>
+    [HttpGet("{id}/remote-login-logs")]
+    public async Task<IActionResult> GetRemoteLoginLogs(
+        Guid id,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] Guid? stationId,
+        [FromQuery] int limit = 200)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return Ok(Array.Empty<object>());
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return Ok(Array.Empty<object>());
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var qp = new List<string> { $"limit={limit}" };
+            if (from.HasValue) qp.Add($"from={Uri.EscapeDataString(from.Value.ToString("o"))}");
+            if (to.HasValue) qp.Add($"to={Uri.EscapeDataString(to.Value.ToString("o"))}");
+            if (stationId.HasValue) qp.Add($"stationId={stationId.Value}");
+
+            var res = await client.GetAsync($"{apiBase}/api/v1/logs/login?{string.Join("&", qp)}");
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return Ok(Array.Empty<object>());
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                res = await client.GetAsync($"{apiBase}/api/v1/logs/login?{string.Join("&", qp)}");
+            }
+
+            if (!res.IsSuccessStatusCode)
+                return Ok(Array.Empty<object>());
+
+            station.LastContactAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            var body = await res.Content.ReadAsStringAsync();
+            return Content(body, "application/json");
+        }
+        catch
+        {
+            return Ok(Array.Empty<object>());
+        }
+    }
+
+    /// <summary>Proxy notify log từ trạm con.</summary>
+    [HttpGet("{id}/remote-notify-logs")]
+    public async Task<IActionResult> GetRemoteNotifyLogs(
+        Guid id,
+        [FromQuery] string? status,
+        [FromQuery] string? channel,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] Guid? stationId,
+        [FromQuery] int limit = 200)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return Ok(Array.Empty<object>());
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return Ok(Array.Empty<object>());
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var qp = new List<string> { $"limit={limit}" };
+            if (!string.IsNullOrWhiteSpace(status)) qp.Add($"status={Uri.EscapeDataString(status)}");
+            if (!string.IsNullOrWhiteSpace(channel)) qp.Add($"channel={Uri.EscapeDataString(channel)}");
+            if (from.HasValue) qp.Add($"from={Uri.EscapeDataString(from.Value.ToString("o"))}");
+            if (to.HasValue) qp.Add($"to={Uri.EscapeDataString(to.Value.ToString("o"))}");
+            if (stationId.HasValue) qp.Add($"stationId={stationId.Value}");
+
+            var res = await client.GetAsync($"{apiBase}/api/v1/logs/notify?{string.Join("&", qp)}");
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return Ok(Array.Empty<object>());
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                res = await client.GetAsync($"{apiBase}/api/v1/logs/notify?{string.Join("&", qp)}");
+            }
+
+            if (!res.IsSuccessStatusCode)
+                return Ok(Array.Empty<object>());
+
+            station.LastContactAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            var body = await res.Content.ReadAsStringAsync();
+            return Content(body, "application/json");
+        }
+        catch
+        {
+            return Ok(Array.Empty<object>());
+        }
+    }
+
+    /// <summary>Proxy rule trigger log từ trạm con.</summary>
+    [HttpGet("{id}/remote-rule-trigger-logs")]
+    public async Task<IActionResult> GetRemoteRuleTriggerLogs(
+        Guid id,
+        [FromQuery] Guid? ruleId,
+        [FromQuery] Guid? deviceId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] Guid? stationId,
+        [FromQuery] int limit = 200)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return Ok(Array.Empty<object>());
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return Ok(Array.Empty<object>());
+
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var qp = new List<string> { $"limit={limit}" };
+            if (ruleId.HasValue) qp.Add($"ruleId={ruleId.Value}");
+            if (deviceId.HasValue) qp.Add($"deviceId={deviceId.Value}");
+            if (from.HasValue) qp.Add($"from={Uri.EscapeDataString(from.Value.ToString("o"))}");
+            if (to.HasValue) qp.Add($"to={Uri.EscapeDataString(to.Value.ToString("o"))}");
+            if (stationId.HasValue) qp.Add($"stationId={stationId.Value}");
+
+            var res = await client.GetAsync($"{apiBase}/api/v1/logs/rule-triggers?{string.Join("&", qp)}");
+            if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return Ok(Array.Empty<object>());
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                res = await client.GetAsync($"{apiBase}/api/v1/logs/rule-triggers?{string.Join("&", qp)}");
+            }
+
+            if (!res.IsSuccessStatusCode)
+                return Ok(Array.Empty<object>());
+
+            station.LastContactAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            var body = await res.Content.ReadAsStringAsync();
+            return Content(body, "application/json");
+        }
+        catch
+        {
+            return Ok(Array.Empty<object>());
+        }
+    }
+
     private static string? GetProp(JsonElement el, string name)
     {
         if (el.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null)
@@ -1137,6 +1439,48 @@ public class StationsController : ControllerBase
         if (el.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number)
             return v.GetDouble();
         return null;
+    }
+
+    private static bool GetBoolProp(JsonElement el, string name)
+    {
+        if (!el.TryGetProperty(name, out var v) || v.ValueKind == JsonValueKind.Null)
+            return false;
+
+        if (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False)
+            return v.GetBoolean();
+
+        if (v.ValueKind == JsonValueKind.String && bool.TryParse(v.GetString(), out var parsed))
+            return parsed;
+
+        return false;
+    }
+
+    private static string[] GetStringArrayProp(JsonElement el, string name)
+    {
+        if (!el.TryGetProperty(name, out var v) || v.ValueKind == JsonValueKind.Null)
+            return Array.Empty<string>();
+
+        if (v.ValueKind == JsonValueKind.Array)
+        {
+            return v.EnumerateArray()
+                .Select(x => x.ToString())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToArray()!;
+        }
+
+        if (v.ValueKind == JsonValueKind.String)
+        {
+            var text = v.GetString();
+            if (string.IsNullOrWhiteSpace(text))
+                return Array.Empty<string>();
+
+            return text
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToArray();
+        }
+
+        return Array.Empty<string>();
     }
 
     /// <summary>

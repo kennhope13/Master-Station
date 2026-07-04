@@ -183,6 +183,7 @@ class StationApiService {
   getLicenseLimits = systemService.getLicenseLimits.bind(systemService);
   getLicenseRequest = systemService.getLicenseRequest.bind(systemService);
   importLicense = systemService.importLicense.bind(systemService);
+  clearLicense = systemService.clearLicense.bind(systemService);
 }
 
 export const stationApi = new StationApiService();

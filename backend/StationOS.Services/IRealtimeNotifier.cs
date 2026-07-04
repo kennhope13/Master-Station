@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // IRealtimeNotifier — Interface để Workers push data realtime
 // Triển khai trong Api (SignalR), inject vào Workers
 // Tách biệt để tránh circular dependency Api ↔ Workers
@@ -20,4 +20,5 @@ public interface IRealtimeNotifier
     Task SendDeviceListChangedAsync(string action, Guid stationId, Guid deviceId);
     Task SendMaintenanceChangedAsync(string action, Guid stationId);
     Task SendRuleListChangedAsync(string action, Guid stationId);
+    Task SendAuditLogListChangedAsync(string action, Guid stationId);
 }

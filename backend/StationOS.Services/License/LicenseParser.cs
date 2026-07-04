@@ -416,7 +416,7 @@ public static class LicenseParser
         {
             return kind == LicensePackageKind.Addon
                 ? new LicenseResourceBundle()
-                : new LicenseResourceBundle(1, 1, 2, 999, 999, 999);
+                : new LicenseResourceBundle(1, 1, 2, 0, 0, 0);
         }
 
         int ReadInt(params string[] names)

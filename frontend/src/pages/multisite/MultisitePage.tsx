@@ -3557,7 +3557,18 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
     } catch (e) { console.error(e); } finally { setLoading(false); }
   }, [dates, scopeStationId]);
 
-  useEffect(() => { loadLogs(); }, [loadLogs]);
+  useEffect(() => {
+    loadLogs();
+
+    const handleLogChanged = () => {
+      loadLogs();
+    };
+
+    window.addEventListener('auditlog:changed', handleLogChanged);
+    return () => {
+      window.removeEventListener('auditlog:changed', handleLogChanged);
+    };
+  }, [loadLogs]);
 
 
 

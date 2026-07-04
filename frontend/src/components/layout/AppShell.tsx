@@ -297,6 +297,11 @@ export default function AppShell() {
       window.dispatchEvent(new CustomEvent('rule:changed', { detail: data }));
     });
 
+    // 9. Lắng nghe thay đổi nhật ký hệ thống — dispatch custom event để trang nhật ký tự reload
+    hub.on('AuditLogListChanged', (data: { action: string; stationId: string }) => {
+      window.dispatchEvent(new CustomEvent('auditlog:changed', { detail: data }));
+    });
+
     // 6. Lắng nghe cập nhật thông tin tài khoản để đồng bộ realtime không cần reload
     hub.on('UserStatusChange', (data: { username: string, status: string }) => {
       console.log(`[AppShell] SignalR event UserStatusChange received for user: ${data?.username}, status: ${data?.status}`);

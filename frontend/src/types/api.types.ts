@@ -269,6 +269,9 @@ export interface UserItem {
   createdAt: string;
   teamId?: string;
   initialPassword?: string | null;
+  sourceStationId?: string;
+  sourceStationName?: string;
+  isRemote?: boolean;
 }
 
 export interface Team {

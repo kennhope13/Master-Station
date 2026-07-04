@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // SignalRNotifier — Triển khai IRealtimeNotifier qua SignalR
 // Inject vào Workers để push data realtime về frontend
 // ============================================================
@@ -96,4 +96,7 @@ public class SignalRNotifier : IRealtimeNotifier
 
     public Task SendRuleListChangedAsync(string action, Guid stationId)
         => _hub.Clients.All.SendAsync("RuleListChanged", new { action, stationId });
+
+    public Task SendAuditLogListChangedAsync(string action, Guid stationId)
+        => _hub.Clients.All.SendAsync("AuditLogListChanged", new { action, stationId });
 }

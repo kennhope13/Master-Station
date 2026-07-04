@@ -53,9 +53,10 @@ public class LicenseService
     {
         return tier switch
         {
-            "SOLO" => (1,   1,   2,   999, 999, 999),
-            "TEAM" => (5,   10,  8,   999, 999, 999),
-            "ENT"  => (999, 999, 999, 999, 999, 999),
+            // ROI / PD không còn mặc định vô hạn. Bản license gốc tập trung vào trạm và thiết bị/camera.
+            "SOLO" => (1,   1,   2,   0,   0,   0),
+            "TEAM" => (5,   10,  8,   0,   0,   0),
+            "ENT"  => (999, 999, 999, 0,   0,   0),
             _      => (-1, -1, -1, -1, -1, -1)
         };
     }
@@ -270,6 +271,54 @@ public class LicenseService
         }
 
         return (true, "");
+    }
+
+    /// <summary>
+    /// Xóa license hiện tại đang áp dụng:
+    /// - gỡ license active trong DB
+    /// - xóa các file .lic trong thư mục Licenses
+    /// - reload snapshot để hệ thống trở về trạng thái chưa kích hoạt
+    /// </summary>
+    public async Task<(bool success, string error)> ClearCurrentLicenseAsync()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var activeLicenses = await db.Licenses.Where(l => l.IsActive).ToListAsync();
+        foreach (var license in activeLicenses)
+        {
+            license.IsActive = false;
+        }
+
+        if (activeLicenses.Count > 0)
+        {
+            await db.SaveChangesAsync();
+        }
+
+        try
+        {
+            var licDir = Path.Combine(AppContext.BaseDirectory, "Licenses");
+            if (Directory.Exists(licDir))
+            {
+                foreach (var file in Directory.EnumerateFiles(licDir, "*.lic", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        File.Delete(file);
+                    }
+                    catch
+                    {
+                        // Ignore file deletion failures; DB state is still cleared.
+                    }
+                }
+            }
+        }
+        finally
+        {
+            _licenseManager.ReloadLicenses();
+        }
+
+        return (true, "Đã xóa license hiện tại");
     }
 
     // ── Status ─────────────────────────────────────────────────

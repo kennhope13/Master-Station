@@ -2,6 +2,7 @@
 // LicenseController — Quản lý license key
 // GET  /api/v1/license/status   — public, trả về trạng thái
 // POST /api/v1/license/activate — yêu cầu admin JWT
+// POST /api/v1/license/clear     — xóa license hiện tại
 // POST /api/v1/license/validate — public, kiểm tra key (không kích hoạt)
 // GET  /api/v1/license/limits   — public, trả về resource usage vs limits
 // GET  /api/v1/license/request  — xuất .licreq
@@ -86,6 +87,18 @@ public class LicenseController : ControllerBase
             return BadRequest(new { message = error });
 
         return Ok(new { message = "Kích hoạt license thành công" });
+    }
+
+    /// <summary>Xóa license hiện tại đang áp dụng trên app.</summary>
+    [HasPermission("license:manage")]
+    [HttpPost("clear")]
+    public async Task<IActionResult> Clear()
+    {
+        var (success, error) = await _license.ClearCurrentLicenseAsync();
+        if (!success)
+            return BadRequest(new { message = error });
+
+        return Ok(new { message = error });
     }
 
     /// <summary>Kiểm tra tính hợp lệ của license key mà không kích hoạt.</summary>

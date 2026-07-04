@@ -6,7 +6,7 @@
 // ============================================================
 
 import { apiFetch, apiMutate } from './BaseApiService';
-import type { Station, CameraDevice } from '@/types/api.types';
+import type { Station, CameraDevice, UserItem } from '@/types/api.types';
 
 export class StationService {
   /** Lấy danh sách tất cả trạm điện đang quản lý. */
@@ -79,6 +79,58 @@ export class StationService {
     if (opts?.to)     params.set('to', opts.to);
     if (opts?.limit)  params.set('limit', String(opts.limit));
     return apiFetch(`/stations/${id}/remote-alerts?${params.toString()}`);
+  }
+
+  /** Lấy danh sách người dùng từ trạm con qua proxy master station. */
+  async getRemoteUsers(id: string): Promise<UserItem[]> {
+    return apiFetch<UserItem[]>(`/stations/${id}/remote-users`);
+  }
+
+  /** Proxy audit logs từ trạm con. */
+  async getRemoteAuditLogs(id: string, opts?: { action?: string; entityType?: string; userId?: string; from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').AuditLogEntry[]> {
+    const params = new URLSearchParams();
+    if (opts?.action) params.set('action', opts.action);
+    if (opts?.entityType) params.set('entityType', opts.entityType);
+    if (opts?.userId) params.set('userId', opts.userId);
+    if (opts?.from) params.set('from', opts.from);
+    if (opts?.to) params.set('to', opts.to);
+    if (opts?.stationId) params.set('stationId', opts.stationId);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    return apiFetch(`/stations/${id}/remote-audit-logs?${params.toString()}`);
+  }
+
+  /** Proxy login logs từ trạm con. */
+  async getRemoteLoginLogs(id: string, opts?: { from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').LoginLogEntry[]> {
+    const params = new URLSearchParams();
+    if (opts?.from) params.set('from', opts.from);
+    if (opts?.to) params.set('to', opts.to);
+    if (opts?.stationId) params.set('stationId', opts.stationId);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    return apiFetch(`/stations/${id}/remote-login-logs?${params.toString()}`);
+  }
+
+  /** Proxy notify logs từ trạm con. */
+  async getRemoteNotifyLogs(id: string, opts?: { status?: string; channel?: string; from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').NotifyLogEntry[]> {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.channel) params.set('channel', opts.channel);
+    if (opts?.from) params.set('from', opts.from);
+    if (opts?.to) params.set('to', opts.to);
+    if (opts?.stationId) params.set('stationId', opts.stationId);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    return apiFetch(`/stations/${id}/remote-notify-logs?${params.toString()}`);
+  }
+
+  /** Proxy rule trigger logs từ trạm con. */
+  async getRemoteRuleTriggerLogs(id: string, opts?: { ruleId?: string; deviceId?: string; from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').RuleTriggerLogEntry[]> {
+    const params = new URLSearchParams();
+    if (opts?.ruleId) params.set('ruleId', opts.ruleId);
+    if (opts?.deviceId) params.set('deviceId', opts.deviceId);
+    if (opts?.from) params.set('from', opts.from);
+    if (opts?.to) params.set('to', opts.to);
+    if (opts?.stationId) params.set('stationId', opts.stationId);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    return apiFetch(`/stations/${id}/remote-rule-trigger-logs?${params.toString()}`);
   }
 
   /** Lấy lịch sử dự báo của trạm con qua proxy. */

@@ -325,6 +325,10 @@ public class IngestController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
         await MarkStationOnlineAsync(station, "audit_ingest");
+        if (saved > 0)
+        {
+            await _notifier.SendAuditLogListChangedAsync("created", station.Id);
+        }
         _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Saved}/{Total} audit logs", station.Name, saved, items.Count);
         return Ok(new { received = items.Count, saved });
     }
@@ -396,6 +400,10 @@ public class IngestController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
         await MarkStationOnlineAsync(station, "maintenance_ingest");
+        if (saved > 0 || updated > 0)
+        {
+            await _notifier.SendMaintenanceChangedAsync("updated", station.Id);
+        }
         _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Saved} mới, {Updated} cập nhật / {Total} maintenance tasks", station.Name, saved, updated, items.Count);
         return Ok(new { received = items.Count, saved, updated });
     }
@@ -490,6 +498,10 @@ public class IngestController : ControllerBase
         }
 
         await _db.SaveChangesAsync(ct);
+        if (upserted > 0)
+        {
+            await _notifier.SendDeviceListChangedAsync("created", station.Id, Guid.Empty);
+        }
         return Ok(new { upserted });
     }
 

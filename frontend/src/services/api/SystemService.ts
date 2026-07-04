@@ -195,6 +195,11 @@ export class SystemService {
     clearGetCache();
     return data;
   }
+
+  /** Xóa license hiện tại đang áp dụng trên app. */
+  async clearLicense(): Promise<any> {
+    return apiMutate('POST', '/license/clear');
+  }
 }
 
 export const systemService = new SystemService();
