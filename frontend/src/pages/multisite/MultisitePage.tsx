@@ -2501,6 +2501,9 @@ export default function MultisitePage() {
                     </div>
                   </div>
 
+                  {/* Scrollable Body Wrapper */}
+                  <div className="custom-hud-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 4 }}>
+
                   {/* Trạng thái kết nối */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 6px', background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -2762,7 +2765,8 @@ export default function MultisitePage() {
                       )}
                     </div>
                   </div>
-            123456    </div>
+                  </div>
+                </div>
               </div>
           )}
 
