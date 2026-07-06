@@ -152,8 +152,8 @@ export class SystemService {
   // ── License ───────────────────────────────────────────────
 
   /** Trạng thái license: hợp lệ/hết hạn, số ngày còn lại, giới hạn tài nguyên. */
-  async getLicenseStatus(): Promise<any> {
-    return apiFetch('/license/status');
+  async getLicenseStatus(bypassCache = false): Promise<any> {
+    return apiFetch('/license/status', bypassCache);
   }
 
   /** Kích hoạt license bằng key. */
@@ -167,8 +167,8 @@ export class SystemService {
   }
 
   /** Tổng quan sử dụng tài nguyên hiện tại vs giới hạn license. */
-  async getLicenseLimits(): Promise<any[]> {
-    return apiFetch('/license/limits');
+  async getLicenseLimits(bypassCache = false): Promise<any[]> {
+    return apiFetch('/license/limits', bypassCache);
   }
 
   /** Xuất request string (vân tay phần cứng) để gửi cho nhà cung cấp tạo license offline. */

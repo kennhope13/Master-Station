@@ -60,11 +60,16 @@ export default function DeviceManagementPage({
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [licenseLimits, setLicenseLimits] = useState<any[]>([]);
+  const [licenseStatus, setLicenseStatus] = useState<any>(null);
 
   const loadLicenseLimits = async () => {
     try {
-      const data = await systemService.getLicenseLimits();
-      setLicenseLimits(data);
+      const [status, limits] = await Promise.all([
+        systemService.getLicenseStatus(true),
+        systemService.getLicenseLimits(true),
+      ]);
+      setLicenseStatus(status);
+      setLicenseLimits(limits);
     } catch (e) {
       console.error('Lỗi khi tải giới hạn license:', e);
     }
@@ -99,7 +104,8 @@ export default function DeviceManagementPage({
   const resourceLimit = licenseResource === 'cameras' ? cameraLimit : sensorLimit;
   const resourceLimitMax = Number(resourceLimit?.max ?? 0);
   const resourceLimitCurrent = Number(resourceLimit?.current ?? 0);
-  const isCapacityReached = !editingId && resourceLimitMax > 0 && resourceLimitMax < 999 && resourceLimitCurrent >= resourceLimitMax;
+  const hasValidLicense = !!licenseStatus?.activated && licenseStatus?.isValid !== false;
+  const isCapacityReached = !editingId && hasValidLicense && resourceLimitMax > 0 && resourceLimitMax < 999 && resourceLimitCurrent >= resourceLimitMax;
 
 
   const activeRoiTab = parseInt(searchParams.get('roiTab') || '0', 10);

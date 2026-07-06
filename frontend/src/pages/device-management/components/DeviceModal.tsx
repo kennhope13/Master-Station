@@ -50,6 +50,7 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
   const [fetchedPassword, setFetchedPassword] = useState('');
   const [testConnResult, setTestConnResult] = useState<{ show: boolean; success?: boolean; msg?: string }>({ show: false });
   const [licenseLimits, setLicenseLimits] = useState<any[]>([]);
+  const [licenseStatus, setLicenseStatus] = useState<any>(null);
 
   const editingId = editingDevice?.id ?? null;
   const ipTag = formData.ip.trim().replace(/\./g, '_');
@@ -57,11 +58,18 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
   const resourceLimit = licenseLimits.find(l => l.resource === licenseResource);
   const resourceLimitMax = Number(resourceLimit?.max ?? 0);
   const resourceLimitCurrent = Number(resourceLimit?.current ?? 0);
-  const isCapacityReached = !editingId && resourceLimitMax > 0 && resourceLimitMax < 999 && resourceLimitCurrent >= resourceLimitMax;
+  const hasValidLicense = !!licenseStatus?.activated && licenseStatus?.isValid !== false;
+  const isCapacityReached = !editingId && hasValidLicense && resourceLimitMax > 0 && resourceLimitMax < 999 && resourceLimitCurrent >= resourceLimitMax;
 
   useEffect(() => {
     if (!open) return;
-    systemService.getLicenseLimits().then(setLicenseLimits).catch(console.error);
+    Promise.all([
+      systemService.getLicenseStatus(true),
+      systemService.getLicenseLimits(true),
+    ]).then(([status, limits]) => {
+      setLicenseStatus(status);
+      setLicenseLimits(limits);
+    }).catch(console.error);
     setTestConnResult({ show: false });
     setFetchedPassword('');
     if (editingDevice) {

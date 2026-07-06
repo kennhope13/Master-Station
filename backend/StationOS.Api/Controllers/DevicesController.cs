@@ -544,6 +544,15 @@ public class DevicesController : ControllerBase
             try
             {
                 var token = await GetOrFetchTokenAsync(station, apiBase);
+                if (string.IsNullOrEmpty(token))
+                {
+                    return StatusCode(503, new
+                    {
+                        error = "station_auth_failed",
+                        message = $"Không lấy được token xác thực từ trạm con ({apiBase}). Kiểm tra backend trạm con và tài khoản API của trạm."
+                    });
+                }
+
                 if (!string.IsNullOrEmpty(token))
                 {
                     using var client = _http.CreateClient();
@@ -572,10 +581,32 @@ public class DevicesController : ControllerBase
                     }
                 }
             }
+            catch (HttpRequestException ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Remote station unreachable while creating device on station {req.StationId} ({apiBase}): {ex.Message}");
+                return StatusCode(503, new
+                {
+                    error = "station_unreachable",
+                    message = $"Không kết nối được trạm con tại {apiBase}. Kiểm tra trạm con đang bật, đúng IP/port và cùng mạng. Chi tiết: {ex.Message}"
+                });
+            }
+            catch (TaskCanceledException ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Remote station timeout while creating device on station {req.StationId} ({apiBase}): {ex.Message}");
+                return StatusCode(503, new
+                {
+                    error = "station_timeout",
+                    message = $"Trạm con tại {apiBase} không phản hồi trong thời gian chờ. Kiểm tra backend trạm con và mạng LAN."
+                });
+            }
             catch (Exception ex)
             {
                 System.Console.WriteLine($"[DevicesController] Error forwarding create device to station {req.StationId}: {ex.Message}");
-                return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+                return StatusCode(503, new
+                {
+                    error = "station_forward_failed",
+                    message = $"Không thể gửi yêu cầu thêm thiết bị tới trạm con ({apiBase}). Chi tiết: {ex.Message}"
+                });
             }
         }
 

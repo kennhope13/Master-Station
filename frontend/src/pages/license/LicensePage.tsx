@@ -192,7 +192,7 @@ export default function LicensePage() {
       setStatusLoading(true);
     }
     try {
-      const data = await stationApi.getLicenseStatus();
+      const data = await stationApi.getLicenseStatus(true);
       setStatus(data);
       sessionStorage.setItem(LICENSE_STATUS_CACHE_KEY, JSON.stringify(data));
     } catch {
@@ -210,7 +210,7 @@ export default function LicensePage() {
     }
     try {
       const [data, actualCounts] = await Promise.all([
-        stationApi.getLicenseLimits().catch(() => []),
+        stationApi.getLicenseLimits(true).catch(() => []),
         getActualResourceCounts(),
       ]);
       const mergedLimits = data.length > 0 ? mergeActualCounts(data, actualCounts) : [
