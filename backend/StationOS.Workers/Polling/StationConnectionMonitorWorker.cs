@@ -16,9 +16,8 @@ public class StationConnectionMonitorWorker : BackgroundService
     private readonly ILogger<StationConnectionMonitorWorker> _logger;
     private readonly ConcurrentDictionary<Guid, string> _lastStatusByStation = new();
 
-    private const int IntervalMs = 15_000;
-    private static readonly TimeSpan ActivityOnlineThreshold = TimeSpan.FromMinutes(2);
-
+    private const int StartupDelayMs = 3_000;
+    private const int IntervalMs = 5_000;
     public StationConnectionMonitorWorker(
         IServiceScopeFactory scopeFactory,
         IHttpClientFactory httpClientFactory,
@@ -33,7 +32,7 @@ public class StationConnectionMonitorWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await Task.Delay(10_000, stoppingToken);
+        await Task.Delay(StartupDelayMs, stoppingToken);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -63,12 +62,6 @@ public class StationConnectionMonitorWorker : BackgroundService
         {
             var (status, reason) = await ProbeStationAsync(station.ApiUrl!, ct);
             var lastSeenAt = await GetLastSeenAtAsync(db, station.Id, ct);
-
-            if (status != "online" && lastSeenAt.HasValue && DateTime.UtcNow - lastSeenAt.Value <= ActivityOnlineThreshold)
-            {
-                status = "online";
-                reason = "recent_data";
-            }
 
             if (status == "online")
             {

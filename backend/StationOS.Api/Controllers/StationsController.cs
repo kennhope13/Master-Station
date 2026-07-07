@@ -108,6 +108,45 @@ public class StationsController : ControllerBase
         return string.IsNullOrWhiteSpace(token) ? "tram" : token;
     }
 
+    private async Task<IActionResult?> ValidateStationQuotaAsync(Guid? stationId, int? cameraQuota, int? sensorQuota)
+    {
+        if (cameraQuota.HasValue && cameraQuota.Value < 0)
+            return BadRequest(new { message = "Quota camera không được âm." });
+        if (sensorQuota.HasValue && sensorQuota.Value < 0)
+            return BadRequest(new { message = "Quota sensor/thiết bị đo không được âm." });
+
+        var cameraLimit = await _license.CheckResourceLimitAsync("cameras");
+        var sensorLimit = await _license.CheckResourceLimitAsync("sensors");
+
+        var allocatedCameras = await _db.Stations
+            .Where(s => stationId == null || s.Id != stationId.Value)
+            .SumAsync(s => s.CameraQuota ?? 0);
+        var allocatedSensors = await _db.Stations
+            .Where(s => stationId == null || s.Id != stationId.Value)
+            .SumAsync(s => s.SensorQuota ?? 0);
+
+        var nextCameras = allocatedCameras + (cameraQuota ?? 0);
+        var nextSensors = allocatedSensors + (sensorQuota ?? 0);
+
+        if (cameraLimit.Max > 0 && cameraLimit.Max < 999 && nextCameras > cameraLimit.Max)
+        {
+            return BadRequest(new
+            {
+                message = $"Tổng quota camera cấp xuống các trạm ({nextCameras}) vượt license trạm tổng ({cameraLimit.Max})."
+            });
+        }
+
+        if (sensorLimit.Max > 0 && sensorLimit.Max < 999 && nextSensors > sensorLimit.Max)
+        {
+            return BadRequest(new
+            {
+                message = $"Tổng quota sensor/thiết bị đo cấp xuống các trạm ({nextSensors}) vượt license trạm tổng ({sensorLimit.Max})."
+            });
+        }
+
+        return null;
+    }
+
     private async Task EnsureProvinceAdminAccountAsync(Guid provinceId)
     {
         var province = await _db.Provinces.AsNoTracking().FirstOrDefaultAsync(p => p.Id == provinceId);
@@ -229,7 +268,7 @@ public class StationsController : ControllerBase
         var stations = await q
             .OrderBy(s => s.Name)
             .Select(s => new {
-                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.ApiUsername, s.ApiPassword, s.WebUrl, s.LastContactAt, s.ProvinceId
+                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.ApiUsername, s.ApiPassword, s.WebUrl, s.LastContactAt, s.CameraQuota, s.SensorQuota, s.ProvinceId
             }).ToListAsync();
 
         var stationIds = stations.Select(s => s.Id).ToList();
@@ -251,7 +290,7 @@ public class StationsController : ControllerBase
             .Select(g => new { StationId = g.Key, LastSeenAt = (DateTime?)g.Max(x => x.DetectedAt) })
             .ToDictionaryAsync(x => x.StationId, x => x.LastSeenAt);
 
-        var threshold = DateTime.UtcNow.AddMinutes(-5);
+        var threshold = DateTime.UtcNow.AddSeconds(-45);
 
         return Ok(stations.Select(s =>
         {
@@ -265,7 +304,7 @@ public class StationsController : ControllerBase
 
             var connectionStatus = string.IsNullOrWhiteSpace(s.ApiUrl)
                 ? "unknown"
-                : lastSeenAt.HasValue && lastSeenAt.Value >= threshold
+                : s.LastContactAt.HasValue && s.LastContactAt.Value >= threshold
                     ? "online"
                     : "offline";
 
@@ -283,6 +322,8 @@ public class StationsController : ControllerBase
                 webUrl = s.WebUrl ?? DeriveWebUrl(s.ApiUrl),
                 connectionStatus,
                 lastSeenAt,
+                s.CameraQuota,
+                s.SensorQuota,
                 s.ProvinceId
             };
         }));
@@ -318,6 +359,9 @@ public class StationsController : ControllerBase
         {
             return BadRequest(new { message = $"Đã đạt giới hạn số lượng trạm biến áp của bản quyền ({limitInfo.Max} trạm). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
         }
+        var quotaError = await ValidateStationQuotaAsync(null, req.CameraQuota, req.SensorQuota);
+        if (quotaError != null) return quotaError;
+
         var allowedProvinceIds = await _permissions.GetAllowedProvinceIdsAsync();
         Guid? provinceId = req.ProvinceId;
 
@@ -370,6 +414,8 @@ public class StationsController : ControllerBase
             ApiUsername = NormalizeApiUsername(req.ApiUsername),
             ApiPassword = EncryptApiPassword(req.ApiPassword, useDefaultWhenEmpty: true),
             WebUrl      = req.WebUrl,
+            CameraQuota = req.CameraQuota,
+            SensorQuota = req.SensorQuota,
             ProvinceId  = provinceId,
             Status      = "active"
         };
@@ -409,6 +455,9 @@ public class StationsController : ControllerBase
         if (targetProvinceId != null && !await StationBelongsToProvinceAsync(targetProvinceId.Value, req.Name, req.Location))
             return StatusCode(403, new { message = "Bạn không có quyền thêm trạm ở ngoài tỉnh được phân công." });
 
+        var quotaError = await ValidateStationQuotaAsync(id, req.CameraQuota, req.SensorQuota);
+        if (quotaError != null) return quotaError;
+
         station.Name       = req.Name;
         station.Code       = req.Code;
         station.Location   = req.Location;
@@ -417,6 +466,8 @@ public class StationsController : ControllerBase
         if (!string.IsNullOrWhiteSpace(req.ApiPassword))
             station.ApiPassword = EncryptApiPassword(req.ApiPassword, useDefaultWhenEmpty: false);
         station.WebUrl     = req.WebUrl;
+        station.CameraQuota = req.CameraQuota;
+        station.SensorQuota = req.SensorQuota;
         station.ProvinceId = req.ProvinceId;
         if (!string.IsNullOrWhiteSpace(req.Status))
             station.Status = req.Status;
@@ -1629,7 +1680,7 @@ public class StationsController : ControllerBase
         try
         {
             var client = _httpClientFactory.CreateClient("station-ping");
-            var res = await client.GetAsync(url);
+            var res = await client.GetAsync($"{url}/health");
             sw.Stop();
             if (res.IsSuccessStatusCode)
                 return Ok(new { reachable = true, responseMs = sw.ElapsedMilliseconds });
@@ -1801,6 +1852,8 @@ public class StationsController : ControllerBase
         hasApiPassword = !string.IsNullOrWhiteSpace(station.ApiPassword),
         webUrl = station.WebUrl ?? DeriveWebUrl(station.ApiUrl),
         lastSeenAt = station.LastContactAt,
+        station.CameraQuota,
+        station.SensorQuota,
         station.ProvinceId
     };
 
@@ -1818,5 +1871,5 @@ public class StationsController : ControllerBase
     private static string ResolveApiUsername(Station station) => NormalizeApiUsername(station.ApiUsername);
 }
 
-public record StationRequest(string Name, string? Code, string? Location, string? Status, string? ApiUrl, string? ApiUsername, string? ApiPassword, string? WebUrl, Guid? ProvinceId = null);
+public record StationRequest(string Name, string? Code, string? Location, string? Status, string? ApiUrl, string? ApiUsername, string? ApiPassword, string? WebUrl, Guid? ProvinceId = null, int? CameraQuota = null, int? SensorQuota = null);
 public record StationPingRequest(string Url);

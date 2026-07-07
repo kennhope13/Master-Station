@@ -26,6 +26,10 @@ public class Station
     public string? WebUrl { get; set; }
     /// <summary>Lần cuối trạm tổng kết nối thành công tới trạm con (ping, remote-kpi, remote-cameras).</summary>
     public DateTime? LastContactAt { get; set; }
+    /// <summary>Số camera tối đa trạm tổng cấp xuống trạm này. null = chưa phân bổ riêng.</summary>
+    public int? CameraQuota { get; set; }
+    /// <summary>Số sensor/thiết bị đo tối đa trạm tổng cấp xuống trạm này. null = chưa phân bổ riêng.</summary>
+    public int? SensorQuota { get; set; }
 
     /// <summary>Tỉnh / Vùng mà trạm này thuộc về. null = chưa gán tỉnh.</summary>
     public Guid? ProvinceId { get; set; }

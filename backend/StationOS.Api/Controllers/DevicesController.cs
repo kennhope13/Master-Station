@@ -30,6 +30,16 @@ namespace StationOS.Api.Controllers;
 [Authorize]
 public class DevicesController : ControllerBase
 {
+    private static readonly string[] DemoDeviceNames =
+    [
+        "Cổng Modbus Vũng Tàu",
+        "Tủ 471",
+        "HIKVISION – Dual Thermal & Optical",
+        "HIKVISION - Dual Thermal & Optical",
+        "HIKVISION – Phóng điện",
+        "HIKVISION - Phóng điện",
+    ];
+
     private readonly AppDbContext _db;
     private readonly DeviceService _deviceService;
     private readonly PermissionService _permissions;
@@ -95,6 +105,13 @@ public class DevicesController : ControllerBase
         => !string.IsNullOrWhiteSpace(type) && type.StartsWith("camera", StringComparison.OrdinalIgnoreCase)
             ? "cameras"
             : "sensors";
+
+    private static bool DeviceTypeMatchesResource(string? type, string resource)
+    {
+        var isCamera = !string.IsNullOrWhiteSpace(type) &&
+            type.StartsWith("camera", StringComparison.OrdinalIgnoreCase);
+        return resource.Equals("cameras", StringComparison.OrdinalIgnoreCase) ? isCamera : !isCamera;
+    }
 
     /// <summary>
     /// Lấy danh sách toàn bộ thiết bị (Hỗ trợ AI Engine tự nhận diện ID)
@@ -274,9 +291,7 @@ public class DevicesController : ControllerBase
             return Forbid();
 
         var station = await _db.Stations.FindAsync(stationId);
-        var threshold = DateTime.UtcNow.AddMinutes(-5);
-        bool isOnline = station != null && station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
-        if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl) && isOnline)
+        if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
         {
             var apiBase = station.ApiUrl.TrimEnd('/');
             try
@@ -307,6 +322,9 @@ public class DevicesController : ControllerBase
 
                                 string? dId = TryGetPropertyIgnoreCase(d, "id", out var idEl) ? idEl.GetString() : null;
                                 string? dName = TryGetPropertyIgnoreCase(d, "name", out var nameEl) ? nameEl.GetString() : null;
+                                if (!string.IsNullOrWhiteSpace(dName) && DemoDeviceNames.Contains(dName, StringComparer.OrdinalIgnoreCase))
+                                    continue;
+
                                 string? dProtocol = TryGetPropertyIgnoreCase(d, "protocol", out var protoEl) ? protoEl.GetString() : null;
                                 string? dStatus = TryGetPropertyIgnoreCase(d, "status", out var statEl) ? statEl.GetString() : null;
                                 string? dCreatedAt = TryGetPropertyIgnoreCase(d, "createdAt", out var crEl) ? crEl.GetString() : null;
@@ -340,9 +358,11 @@ public class DevicesController : ControllerBase
             {
                 System.Console.WriteLine($"[DevicesController] Error fetching remote devices for station {stationId}: {ex.Message}");
             }
+
+            return Ok(Array.Empty<object>());
         }
 
-        var query = _db.Devices.Where(d => d.StationId == stationId);
+        var query = _db.Devices.Where(d => d.StationId == stationId && !DemoDeviceNames.Contains(d.Name));
         if (!string.IsNullOrEmpty(type))
             query = query.Where(d => d.Type.Contains(type));
 
@@ -524,13 +544,41 @@ public class DevicesController : ControllerBase
     [HasPermission("device:manage")]
     public async Task<IActionResult> Create([FromBody] CreateDeviceRequest req)
     {
-        var limitInfo = await _license.CheckResourceLimitAsync(GetLicenseResourceForDeviceType(req.Type));
+        var licenseResource = GetLicenseResourceForDeviceType(req.Type);
+        var limitInfo = await _license.CheckResourceLimitAsync(licenseResource);
+        var fleetCurrent = await CountFleetDevicesForLicenseResourceAsync(licenseResource);
+        if (limitInfo.Max > 0 && fleetCurrent > limitInfo.Current)
+        {
+            limitInfo = limitInfo with
+            {
+                Current = fleetCurrent,
+                Exceeded = limitInfo.Max < 999 && fleetCurrent >= limitInfo.Max
+            };
+        }
+
         if (limitInfo.Exceeded)
         {
             var resourceLabel = limitInfo.Resource == "cameras" ? "camera" : "sensor/thiết bị đo";
             return BadRequest(new { message = $"Đã đạt giới hạn số lượng {resourceLabel} của bản quyền ({limitInfo.Max}). Vui lòng liên hệ nhà phát triển (dev) để nâng cấp." });
         }
         var station = await _db.Stations.FindAsync(req.StationId);
+        if (station == null)
+            return NotFound(new { message = "Không tìm thấy trạm." });
+
+        var stationQuota = licenseResource == "cameras" ? station.CameraQuota : station.SensorQuota;
+        if (stationQuota.HasValue)
+        {
+            var stationCurrent = await CountStationDevicesForLicenseResourceAsync(station, licenseResource);
+            if (stationCurrent >= stationQuota.Value)
+            {
+                var resourceLabel = licenseResource == "cameras" ? "camera" : "sensor/thiết bị đo";
+                return BadRequest(new
+                {
+                    message = $"Trạm {station.Name} đã dùng hết quota {resourceLabel} được cấp ({stationCurrent}/{stationQuota.Value}). Vui lòng tăng quota từ trạm tổng hoặc xóa bớt thiết bị."
+                });
+            }
+        }
+
         if (station != null && !string.IsNullOrWhiteSpace(station.ApiUrl))
         {
             var threshold = DateTime.UtcNow.AddMinutes(-5);
@@ -547,8 +595,14 @@ public class DevicesController : ControllerBase
                 if (!string.IsNullOrEmpty(token))
                 {
                     using var client = _http.CreateClient();
-                    client.Timeout = TimeSpan.FromSeconds(5);
+                    client.Timeout = TimeSpan.FromSeconds(30);
                     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                    var remoteStationId = await GetRemoteStationIdAsync(client, apiBase);
+                    if (!remoteStationId.HasValue)
+                    {
+                        return StatusCode(502, new { error = "remote_station_not_found", message = "Không lấy được StationId nội bộ từ trạm con." });
+                    }
 
                     var forwardReq = new {
                         req.Name,
@@ -556,7 +610,7 @@ public class DevicesController : ControllerBase
                         req.Protocol,
                         req.Config,
                         req.Capabilities,
-                        StationId = station.Id
+                        StationId = remoteStationId.Value
                     };
                     var response = await client.PostAsJsonAsync($"{apiBase}/api/v1/devices", forwardReq);
                     if (response.IsSuccessStatusCode)
@@ -571,6 +625,11 @@ public class DevicesController : ControllerBase
                         return StatusCode((int)response.StatusCode, errorContent);
                     }
                 }
+            }
+            catch (TaskCanceledException ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Timeout forwarding create device to station {req.StationId}: {ex.Message}");
+                return StatusCode(504, new { error = "station_timeout", message = "Trạm con phản hồi quá chậm khi thêm thiết bị. Kiểm tra kết nối trạm con/camera rồi thử lại." });
             }
             catch (Exception ex)
             {
@@ -644,6 +703,131 @@ public class DevicesController : ControllerBase
             return JsonSerializer.Deserialize<Dictionary<string, object?>>(json) ?? [];
         }
         catch { return []; }
+    }
+
+    private static async Task<Guid?> GetRemoteStationIdAsync(HttpClient client, string apiBase)
+    {
+        using var response = await client.GetAsync($"{apiBase}/api/v1/stations");
+        if (!response.IsSuccessStatusCode) return null;
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var stations = json.ValueKind == JsonValueKind.Array ? json
+            : json.TryGetProperty("items", out var items) ? items
+            : json.TryGetProperty("data", out var data) ? data
+            : default;
+
+        if (stations.ValueKind != JsonValueKind.Array) return null;
+
+        foreach (var station in stations.EnumerateArray())
+        {
+            if (TryGetPropertyIgnoreCase(station, "id", out var idEl) &&
+                idEl.ValueKind == JsonValueKind.String &&
+                Guid.TryParse(idEl.GetString(), out var id))
+            {
+                return id;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<int> CountFleetDevicesForLicenseResourceAsync(string resource)
+    {
+        var localQuery = _db.Devices.Where(d => !DemoDeviceNames.Contains(d.Name));
+        var localCount = resource.Equals("cameras", StringComparison.OrdinalIgnoreCase)
+            ? await localQuery.CountAsync(d => d.Type.ToLower().StartsWith("camera"))
+            : await localQuery.CountAsync(d => !d.Type.ToLower().StartsWith("camera"));
+
+        var stations = await _db.Stations
+            .AsNoTracking()
+            .Where(s => s.Status == "active" && s.ApiUrl != null && s.ApiUrl != "")
+            .ToListAsync();
+
+        var remoteCount = 0;
+        foreach (var station in stations)
+        {
+            var apiBase = station.ApiUrl!.TrimEnd('/');
+            try
+            {
+                var token = await GetOrFetchTokenAsync(station, apiBase);
+                if (string.IsNullOrWhiteSpace(token))
+                    continue;
+
+                using var client = _http.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(3);
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                using var response = await client.GetAsync($"{apiBase}/api/v1/devices");
+                if (!response.IsSuccessStatusCode)
+                    continue;
+
+                var json = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+                if (json == null)
+                    continue;
+
+                foreach (var d in json)
+                {
+                    var name = TryGetPropertyIgnoreCase(d, "name", out var nameEl) ? nameEl.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(name) && DemoDeviceNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                        continue;
+
+                    var type = TryGetPropertyIgnoreCase(d, "type", out var typeEl) ? typeEl.GetString() : null;
+                    if (DeviceTypeMatchesResource(type, resource))
+                        remoteCount++;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Không đếm được thiết bị remote cho quota license tại trạm {station.Id}: {ex.Message}");
+            }
+        }
+
+        return localCount + remoteCount;
+    }
+
+    private async Task<int> CountStationDevicesForLicenseResourceAsync(Station station, string resource)
+    {
+        if (!string.IsNullOrWhiteSpace(station.ApiUrl))
+        {
+            var apiBase = station.ApiUrl.TrimEnd('/');
+            try
+            {
+                var token = await GetOrFetchTokenAsync(station, apiBase);
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    using var client = _http.CreateClient();
+                    client.Timeout = TimeSpan.FromSeconds(3);
+                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                    using var response = await client.GetAsync($"{apiBase}/api/v1/devices");
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var json = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+                        if (json != null)
+                        {
+                            return json.Count(d =>
+                            {
+                                var name = TryGetPropertyIgnoreCase(d, "name", out var nameEl) ? nameEl.GetString() : null;
+                                if (!string.IsNullOrWhiteSpace(name) && DemoDeviceNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+                                    return false;
+
+                                var type = TryGetPropertyIgnoreCase(d, "type", out var typeEl) ? typeEl.GetString() : null;
+                                return DeviceTypeMatchesResource(type, resource);
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Console.WriteLine($"[DevicesController] Không đếm được quota thiết bị tại trạm {station.Id}: {ex.Message}");
+            }
+        }
+
+        var localQuery = _db.Devices.Where(d => d.StationId == station.Id && !DemoDeviceNames.Contains(d.Name));
+        return resource.Equals("cameras", StringComparison.OrdinalIgnoreCase)
+            ? await localQuery.CountAsync(d => d.Type.ToLower().StartsWith("camera"))
+            : await localQuery.CountAsync(d => !d.Type.ToLower().StartsWith("camera"));
     }
 
     /// <summary>

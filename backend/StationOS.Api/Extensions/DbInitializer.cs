@@ -52,6 +52,8 @@ public static class DbInitializer
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ApiPassword"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""WebUrl"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""LastContactAt"" timestamptz;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""CameraQuota"" integer;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""SensorQuota"" integer;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""ProvisionedPassword"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Reports"" ADD COLUMN IF NOT EXISTS ""ScopeType"" text DEFAULT 'station';");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Reports"" ADD COLUMN IF NOT EXISTS ""ProvinceId"" uuid;");
@@ -66,6 +68,7 @@ public static class DbInitializer
 
         var authService = services.GetRequiredService<AuthService>();
         await authService.SeedAdminIfNotExistsAsync();
+        await CleanupDemoDeviceDataAsync(db);
         // Tắt tính năng tự động tạo Rule mặc định
         // await SeedNetaRulesAsync(db);
         // await SeedTemperatureRulesAsync(db);
@@ -83,6 +86,40 @@ public static class DbInitializer
         {
             Console.WriteLine($"[Startup] Lỗi đồng bộ camera lên go2rtc: {ex.Message}");
         }
+    }
+
+    // ── Cleanup demo data from older seeded databases ────────
+    private static async Task CleanupDemoDeviceDataAsync(AppDbContext db)
+    {
+        var demoDeviceNames = new[]
+        {
+            "Cổng Modbus Vũng Tàu",
+            "Tủ 471",
+            "HIKVISION – Dual Thermal & Optical",
+            "HIKVISION – Phóng điện",
+        };
+
+        var demoDevices = await db.Devices
+            .Where(d => demoDeviceNames.Contains(d.Name))
+            .ToListAsync();
+
+        if (demoDevices.Count == 0) return;
+
+        var demoDeviceIds = demoDevices.Select(d => d.Id).ToList();
+        var demoAlerts = await db.Alerts
+            .Where(a => a.DeviceId != null && demoDeviceIds.Contains(a.DeviceId.Value))
+            .ToListAsync();
+        var demoAlertIds = demoAlerts.Select(a => a.Id).ToList();
+        var demoAlertHistories = await db.AlertHistories
+            .Where(h => demoAlertIds.Contains(h.AlertId))
+            .ToListAsync();
+
+        db.AlertHistories.RemoveRange(demoAlertHistories);
+        db.Alerts.RemoveRange(demoAlerts);
+        db.Devices.RemoveRange(demoDevices);
+        await db.SaveChangesAsync();
+
+        Console.WriteLine($"[DbInitializer] Đã xóa {demoDevices.Count} thiết bị demo, {demoAlerts.Count} cảnh báo demo và {demoAlertHistories.Count} lịch sử cảnh báo demo.");
     }
 
     // ── Seed rules NETA MTS 2023 ────────────────────────────
@@ -153,35 +190,6 @@ public static class DbInitializer
             db.Stations.Add(laStation);
             await db.SaveChangesAsync();
 
-            // Thiết bị cho trạm Long An
-            var plc = new StationOS.Data.Entities.Device
-            {
-                StationId = laStation.Id,
-                Name = "Tủ 471",
-                Type = "plc_s7",
-                Protocol = "snap7",
-                Config = """{"ip":"192.168.10.100","rack":0,"slot":1,"db":32,"offset":0,"length":10,"enableHealthScore":true}""",
-                Status = "online"
-            };
-            var camDual = new StationOS.Data.Entities.Device
-            {
-                StationId = laStation.Id,
-                Name = "HIKVISION – Dual Thermal & Optical",
-                Type = "camera_dual",
-                Protocol = "isapi",
-                Config = """{"ip":"192.168.10.152","username":"admin","password":"Demo@2024","rtsp_optical":"/Streaming/Channels/101","go2rtc_optical":"cam_192_168_10_152_optical","rtsp_thermal":"/Streaming/Channels/201","go2rtc_thermal":"cam_192_168_10_152_thermal"}""",
-                Status = "online"
-            };
-            var camPd = new StationOS.Data.Entities.Device
-            {
-                StationId = laStation.Id,
-                Name = "HIKVISION – Phóng điện",
-                Type = "camera_pd",
-                Protocol = "isapi",
-                Config = """{"ip":"192.168.10.153","username":"admin","password":"Demo@2024","rtsp_path":"/Streaming/Channels/101","go2rtc_id":"camera_192_168_10_153_pd"}""",
-                Status = "online"
-            };
-            db.Devices.AddRange(plc, camDual, camPd);
             await db.SaveChangesAsync();
         }
 
@@ -209,29 +217,6 @@ public static class DbInitializer
             db.Stations.Add(vtStation);
             await db.SaveChangesAsync();
 
-            var mockPlcVt = new StationOS.Data.Entities.Device
-            {
-                StationId = vtStation.Id,
-                Name = "Cổng Modbus Vũng Tàu",
-                Type = "modbus_tcp",
-                Protocol = "modbus_tcp",
-                Config = "{}",
-                Status = "offline"
-            };
-            db.Devices.Add(mockPlcVt);
-            await db.SaveChangesAsync();
-
-            var alertVt = new StationOS.Data.Entities.Alert
-            {
-                StationId = vtStation.Id,
-                DeviceId = mockPlcVt.Id,
-                Source = "system",
-                Level = "warning",
-                Status = "open",
-                Message = "Mất kết nối thiết bị đo tại trạm Vũng Tàu",
-                TriggeredAt = DateTime.UtcNow.AddHours(-1)
-            };
-            db.Alerts.Add(alertVt);
         }
 
         if (!await db.Stations.AnyAsync(s => s.Code == "TBA-TN01"))

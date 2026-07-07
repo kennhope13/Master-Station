@@ -30,9 +30,11 @@ export class StationService {
     webUrl?: string,
     apiPassword?: string,
     apiUsername: string = 'stationadmin',
-    provinceId?: string
+    provinceId?: string,
+    cameraQuota?: number | null,
+    sensorQuota?: number | null
   ): Promise<Station> {
-    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl, apiPassword, apiUsername, provinceId });
+    return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl, apiPassword, apiUsername, provinceId, cameraQuota, sensorQuota });
   }
 
   /** Kiểm tra kết nối tới trạm con. */
@@ -163,7 +165,7 @@ export class StationService {
   }
 
   /** Cập nhật thông tin trạm. */
-  async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; apiUsername?: string; apiPassword?: string; webUrl?: string; status?: string }): Promise<void> {
+  async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; apiUsername?: string; apiPassword?: string; webUrl?: string; status?: string; cameraQuota?: number | null; sensorQuota?: number | null }): Promise<void> {
     return apiMutate<void>('PUT', `/stations/${id}`, data);
   }
 

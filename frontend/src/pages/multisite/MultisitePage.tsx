@@ -357,15 +357,18 @@ export default function MultisitePage() {
   useEffect(() => {
     if (rawTab !== 'reports') return;
     setSearchParams(prev => {
-      prev.set('tab', 'overview');
-      return prev;
+      const next = new URLSearchParams(prev);
+      next.set('tab', 'overview');
+      return next;
     }, { replace: true });
   }, [rawTab, setSearchParams]);
 
   const setActiveTab = (tab: MultisiteTab) => {
     setSearchParams(prev => {
-      prev.set('tab', tab);
-      return prev;
+      if (prev.get('tab') === tab) return prev;
+      const next = new URLSearchParams(prev);
+      next.set('tab', tab);
+      return next;
     }, { replace: true });
   };
 
@@ -387,7 +390,6 @@ export default function MultisitePage() {
 
   useEffect(() => {
     if (activeTab === 'overview') {
-      setMapHostKey(k => k + 1);
       if (selectedStationId) {
         setShowRightPanel(true);
         setShowLeftPanel(false);
@@ -399,9 +401,10 @@ export default function MultisitePage() {
         setShowRightPanel(false);
       }
     }
-  }, [activeTab, location.key, selectedStationId, selectedProvince]);
+  }, [activeTab, selectedStationId, selectedProvince]);
 
   useEffect(() => {
+    if (selectedStationId === stationIdFromQuery) return;
     setSelectedStationId(stationIdFromQuery);
     if (stationIdFromQuery) {
       if (activeTab === 'overview') {
@@ -414,17 +417,17 @@ export default function MultisitePage() {
   useEffect(() => {
     setSearchParams(prev => {
       const current = prev.get('stationId');
+      if ((selectedStationId && current === selectedStationId) || (!selectedStationId && !prev.has('stationId'))) {
+        return prev;
+      }
+      const next = new URLSearchParams(prev);
       if (selectedStationId) {
-        if (current !== selectedStationId) {
-          prev.set('stationId', selectedStationId);
-        }
+        next.set('stationId', selectedStationId);
         localStorage.setItem('selected_station_id', selectedStationId);
       } else {
-        if (prev.has('stationId')) {
-          prev.delete('stationId');
-        }
+        next.delete('stationId');
       }
-      return prev;
+      return next;
     }, { replace: true });
   }, [selectedStationId, setSearchParams]);
 
@@ -443,6 +446,8 @@ export default function MultisitePage() {
   const [newStationWebUrl, setNewStationWebUrl] = useState('');
   const [newStationApiPassword, setNewStationApiPassword] = useState('');
   const [newStationProvinceId, setNewStationProvinceId] = useState('');
+  const [newStationCameraQuota, setNewStationCameraQuota] = useState('');
+  const [newStationSensorQuota, setNewStationSensorQuota] = useState('');
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [connMs, setConnMs] = useState<number | null>(null);
   const [geoStatus, setGeoStatus] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle');
@@ -455,6 +460,8 @@ export default function MultisitePage() {
   const [editApiUrl, setEditApiUrl] = useState('');
   const [editWebUrl, setEditWebUrl] = useState('');
   const [editApiPassword, setEditApiPassword] = useState('');
+  const [editCameraQuota, setEditCameraQuota] = useState('');
+  const [editSensorQuota, setEditSensorQuota] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [remoteKpis, setRemoteKpis] = useState<Record<string, {
     devicesOnline: number;
@@ -562,6 +569,14 @@ export default function MultisitePage() {
     };
     init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    const interval = window.setInterval(() => {
+      fetchStations(true).catch(() => {});
+    }, 10_000);
+    return () => window.clearInterval(interval);
+  }, [isAuthReady, fetchStations]);
 
   // Fetch devices of all stations
   useEffect(() => {
@@ -831,6 +846,8 @@ export default function MultisitePage() {
     setIsSaving(true);
     try {
       const locationObj = { lat, lng, address: newStationAddress.trim() };
+      const cameraQuota = newStationCameraQuota.trim() ? Number(newStationCameraQuota) : null;
+      const sensorQuota = newStationSensorQuota.trim() ? Number(newStationSensorQuota) : null;
       await stationApi.createStation(
         newStationName.trim(),
         newStationCode.trim(),
@@ -841,11 +858,13 @@ export default function MultisitePage() {
           : deriveWebUrl(resolveApiUrl(newStationApiUrl)),
         newStationApiPassword.trim() || undefined,
         'stationadmin',
-        finalProvinceId
+        finalProvinceId,
+        cameraQuota,
+        sensorQuota
       );
 
       setNewStationName(''); setNewStationCode('');
-      setNewStationLat(''); setNewStationLng('');
+      setNewStationLat(''); setNewStationLng(''); setNewStationCameraQuota(''); setNewStationSensorQuota('');
       setNewStationAddress(''); setNewStationApiUrl(''); setNewStationWebUrl(''); setNewStationApiPassword(''); setNewStationProvinceId('');
       setConnStatus('idle'); setConnMs(null); setGeoStatus('idle');
       setIsAddModalOpen(false);
@@ -1187,8 +1206,8 @@ export default function MultisitePage() {
       });
     } else {
       provinceMarkerGroups.forEach(group => {
-        const provinceMarkerClass = group.alerts > 0 ? 'pulse-red'
-          : group.onlineStations < group.totalStations ? 'pulse-gray'
+        const provinceMarkerClass = group.onlineStations < group.totalStations ? 'pulse-gray'
+          : group.alerts > 0 ? 'pulse-red'
           : 'pulse-green';
         const isActive = selectedProvince === group.province;
         const icon = L.divIcon({
@@ -2465,6 +2484,8 @@ export default function MultisitePage() {
                           setEditApiUrl(selectedView.station.apiUrl || '');
                           setEditWebUrl(selectedView.station.webUrl || '');
                           setEditApiPassword('');
+                          setEditCameraQuota(selectedView.station.cameraQuota == null ? '' : String(selectedView.station.cameraQuota));
+                          setEditSensorQuota(selectedView.station.sensorQuota == null ? '' : String(selectedView.station.sensorQuota));
                         }}
                         title="Cấu hình trạm con"
                         style={{
@@ -2529,9 +2550,19 @@ export default function MultisitePage() {
                         </div>
                       </div>
                     );
-                  })()}
+	                  })()}
 
-                  {/* KPI row */}
+                  <div style={{ padding: '5px 6px', background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)' }}>
+                    <div style={{ fontSize: '0.5rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em', marginBottom: 2 }}>
+                      QUOTA ĐƯỢC CẤP
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: '0.58rem', color: 'var(--admin-text)', fontFamily: 'var(--admin-font-mono)' }}>
+                      <span>CAM: {selectedView.station.cameraQuota ?? '—'}</span>
+                      <span>SEN: {selectedView.station.sensorQuota ?? '—'}</span>
+                    </div>
+                  </div>
+
+	                  {/* KPI row */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                     <div style={{ background: 'var(--admin-layer-1)', border: '1px solid var(--admin-border-light)', padding: '5px 6px' }}>
                       <div style={{ fontSize: '0.52rem', color: 'var(--admin-text-muted)', fontWeight: 800, letterSpacing: '0.06em' }}>THIẾT BỊ</div>
@@ -3009,6 +3040,49 @@ export default function MultisitePage() {
                 </span>
               </div>
 
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                    QUOTA CAMERA
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="VD: 3"
+                    value={newStationCameraQuota}
+                    onChange={e => setNewStationCameraQuota(e.target.value)}
+                    style={{
+                      background: 'var(--admin-layer-2)',
+                      border: '1px solid var(--admin-border)',
+                      padding: '8px 10px',
+                      fontSize: '0.75rem',
+                      color: 'var(--admin-text)',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                    QUOTA SENSOR
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="VD: 5"
+                    value={newStationSensorQuota}
+                    onChange={e => setNewStationSensorQuota(e.target.value)}
+                    style={{
+                      background: 'var(--admin-layer-2)',
+                      border: '1px solid var(--admin-border)',
+                      padding: '8px 10px',
+                      fontSize: '0.75rem',
+                      color: 'var(--admin-text)',
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
             </div>
 
             {/* Modal Footer */}
@@ -3125,6 +3199,40 @@ export default function MultisitePage() {
                   Nếu trạm con đã đổi mật khẩu của `stationadmin`, cập nhật lại tại đây.
                 </span>
               </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                    QUOTA CAMERA
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Trống = chưa phân bổ riêng"
+                    value={editCameraQuota}
+                    onChange={e => setEditCameraQuota(e.target.value)}
+                    style={{
+                      background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
+                      padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none', width: '100%', boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
+                    QUOTA SENSOR
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Trống = chưa phân bổ riêng"
+                    value={editSensorQuota}
+                    onChange={e => setEditSensorQuota(e.target.value)}
+                    style={{
+                      background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)',
+                      padding: '8px 10px', fontSize: '0.75rem', color: 'var(--admin-text)', outline: 'none', width: '100%', boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              </div>
             </div>
             <div style={{
               padding: '12px 24px', borderTop: '1px solid var(--admin-border)',
@@ -3146,6 +3254,8 @@ export default function MultisitePage() {
                       : apiUrlNorm
                         ? deriveWebUrl(apiUrlNorm)
                         : editingStation.webUrl;
+                    const cameraQuota = editCameraQuota.trim() ? Number(editCameraQuota) : null;
+                    const sensorQuota = editSensorQuota.trim() ? Number(editSensorQuota) : null;
                     await stationApi.updateStation(editingStation.id, {
                       name: editingStation.name,
                       code: editingStation.code,
@@ -3154,12 +3264,16 @@ export default function MultisitePage() {
                       apiUsername: editingStation.apiUsername || 'stationadmin',
                       apiPassword: editApiPassword.trim() || undefined,
                       webUrl: webUrlNorm,
-                      status: editingStation.status
+                      status: editingStation.status,
+                      cameraQuota,
+                      sensorQuota
                     });
                     setEditingStation(null);
                     setEditApiUrl('');
                     setEditWebUrl('');
                     setEditApiPassword('');
+                    setEditCameraQuota('');
+                    setEditSensorQuota('');
                     await fetchStations(true);
                   } catch { alert('Lưu thất bại'); }
                   finally { setIsSavingEdit(false); }

@@ -40,6 +40,8 @@ export interface Station {
   webUrl?: string;
   connectionStatus?: 'online' | 'offline' | 'unknown' | string;
   lastSeenAt?: string;
+  cameraQuota?: number | null;
+  sensorQuota?: number | null;
   provinceId?: string;
 }
 
