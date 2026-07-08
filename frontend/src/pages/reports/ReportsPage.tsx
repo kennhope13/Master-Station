@@ -4,7 +4,7 @@
 // Tab "Báo cáo": tạo báo cáo định kỳ (daily/monthly/event), tải về PDF
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ToolbarSelect from '@/components/ui/ToolbarSelect';
 import { stationApi, AlertItem, Province, Team } from '@/services/StationApiService';
@@ -64,8 +64,13 @@ export default function ReportsPage({ embeddedMode = 'default', initialStationId
     { value: 'station', label: 'Theo trạm' },
   ];
 
+  const provincesWithStations = useMemo(() => {
+    const provinceIds = new Set(stations.map(station => station.provinceId).filter(Boolean) as string[]);
+    return provinces.filter(province => provinceIds.has(province.id));
+  }, [provinces, stations]);
+
   const reportEntityOptions = reportScopeType === 'province'
-    ? provinces.map(p => ({ value: p.id, label: p.name }))
+    ? provincesWithStations.map(p => ({ value: p.id, label: p.name }))
     : reportScopeType === 'team'
       ? teams.map(t => ({ value: t.id, label: t.name }))
       : reportScopeType === 'station'

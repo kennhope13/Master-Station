@@ -11,6 +11,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -590,6 +591,223 @@ public class LicenseService
 
     public string GenerateRequestString()
         => _licenseManager.GenerateRequestString();
+
+    public async Task<(bool success, string error, string? licenseJson)> CreateChildBaseLicenseAsync(
+        string licenseRequestJson,
+        int cameraQuota,
+        int sensorQuota)
+    {
+        if (string.IsNullOrWhiteSpace(licenseRequestJson))
+            return (false, "Thiếu .licreq của trạm con", null);
+
+        if (cameraQuota < 0 || sensorQuota < 0)
+            return (false, "Quota camera/sensor phải là số nguyên không âm", null);
+
+        LicenseHardwareBinding hardware;
+        try
+        {
+            using var doc = JsonDocument.Parse(licenseRequestJson);
+            if (doc.RootElement.TryGetProperty("fingerprint", out var legacyFingerprint)
+                && legacyFingerprint.ValueKind == JsonValueKind.String
+                && !doc.RootElement.TryGetProperty("requestType", out _))
+            {
+                return CreateLegacyChildBaseLicense(doc.RootElement, cameraQuota, sensorQuota);
+            }
+
+            if (!doc.RootElement.TryGetProperty("fingerprint", out var fp))
+                return (false, "File .licreq không có fingerprint phần cứng", null);
+
+            hardware = new LicenseHardwareBinding(
+                GetJsonString(fp, "cpuId"),
+                GetJsonString(fp, "mainboardUuid"),
+                GetJsonString(fp, "osDiskSerial"),
+                GetJsonString(fp, "machineName"),
+                GetJsonString(fp, "platform"),
+                GetJsonString(fp, "macAddress")
+            );
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Không đọc được .licreq của trạm con: {ex.Message}", null);
+        }
+
+        var status = await GetStatusAsync();
+        var expiresAt = status?.ExpiresAt;
+        if (expiresAt == null || expiresAt.Value <= DateTime.UtcNow)
+            expiresAt = DateTime.UtcNow.AddYears(1);
+
+        try
+        {
+            var licenseJson = LicenseParser.CreateStructuredLicenseJson(
+                LicensePackageKind.Base,
+                Guid.NewGuid(),
+                null,
+                null,
+                "child",
+                DateTime.UtcNow,
+                expiresAt.Value,
+                hardware,
+                new LicenseResourceBundle(
+                    Users: 5,
+                    Stations: 1,
+                    Cameras: cameraQuota,
+                    Sensors: sensorQuota,
+                    RoiPoints: 0,
+                    RoiRegions: 0,
+                    PdRegions: 0),
+                _vendorPrivateKey,
+                _vendorSecret
+            );
+
+            return (true, "", licenseJson);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Không thể tạo license cho trạm con: {ex.Message}", null);
+        }
+    }
+
+    private (bool success, string error, string? licenseJson) CreateLegacyChildBaseLicense(
+        JsonElement request,
+        int cameraQuota,
+        int sensorQuota)
+    {
+        if (string.IsNullOrWhiteSpace(_vendorSecret))
+            return (false, "Thiếu VendorSecret để ký license cho trạm con cũ", null);
+
+        var licenseId = Guid.NewGuid();
+        var issuedAt = DateTime.UtcNow;
+        var status = GetStatusAsync().GetAwaiter().GetResult();
+        var expiresAt = status?.ExpiresAt;
+        if (expiresAt == null || expiresAt.Value <= DateTime.UtcNow)
+            expiresAt = DateTime.UtcNow.AddYears(1);
+
+        var machineName = GetJsonString(request, "machineName");
+        var platform = GetJsonString(request, "platform");
+        var cpuId = GetJsonString(request, "cpuId");
+        var mainboardUuid = GetJsonString(request, "mainboardUuid");
+        var diskSerial = GetJsonString(request, "diskSerial");
+        var macs = ReadStringArray(request, "physicalMacs");
+
+        var hardwareHash = ComputeLegacyHardwareHash(cpuId, mainboardUuid, diskSerial, machineName, platform, macs.FirstOrDefault() ?? string.Empty);
+        var canonical = string.Join("|", new[]
+        {
+            "BASE",
+            licenseId.ToString("N"),
+            string.Empty,
+            string.Empty,
+            "CHILD",
+            issuedAt.ToUniversalTime().ToString("O"),
+            expiresAt.Value.ToUniversalTime().ToString("O"),
+            hardwareHash,
+            $"users=5;stations=1;cameras={cameraQuota};sensors={sensorQuota};roi_points=0;roi_regions=0;pd_regions=0"
+        });
+
+        var signature = ComputeHmac(canonical);
+        var envelope = new
+        {
+            payload = new
+            {
+                version = 1,
+                licenseType = "base",
+                licenseId = licenseId.ToString(),
+                addonId = (string?)null,
+                tier = "CHILD",
+                customer = (string?)null,
+                issuedAt,
+                expiresAt = expiresAt.Value,
+                hardware = new
+                {
+                    fingerprint = GetJsonString(request, "fingerprint"),
+                    cpuId,
+                    mainboardUuid,
+                    diskSerial,
+                    machineName,
+                    platform,
+                    machineGuid = (string?)null,
+                    physicalMacs = macs,
+                    macAddress = macs.FirstOrDefault()
+                },
+                limits = new
+                {
+                    maxUsers = 5,
+                    maxDevices = 1,
+                    maxCameras = cameraQuota,
+                    maxSensors = sensorQuota,
+                    maxRoiPoints = 0,
+                    maxRoiRegions = 0,
+                    maxPdRegions = 0
+                }
+            },
+            signature = new
+            {
+                algorithm = "FLAT-HMAC-SHA256",
+                value = signature,
+                keyId = canonical
+            }
+        };
+
+        var json = JsonSerializer.Serialize(envelope, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true
+        });
+        return (true, "", json);
+    }
+
+    private string ComputeHmac(string payload)
+    {
+        var key = Encoding.UTF8.GetBytes(_vendorSecret);
+        var data = Encoding.UTF8.GetBytes(payload);
+        var hash = HMACSHA256.HashData(key, data);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static string ComputeLegacyHardwareHash(
+        string? cpuId,
+        string? mainboardUuid,
+        string? diskSerial,
+        string? machineName,
+        string? platform,
+        string? macAddress)
+    {
+        var payload = string.Join("|", new[]
+        {
+            NormalizeLegacyHardware(cpuId),
+            NormalizeLegacyHardware(mainboardUuid),
+            NormalizeLegacyHardware(diskSerial),
+            NormalizeLegacyHardware(machineName),
+            NormalizeLegacyHardware(platform),
+            NormalizeLegacyHardware(macAddress)
+        });
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
+    }
+
+    private static string NormalizeLegacyHardware(string? value)
+        => string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : System.Text.RegularExpressions.Regex.Replace(value.Trim().ToUpperInvariant(), @"[^A-Z0-9]+", string.Empty);
+
+    private static string[] ReadStringArray(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+
+        return value.EnumerateArray()
+            .Select(item => item.ValueKind == JsonValueKind.String ? item.GetString() : item.ToString())
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Select(item => item!)
+            .ToArray();
+    }
+
+    private static string GetJsonString(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+            return string.Empty;
+
+        return value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : value.ToString();
+    }
 
     public async Task<LicenseImportOutcome> ImportLicenseAsync(IFormFile file)
         => await _licenseManager.ImportLicenseAsync(file);

@@ -129,6 +129,10 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const isCentralMode = isCentralUser(currentUser);
   
   const dates = useMemo(() => ({ from: filterFrom, to: filterTo }), [filterFrom, filterTo]);
+  const provincesWithStations = useMemo(() => {
+    const provinceIds = new Set(stationsList.map(station => station.provinceId).filter(Boolean) as string[]);
+    return provincesList.filter(province => provinceIds.has(province.id));
+  }, [provincesList, stationsList]);
 
   useEffect(() => {
     if (isCentralMode) {
@@ -448,7 +452,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
             onChange={v => { setFilterProvince(v); setFilterTeam(''); setFilterStation(''); }}
             options={[
               { value: '', label: 'TẤT CẢ TỈNH' },
-              ...provincesList.map(p => ({ value: p.id, label: p.name.toUpperCase() }))
+              ...provincesWithStations.map(p => ({ value: p.id, label: p.name.toUpperCase() }))
             ]}
           />
           <span className="audit-filter-label">TỔ</span>

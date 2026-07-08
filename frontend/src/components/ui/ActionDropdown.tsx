@@ -49,8 +49,8 @@ export default function ActionDropdown({ children }: ActionDropdownProps) {
             position: 'fixed', 
             top: menuRef.current?.getBoundingClientRect().bottom ? menuRef.current.getBoundingClientRect().bottom + 4 : 0,
             left: menuRef.current?.getBoundingClientRect().right ? menuRef.current.getBoundingClientRect().right - 140 : 0,
-            background: 'var(--admin-panel)',
-            border: '1px solid var(--admin-border)',
+            background: '#0f1729',
+            border: '1px solid #334155',
             borderRadius: 0,
             boxShadow: '0 10px 25px rgba(0, 0, 0, 0.4)',
             zIndex: 9999,
@@ -99,14 +99,14 @@ export function ActionDropdownItem({ icon, label, onClick, danger }: ActionDropd
         padding: '8px 12px', border: 'none', background: 'transparent',
         width: '100%', textAlign: 'left', cursor: 'pointer',
         fontSize: '0.78rem', fontWeight: 600, borderRadius: 0,
-        color: danger ? 'var(--admin-danger)' : 'var(--admin-text)',
+        color: danger ? 'var(--admin-danger)' : '#e2e8f0',
         transition: 'background 0.15s'
       }} 
       onClick={(e) => { 
         console.log(`ActionDropdownItem clicked: ${label}`);
         onClick(e); 
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = danger ? 'rgba(239,68,68,0.1)' : 'var(--admin-hover)'; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = danger ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.06)'; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
       {icon && <span style={{ display: 'flex', opacity: 0.7 }}>{icon}</span>}

@@ -60,6 +60,7 @@ export const useStationStore = create<StationStore>()(
       invalidate: () => set({ lastFetchedAt: null }),
 
       setViewingStation: (id) => {
+        if (get().viewingStationId === id) return;
         if (id) {
           localStorage.setItem(MULTISITE_DRILL_STATION_KEY, id);
           localStorage.setItem('selected_station_id', id);

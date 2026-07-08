@@ -415,21 +415,19 @@ export default function MultisitePage() {
 
   // Đồng bộ selectedStationId lên URL query params để tránh lưu giữ khi đóng hoặc đổi tab
   useEffect(() => {
-    setSearchParams(prev => {
-      const current = prev.get('stationId');
-      if ((selectedStationId && current === selectedStationId) || (!selectedStationId && !prev.has('stationId'))) {
-        return prev;
-      }
-      const next = new URLSearchParams(prev);
-      if (selectedStationId) {
-        next.set('stationId', selectedStationId);
-        localStorage.setItem('selected_station_id', selectedStationId);
-      } else {
-        next.delete('stationId');
-      }
-      return next;
-    }, { replace: true });
-  }, [selectedStationId, setSearchParams]);
+    if ((selectedStationId && stationIdFromQuery === selectedStationId) || (!selectedStationId && !stationIdFromQuery)) {
+      return;
+    }
+
+    const next = new URLSearchParams(searchParams);
+    if (selectedStationId) {
+      next.set('stationId', selectedStationId);
+      localStorage.setItem('selected_station_id', selectedStationId);
+    } else {
+      next.delete('stationId');
+    }
+    setSearchParams(next, { replace: true });
+  }, [selectedStationId, stationIdFromQuery, searchParams, setSearchParams]);
 
   useEffect(() => {
     overviewFittedRef.current = false;
@@ -3569,11 +3567,16 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
   // Phạm vi hiển thị theo role của user hiện tại
   const currentUser = authService.getUser();
   const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
-    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    const provincesForStations = (sourceStations: Station[]) => {
+      const pIds = new Set(sourceStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return provinces.filter(p => pIds.has(p.id));
+    };
+
+    if (!currentUser) return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
 
     // admin toàn cục / multi → thấy hết
     if (currentUser.role === 'admin' && (!currentUser.station_ids?.length)) {
-      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+      return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
     }
 
     // admin_province / operator_province → chỉ tỉnh được gán
@@ -3611,7 +3614,7 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
       };
     }
 
-    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
   }, [currentUser, provinces, teams, stations]);
 
   const dates = useMemo(() => ({
@@ -4326,11 +4329,16 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
   // Phạm vi hiển thị theo role của user hiện tại
   const currentUser = authService.getUser();
   const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
-    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    const provincesForStations = (sourceStations: Station[]) => {
+      const pIds = new Set(sourceStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return provinces.filter(p => pIds.has(p.id));
+    };
+
+    if (!currentUser) return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
 
     // admin toàn cục / multi → thấy hết
     if (currentUser.role === 'admin' && (!currentUser.station_ids?.length)) {
-      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+      return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
     }
 
     // admin_province / operator_province → chỉ tỉnh được gán
@@ -4368,7 +4376,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
       };
     }
 
-    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
   }, [currentUser, provinces, teams, stations]);
 
   // Stations có sẵn sau khi lọc theo tỉnh/tổ (giới hạn trong phạm vi role của user)
@@ -5220,9 +5228,14 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
   // Phạm vi theo role
   const currentUser = authService.getUser();
   const { visibleProvinces, visibleTeams, visibleStations } = useMemo(() => {
-    if (!currentUser) return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    const provincesForStations = (sourceStations: Station[]) => {
+      const pIds = new Set(sourceStations.map(s => s.provinceId).filter(Boolean) as string[]);
+      return provinces.filter(p => pIds.has(p.id));
+    };
+
+    if (!currentUser) return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
     if (currentUser.role === 'admin' && !currentUser.station_ids?.length)
-      return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+      return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
     if (currentUser.role === 'admin_province' || currentUser.role === 'operator_province') {
       const pIds = new Set(currentUser.province_ids || []);
       const vProvinces = provinces.filter(p => pIds.has(p.id));
@@ -5243,7 +5256,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
       const pIds = new Set(vStations.map(s => s.provinceId).filter(Boolean) as string[]);
       return { visibleProvinces: provinces.filter(p => pIds.has(p.id)), visibleTeams: teams.filter(t => t.stationIds?.some(id => sIds.has(id))), visibleStations: vStations };
     }
-    return { visibleProvinces: provinces, visibleTeams: teams, visibleStations: stations };
+    return { visibleProvinces: provincesForStations(stations), visibleTeams: teams, visibleStations: stations };
   }, [currentUser, provinces, teams, stations]);
 
   // Cascade: tỉnh → tổ → trạm

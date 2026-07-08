@@ -97,10 +97,10 @@ export default function AppShell() {
 
   // Khi navigate về /multisite → clear drill-down
   useEffect(() => {
-    if (location.pathname === '/multisite') {
+    if (location.pathname === '/multisite' && viewingStationId) {
       setViewingStation(null);
     }
-  }, [location.pathname, setViewingStation]);
+  }, [location.pathname, viewingStationId, setViewingStation]);
 
   // Nếu là tài khoản trạm tổng/cấp tỉnh nhưng đang ở route con mà không chọn trạm drill-down, tự động chuyển về /multisite
   useEffect(() => {

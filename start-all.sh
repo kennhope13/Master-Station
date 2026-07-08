@@ -128,6 +128,22 @@ data = json.loads(path.read_text())
 print(data["License"]["VendorPublicKey"])
 PY
 )"
+export STATIONOS_VENDOR_SECRET="$(python3 - <<'PY'
+import json
+from pathlib import Path
+paths = [
+    Path("/home/admin-/Desktop/Master-Station/backend/StationOS.Api/appsettings.json"),
+    Path("/home/admin-/Desktop/Power-Monitor/backend/StationOS.Api/appsettings.json"),
+]
+for path in paths:
+    if not path.exists():
+        continue
+    value = (json.loads(path.read_text()).get("License", {}) or {}).get("VendorSecret")
+    if value:
+        print(value)
+        break
+PY
+)"
 
 echo "  Biên dịch backend trước khi chạy để tránh dính binary cũ..."
 nohup dotnet run --project "$ROOT/backend/StationOS.Api" > "$ROOT/backend.log" 2>&1 &

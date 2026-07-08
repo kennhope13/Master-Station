@@ -5,7 +5,8 @@
 // Export: stationService (singleton), dùng qua StationApiService facade
 // ============================================================
 
-import { apiFetch, apiMutate } from './BaseApiService';
+import { apiFetch, apiMutate, clearGetCache } from './BaseApiService';
+import { authService } from '@/services/AuthService';
 import type { Station, CameraDevice, UserItem } from '@/types/api.types';
 
 export class StationService {
@@ -71,6 +72,41 @@ export class StationService {
   /** Lấy JWT token từ trạm con để SSO. */
   async getRemoteToken(id: string): Promise<{ token: string }> {
     return apiFetch(`/stations/${id}/remote-token`);
+  }
+
+  /** Xuất request string license từ trạm con qua proxy trạm tổng. */
+  async getRemoteLicenseRequest(id: string): Promise<{ request: string; fileName: string }> {
+    return apiFetch(`/stations/${id}/remote-license-request`, true);
+  }
+
+  /** Nhập file license .lic vào trạm con qua proxy trạm tổng. */
+  async importRemoteLicense(id: string, file: File): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = authService.getToken() || localStorage.getItem('station_token');
+    const baseUrl = (window as any).__API_BASE__ || '';
+    const res = await fetch(`${baseUrl}/api/v1/stations/${id}/remote-license-import`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error(err.message || err.detail || 'Import license trạm con thất bại');
+    }
+    const data = await res.json();
+    clearGetCache();
+    return data;
+  }
+
+  /** Tạo license theo quota đã cấp và nhập trực tiếp vào trạm con. */
+  async provisionRemoteLicense(id: string): Promise<any> {
+    return apiMutate('POST', `/stations/${id}/remote-license-provision`);
+  }
+
+  /** Xóa toàn bộ license đang áp dụng trên trạm con. */
+  async clearRemoteLicense(id: string): Promise<any> {
+    return apiMutate('DELETE', `/stations/${id}/remote-license-clear`);
   }
 
   /** Proxy danh sách cảnh báo từ trạm con. */
@@ -165,7 +201,7 @@ export class StationService {
   }
 
   /** Cập nhật thông tin trạm. */
-  async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; apiUsername?: string; apiPassword?: string; webUrl?: string; status?: string; cameraQuota?: number | null; sensorQuota?: number | null }): Promise<void> {
+  async updateStation(id: string, data: { name?: string; code?: string; location?: string; apiUrl?: string; apiUsername?: string; apiPassword?: string; webUrl?: string; status?: string; provinceId?: string; cameraQuota?: number | null; sensorQuota?: number | null }): Promise<void> {
     return apiMutate<void>('PUT', `/stations/${id}`, data);
   }
 

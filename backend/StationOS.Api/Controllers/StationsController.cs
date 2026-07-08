@@ -433,7 +433,7 @@ public class StationsController : ControllerBase
     /// <returns>Station đã cập nhật.</returns>
     [HttpPut("{id:guid}")]
     [HasPermission("station:manage")]
-    public async Task<IActionResult> Update(Guid id, [FromBody] StationRequest req)
+    public async Task<IActionResult> Update(Guid id, [FromBody] UpdateStationRequest req)
     {
         var station = await _db.Stations.FindAsync(id);
         if (station == null) return NotFound();
@@ -451,24 +451,26 @@ public class StationsController : ControllerBase
             }
         }
 
+        var targetName = string.IsNullOrWhiteSpace(req.Name) ? station.Name : req.Name.Trim();
+        var targetLocation = req.Location ?? station.Location;
         var targetProvinceId = req.ProvinceId ?? station.ProvinceId;
-        if (targetProvinceId != null && !await StationBelongsToProvinceAsync(targetProvinceId.Value, req.Name, req.Location))
+        if (targetProvinceId != null && !await StationBelongsToProvinceAsync(targetProvinceId.Value, targetName, targetLocation))
             return StatusCode(403, new { message = "Bạn không có quyền thêm trạm ở ngoài tỉnh được phân công." });
 
         var quotaError = await ValidateStationQuotaAsync(id, req.CameraQuota, req.SensorQuota);
         if (quotaError != null) return quotaError;
 
-        station.Name       = req.Name;
-        station.Code       = req.Code;
-        station.Location   = req.Location;
-        station.ApiUrl     = req.ApiUrl;
+        station.Name       = targetName;
+        station.Code       = req.Code ?? station.Code;
+        station.Location   = targetLocation;
+        station.ApiUrl     = req.ApiUrl ?? station.ApiUrl;
         station.ApiUsername = NormalizeApiUsername(req.ApiUsername ?? station.ApiUsername);
         if (!string.IsNullOrWhiteSpace(req.ApiPassword))
             station.ApiPassword = EncryptApiPassword(req.ApiPassword, useDefaultWhenEmpty: false);
-        station.WebUrl     = req.WebUrl;
+        station.WebUrl     = req.WebUrl ?? station.WebUrl;
         station.CameraQuota = req.CameraQuota;
         station.SensorQuota = req.SensorQuota;
-        station.ProvinceId = req.ProvinceId;
+        station.ProvinceId = targetProvinceId;
         if (!string.IsNullOrWhiteSpace(req.Status))
             station.Status = req.Status;
 
@@ -1667,6 +1669,62 @@ public class StationsController : ControllerBase
         }
     }
 
+    /// <summary>Xuất mã yêu cầu license từ trạm con qua trạm tổng.</summary>
+    [HttpGet("{id}/remote-license-request")]
+    [HasPermission("license:manage")]
+    public async Task<IActionResult> GetRemoteLicenseRequest(Guid id)
+    {
+        return await ProxyGetToStationAsync(id, "/api/v1/license/request");
+    }
+
+    /// <summary>Nhập file license vào trạm con qua trạm tổng.</summary>
+    [HttpPost("{id}/remote-license-import")]
+    [HasPermission("license:manage")]
+    public async Task<IActionResult> ImportRemoteLicense(Guid id, [FromForm] IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+            return BadRequest(new { message = "Vui lòng chọn file license (.lic)" });
+
+        return await ProxyLicenseImportToStationAsync(id, file);
+    }
+
+    /// <summary>Tạo license theo quota đã cấp và đẩy trực tiếp vào trạm con.</summary>
+    [HttpPost("{id}/remote-license-provision")]
+    [HasPermission("license:manage")]
+    public async Task<IActionResult> ProvisionRemoteLicense(Guid id)
+    {
+        return await ProvisionLicenseToStationAsync(id);
+    }
+
+    /// <summary>Xóa toàn bộ license đang áp dụng trên trạm con.</summary>
+    [HttpDelete("{id}/remote-license-clear")]
+    [HasPermission("license:manage")]
+    public async Task<IActionResult> ClearRemoteLicense(Guid id)
+    {
+        var result = await ProxyDeleteToStationAsync(id, "/api/v1/license/clear");
+        var statusCode = result switch
+        {
+            ObjectResult objectResult => objectResult.StatusCode,
+            ContentResult contentResult => contentResult.StatusCode,
+            StatusCodeResult statusCodeResult => statusCodeResult.StatusCode,
+            _ => null
+        };
+
+        if (statusCode is >= 200 and < 300)
+        {
+            var station = await _db.Stations.FindAsync(id);
+            if (station != null)
+            {
+                station.CameraQuota = 0;
+                station.SensorQuota = 0;
+                await _db.SaveChangesAsync();
+                _ = _notifier.SendStationListChangedAsync("updated", station.Id);
+            }
+        }
+
+        return result;
+    }
+
     /// <summary>Kiểm tra kết nối tới trạm con qua ApiUrl.</summary>
     [HttpPost("test-connection")]
     [HasPermission("station:manage")]
@@ -1737,6 +1795,222 @@ public class StationsController : ControllerBase
                 ContentType = "application/json",
                 StatusCode = (int)resp.StatusCode
             };
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(502, new { error = "station_unreachable", detail = ex.Message });
+        }
+    }
+
+    private async Task<IActionResult> ProxyDeleteToStationAsync(Guid id, string subPath)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return NotFound(new { error = "station_not_found" });
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+        var url = $"{apiBase}{subPath}";
+
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return StatusCode(502, new { error = "auth_failed", message = $"Không thể đăng nhập trạm {station.Name}" });
+
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var resp = await client.DeleteAsync(url);
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return StatusCode(502, new { error = "auth_failed" });
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                resp = await client.DeleteAsync(url);
+            }
+
+            using (resp)
+            {
+                var body = await resp.Content.ReadAsStringAsync();
+                return new ContentResult
+                {
+                    Content = string.IsNullOrWhiteSpace(body)
+                        ? JsonSerializer.Serialize(new { message = $"Đã xóa license trạm con {station.Name}" })
+                        : body,
+                    ContentType = "application/json",
+                    StatusCode = (int)resp.StatusCode
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(502, new { error = "station_unreachable", detail = ex.Message });
+        }
+    }
+
+    private async Task<IActionResult> ProxyLicenseImportToStationAsync(Guid id, IFormFile file)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return NotFound(new { error = "station_not_found" });
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+        var url = $"{apiBase}/api/v1/license/import";
+
+        async Task<HttpResponseMessage> SendAsync(string token)
+        {
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            await using var fileStream = file.OpenReadStream();
+            using var content = new MultipartFormDataContent();
+            using var fileContent = new StreamContent(fileStream);
+            var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            content.Add(fileContent, "file", file.FileName);
+
+            return await client.PostAsync(url, content);
+        }
+
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+            {
+                return StatusCode(502, new { error = "auth_failed", message = $"Không thể đăng nhập trạm {station.Name}" });
+            }
+
+            var resp = await SendAsync(token);
+            if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                resp.Dispose();
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return StatusCode(502, new { error = "auth_failed" });
+
+                resp = await SendAsync(token);
+            }
+
+            using (resp)
+            {
+                var body = await resp.Content.ReadAsStringAsync();
+                return new ContentResult
+                {
+                    Content = body,
+                    ContentType = "application/json",
+                    StatusCode = (int)resp.StatusCode
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(502, new { error = "station_unreachable", detail = ex.Message });
+        }
+    }
+
+    private async Task<IActionResult> ProvisionLicenseToStationAsync(Guid id)
+    {
+        var station = await _db.Stations.FindAsync(id);
+        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
+            return NotFound(new { error = "station_not_found", message = "Trạm chưa cấu hình API URL" });
+
+        var cameraQuota = station.CameraQuota ?? 0;
+        var sensorQuota = station.SensorQuota ?? 0;
+        if (cameraQuota <= 0 && sensorQuota <= 0)
+            return BadRequest(new { message = "Chưa cấp quota camera/sensor cho trạm con" });
+
+        var apiBase = station.ApiUrl.TrimEnd('/');
+
+        try
+        {
+            var token = await GetOrFetchTokenAsync(station, apiBase);
+            if (string.IsNullOrEmpty(token))
+                return StatusCode(502, new { error = "auth_failed", message = $"Không thể đăng nhập trạm {station.Name}" });
+
+            using var client = _httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var reqResp = await client.GetAsync($"{apiBase}/api/v1/license/request");
+            if (reqResp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
+                if (string.IsNullOrEmpty(token))
+                    return StatusCode(502, new { error = "auth_failed" });
+
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                reqResp = await client.GetAsync($"{apiBase}/api/v1/license/request");
+            }
+
+            var reqBody = await reqResp.Content.ReadAsStringAsync();
+            if (!reqResp.IsSuccessStatusCode)
+                return StatusCode((int)reqResp.StatusCode, reqBody);
+
+            string? licenseRequest;
+            var legacyLicenseRequest = false;
+            try
+            {
+                using var doc = JsonDocument.Parse(reqBody);
+                if (doc.RootElement.TryGetProperty("request", out var requestProp))
+                {
+                    licenseRequest = requestProp.GetString();
+                }
+                else
+                {
+                    licenseRequest = reqBody;
+                    legacyLicenseRequest = true;
+                }
+            }
+            catch
+            {
+                licenseRequest = null;
+            }
+
+            if (string.IsNullOrWhiteSpace(licenseRequest))
+                return StatusCode(502, new { message = "Trạm con không trả về .licreq hợp lệ" });
+
+            var generated = await _license.CreateChildBaseLicenseAsync(licenseRequest, cameraQuota, sensorQuota);
+            if (!generated.success || string.IsNullOrWhiteSpace(generated.licenseJson))
+                return BadRequest(new { message = generated.error });
+
+            if (legacyLicenseRequest)
+            {
+                using var validateContent = new MultipartFormDataContent();
+                using var validateFileContent = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(generated.licenseJson));
+                validateFileContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                validateContent.Add(validateFileContent, "file", $"{(station.Code ?? station.Name).Replace(' ', '_')}_child.lic");
+
+                var validateResp = await client.PostAsync($"{apiBase}/api/v1/license/validate", validateContent);
+                var validateBody = await validateResp.Content.ReadAsStringAsync();
+                if (!validateResp.IsSuccessStatusCode)
+                    return StatusCode((int)validateResp.StatusCode, validateBody);
+
+                var clearResp = await client.DeleteAsync($"{apiBase}/api/v1/license/clear");
+                var clearBody = await clearResp.Content.ReadAsStringAsync();
+                if (!clearResp.IsSuccessStatusCode)
+                    return StatusCode((int)clearResp.StatusCode, clearBody);
+            }
+
+            using var content = new MultipartFormDataContent();
+            using var fileContent = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(generated.licenseJson));
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            content.Add(fileContent, "file", $"{(station.Code ?? station.Name).Replace(' ', '_')}_child.lic");
+
+            var importResp = await client.PostAsync($"{apiBase}/api/v1/license/import", content);
+            var importBody = await importResp.Content.ReadAsStringAsync();
+            if (!importResp.IsSuccessStatusCode)
+                return StatusCode((int)importResp.StatusCode, importBody);
+
+            return Ok(new
+            {
+                message = $"Đã cấp và nhập license cho trạm {station.Name}: {cameraQuota} cam, {sensorQuota} sensor",
+                cameraQuota,
+                sensorQuota
+            });
         }
         catch (Exception ex)
         {
@@ -1872,4 +2146,5 @@ public class StationsController : ControllerBase
 }
 
 public record StationRequest(string Name, string? Code, string? Location, string? Status, string? ApiUrl, string? ApiUsername, string? ApiPassword, string? WebUrl, Guid? ProvinceId = null, int? CameraQuota = null, int? SensorQuota = null);
+public record UpdateStationRequest(string? Name, string? Code, string? Location, string? Status, string? ApiUrl, string? ApiUsername, string? ApiPassword, string? WebUrl, Guid? ProvinceId = null, int? CameraQuota = null, int? SensorQuota = null);
 public record StationPingRequest(string Url);

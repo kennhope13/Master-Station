@@ -163,8 +163,8 @@ function FilterDropdown({
             zIndex: 9999,
             maxHeight: 260,
             overflowY: 'auto',
-            background: 'var(--admin-panel)',
-            border: '1px solid var(--admin-border)',
+            background: '#0f1729',
+            border: '1px solid #334155',
             boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
             borderRadius: 0
           }}
@@ -184,8 +184,8 @@ function FilterDropdown({
                   padding: '8px 10px',
                   border: 'none',
                   borderBottom: '1px solid rgba(255,255,255,0.04)',
-                  background: active ? 'var(--admin-layer-3)' : 'transparent',
-                  color: active ? 'var(--admin-accent)' : 'var(--admin-text)',
+                  background: active ? 'rgba(14,165,233,0.16)' : '#0f1729',
+                  color: active ? 'var(--admin-accent)' : '#e2e8f0',
                   textAlign: 'left',
                   fontSize: '.72rem',
                   cursor: 'pointer',
@@ -609,6 +609,10 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
     return list;
   }, [teamsList, teamProvinceFilter, searchText]);
 
+  const provincesWithStations = useMemo(() => {
+    const provinceIds = new Set(stationsList.map(station => station.provinceId).filter(Boolean) as string[]);
+    return provincesList.filter(province => provinceIds.has(province.id));
+  }, [provincesList, stationsList]);
 
 
   const openAddTeamModal = () => {
@@ -1021,7 +1025,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                 width={160}
                 options={[
                   { value: '', label: 'Tất cả tỉnh' },
-                  ...provincesList.map(p => ({ value: p.id, label: p.name }))
+                  ...provincesWithStations.map(p => ({ value: p.id, label: p.name }))
                 ]}
               />
             </>
@@ -1041,7 +1045,7 @@ export default function UserManagementPage({ embeddedMode = 'default' }: UserMan
                 width={160}
                 options={[
                   { value: '', label: 'Tất cả tỉnh' },
-                  ...provincesList.map(p => ({ value: p.id, label: p.name }))
+                  ...provincesWithStations.map(p => ({ value: p.id, label: p.name }))
                 ]}
               />
 

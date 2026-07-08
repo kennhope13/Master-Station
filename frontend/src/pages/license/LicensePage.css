@@ -3,31 +3,33 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 12px 16px;
+  padding: 18px;
   background: var(--admin-bg, #0b0f19);
   color: var(--admin-text, var(--admin-text));
   overflow-y: auto;
 }
 .license-hero {
   width: 100%;
-  max-width: 680px;
+  max-width: 1180px;
+  min-width: 0;
 }
 .license-card {
   background: var(--admin-card-bg, var(--admin-panel));
   border: 1px solid var(--admin-border, var(--admin-border-light));
   border-radius: 0px;
-  padding: 20px;
+  padding: 18px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  min-width: 0;
 }
 .license-header {
   text-align: center;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 .license-header svg { display: none; }
 .license-header h1 {
   font-size: 18px;
   font-weight: 800;
-  color: var(--admin-text);
+  color: var(--admin-accent);
   margin: 0 0 2px;
   letter-spacing: .5px;
 }
@@ -36,22 +38,66 @@
   margin: 0;
   font-size: 13px;
 }
+.license-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--admin-border-light);
+  padding: 0 0 8px;
+}
+.license-tabs button {
+  min-height: 34px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--admin-text-muted);
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.license-tabs button:hover {
+  background: var(--admin-hover);
+  border-color: var(--admin-border-light);
+  color: var(--admin-text);
+}
+.license-tabs button.active {
+  background: rgba(14, 165, 233, 0.16);
+  border-color: rgba(14, 165, 233, 0.5);
+  color: var(--admin-text);
+}
+.license-master-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 14px;
+  align-items: stretch;
+}
+.license-master-main,
+.license-master-side {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
 
 /* Status box */
 .status-box {
   background: rgba(0,0,0,0.3);
   border-radius: 0px;
-  padding: 10px 14px;
-  margin-bottom: 12px;
+  padding: 12px 14px;
+  margin-bottom: 0;
   border: 1px solid var(--admin-border-light);
 }
 .status-box.valid { border-color: var(--admin-success); }
 .status-box.expired { border-color: rgba(239,68,68,0.25); }
 
 .status-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
   align-items: center;
+  gap: 12px;
+  min-height: 25px;
   padding: 3px 0;
   font-size: 12px;
   color: var(--admin-text-muted);
@@ -59,8 +105,12 @@
 }
 .status-row:last-child { border-bottom: none; }
 .status-row span:last-child {
+  justify-self: end;
   font-weight: 700;
   color: var(--admin-text);
+  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .tier-pill {
   display: inline-block;
@@ -89,7 +139,10 @@
 
 /* Resource Limits Grid */
 .resource-limits-section {
-  margin-bottom: 12px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid var(--admin-border-light);
+  margin-bottom: 0;
+  padding: 12px;
 }
 .resource-limits-section h3 {
   font-size: 12px;
@@ -101,17 +154,19 @@
 }
 .resource-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 .resource-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
   background: rgba(0,0,0,0.25);
   border: 1px solid var(--admin-border-light);
   border-radius: 0px;
-  padding: 8px 10px;
+  min-height: 62px;
+  padding: 10px;
   transition: border-color 0.2s;
 }
 .resource-card.exceeded {
@@ -135,6 +190,9 @@
   font-weight: 600;
 }
 .resource-count {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
   font-size: 14px;
   font-weight: 800;
   color: var(--admin-text);
@@ -287,18 +345,24 @@
   margin: 12px 0 10px;
 }
 .license-offline-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content 34px max-content max-content;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 0;
 }
 .license-offline-sep {
   font-size: 12px;
   color: var(--admin-text-muted);
   font-style: italic;
+  text-align: center;
 }
 .btn-license-request {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  max-width: 100%;
   padding: 8px 14px;
   background: #10b981;
   border: 1px solid rgba(16, 185, 129, 0.4);
@@ -307,13 +371,68 @@
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
   transition: background 0.2s;
   text-transform: uppercase;
+  line-height: 1.2;
 }
 .btn-license-request:hover { background: #059669; }
 .btn-license-request:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-license-request.secondary {
+  background: #0ea5e9;
+  border-color: rgba(14, 165, 233, 0.45);
+}
+.btn-license-request.secondary:hover { background: #0284c7; }
+.btn-license-child-import {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  background: var(--admin-layer-2);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-license-child-import:hover {
+  background: var(--admin-hover);
+  border-color: var(--admin-accent);
+}
+.btn-license-child-import.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.btn-license-quota {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  background: var(--admin-layer-2);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-accent);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-license-quota:hover {
+  background: var(--admin-hover);
+  border-color: var(--admin-accent);
+}
+.btn-license-quota:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .btn-license-file {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  max-width: 100%;
   padding: 8px 14px;
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--admin-border-light);
@@ -322,11 +441,18 @@
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
   transition: background 0.2s;
+  line-height: 1.2;
 }
 .btn-license-file:hover { background: rgba(255,255,255,0.12); }
 .btn-license-import {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  max-width: 100%;
   padding: 8px 14px;
   background: #6366f1;
   border: 1px solid rgba(99, 102, 241, 0.4);
@@ -335,9 +461,11 @@
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
   transition: background 0.2s;
   text-transform: uppercase;
+  line-height: 1.2;
 }
 .btn-license-import:hover { background: #4f46e5; }
 .btn-license-import:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -345,6 +473,578 @@
   font-size: 12px;
   color: var(--admin-text-muted);
   margin-bottom: 10px;
+}
+.license-child-tab h3 {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--admin-text);
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+.license-activate-section,
+.license-child-tab {
+  min-width: 0;
+}
+.license-activate-section {
+  background: rgba(0,0,0,0.18);
+  border: 1px solid var(--admin-border-light);
+  padding: 12px;
+}
+.license-empty-state {
+  background: rgba(0,0,0,0.25);
+  border: 1px dashed var(--admin-border-light);
+  color: var(--admin-text-muted);
+  padding: 14px;
+  font-size: 12px;
+}
+.license-child-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) auto;
+  gap: 8px;
+  align-items: start;
+  margin: 10px 0;
+}
+.license-child-filters input {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--admin-border-light);
+  color: var(--admin-text);
+  padding: 8px 10px;
+  font-size: 12px;
+  min-width: 0;
+  outline: none;
+}
+.license-child-filters input:focus {
+  border-color: var(--admin-accent);
+}
+.license-export-dropdown {
+  position: relative;
+  justify-self: start;
+  width: max-content;
+}
+.license-export-dropdown > button {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--admin-layer-2) 88%, var(--admin-accent));
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  padding: 0 11px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  letter-spacing: 0;
+}
+.license-export-dropdown > button:hover,
+.license-export-dropdown > button:focus {
+  background: var(--admin-hover);
+  border-color: var(--admin-accent);
+  color: var(--admin-text);
+  outline: none;
+}
+.license-export-dropdown > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.license-export-dropdown > button svg:first-child {
+  color: var(--admin-accent);
+}
+.license-export-menu {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 4px);
+  left: 0;
+  right: auto;
+  min-width: 92px;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.36);
+  padding: 3px;
+}
+.license-export-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--admin-text);
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+.license-export-menu button span {
+  color: inherit;
+}
+.license-export-menu button:hover {
+  background: var(--admin-hover);
+  color: var(--admin-accent);
+}
+.license-filter-dropdown {
+  position: relative;
+  min-width: 0;
+}
+.license-filter-dropdown > button {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--admin-layer-2);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  padding: 8px 10px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.license-filter-dropdown > button:hover,
+.license-filter-dropdown > button:focus {
+  border-color: var(--admin-accent);
+  outline: none;
+}
+.license-filter-dropdown > button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.license-filter-dropdown > button b {
+  color: var(--admin-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+.license-filter-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+}
+.license-filter-menu button {
+  width: 100%;
+  display: block;
+  background: var(--admin-panel);
+  border: 0;
+  border-bottom: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  padding: 9px 10px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.license-filter-menu button:last-child {
+  border-bottom: 0;
+}
+.license-filter-menu button:hover,
+.license-filter-menu button.active {
+  background: var(--admin-hover);
+  color: var(--admin-accent);
+}
+.license-province-groups {
+  display: grid;
+  gap: 12px;
+}
+.license-province-group {
+  border: 1px solid var(--admin-border);
+  background: color-mix(in srgb, var(--admin-panel) 94%, var(--admin-layer-2));
+  color: var(--admin-text);
+  overflow: visible;
+}
+.license-province-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--admin-border);
+  background: var(--admin-layer-1);
+  background-color: var(--admin-layer-1) !important;
+}
+.license-province-header span {
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.license-province-header small {
+  color: var(--admin-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.license-usage-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.license-usage-summary small {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-layer-2);
+  color: var(--admin-text);
+  padding: 4px 7px;
+  font-weight: 800;
+}
+.license-station-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+.license-station-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(170px, 0.9fr) 90px minmax(130px, auto);
+  align-items: stretch;
+  gap: 8px;
+}
+.license-station-row {
+  background: var(--admin-layer-1);
+  background-color: var(--admin-layer-1) !important;
+  color: var(--admin-text) !important;
+  border: 1px solid var(--admin-border);
+  padding: 9px;
+}
+.license-station-row:nth-child(even) {
+  background: var(--admin-layer-1);
+  background-color: var(--admin-layer-1) !important;
+}
+.license-station-row:hover {
+  background: var(--admin-hover);
+  background-color: var(--admin-hover) !important;
+}
+.license-province-group .license-station-row {
+  border-width: 1px;
+}
+.license-province-group .license-station-row:last-child {
+  border-bottom-width: 1px;
+}
+.license-station-main {
+  min-width: 0;
+  flex: 1;
+}
+.license-cell-label {
+  color: var(--admin-text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+.license-station-name {
+  display: grid;
+  gap: 3px;
+  color: var(--admin-text);
+  color: var(--admin-text) !important;
+  font-size: 12px;
+  font-weight: 800;
+}
+.license-station-name span {
+  color: var(--admin-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.license-station-api {
+  color: var(--admin-text-muted);
+  color: var(--admin-text-muted) !important;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.license-station-usage {
+  min-width: 0;
+}
+.license-usage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.license-usage-chips span {
+  border: 1px solid var(--admin-border);
+  background: var(--admin-layer-2);
+  color: var(--admin-text);
+  padding: 3px 6px;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.license-station-api-block,
+.license-station-state {
+  min-width: 0;
+}
+.license-station-status {
+  display: inline-flex;
+  border: 1px solid #334155;
+  padding: 4px 7px;
+  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 800;
+}
+.license-station-status.online {
+  border-color: rgba(34,197,94,0.45);
+  color: #4ade80;
+}
+.license-station-status.offline {
+  border-color: rgba(239,68,68,0.35);
+  color: #f87171;
+}
+.license-station-status.no.api,
+.license-station-status.no {
+  border-color: rgba(251,191,36,0.35);
+  color: #fbbf24;
+}
+.license-station-actions {
+  position: relative;
+  display: grid;
+  align-content: start;
+  min-width: 0;
+}
+.license-station-actions .license-cell-label {
+  margin-bottom: 5px;
+  text-align: center;
+  width: 100%;
+}
+.btn-license-action-menu {
+  min-height: 28px;
+  min-width: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: fit-content;
+  justify-self: center;
+  padding: 6px 8px;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-layer-2);
+  color: var(--admin-text);
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-license-action-menu:hover:not(:disabled) {
+  background: var(--admin-hover);
+  border-color: var(--admin-accent);
+}
+.btn-license-action-menu:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.license-station-action-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: grid;
+  gap: 0;
+  min-width: 108px;
+  width: max-content;
+  padding: 3px;
+  border: 1px solid var(--admin-border);
+  background: var(--admin-panel);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.36);
+}
+.license-station-action-menu button,
+.license-station-action-menu label {
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--admin-text);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.license-station-action-menu button:hover:not(:disabled),
+.license-station-action-menu label:hover:not(.disabled) {
+  background: var(--admin-hover);
+  color: var(--admin-accent);
+}
+.license-station-action-menu button:disabled,
+.license-station-action-menu .disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.license-station-action-menu .danger {
+  color: #f87171;
+}
+.license-station-action-menu .danger:hover:not(:disabled) {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.13);
+}
+.license-quota-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 2px;
+  padding: 10px;
+  background: var(--admin-layer-2);
+  border: 1px solid var(--admin-border);
+}
+.license-quota-editor label {
+  display: grid;
+  gap: 5px;
+}
+.license-quota-editor label span {
+  color: var(--admin-text-muted);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.license-quota-editor input {
+  min-height: 32px;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  padding: 7px 9px;
+  font-size: 12px;
+  outline: none;
+}
+.license-quota-editor input:focus {
+  border-color: var(--admin-accent);
+}
+.license-quota-editor-actions {
+  display: flex;
+  gap: 6px;
+}
+.license-quota-editor-actions button {
+  min-height: 32px;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  color: var(--admin-text);
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.license-quota-editor-actions button:first-child {
+  background: #0ea5e9;
+  border-color: rgba(14, 165, 233, 0.45);
+  color: #fff;
+}
+.license-quota-editor-actions button:hover {
+  border-color: var(--admin-accent);
+}
+.license-quota-editor-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@media (max-width: 980px) {
+  .license-master-grid {
+    grid-template-columns: 1fr;
+  }
+  .license-master-side .resource-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .license-offline-actions {
+    display: flex;
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 720px) {
+  .license-page {
+    padding: 12px;
+  }
+  .license-card {
+    padding: 14px;
+  }
+  .license-header {
+    text-align: left;
+  }
+  .license-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+  }
+  .license-title-row .btn-license-back {
+    position: static;
+    transform: none;
+    flex: 0 0 auto;
+  }
+  .license-title-row .btn-license-back:hover {
+    transform: none;
+  }
+  .license-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .license-tabs button {
+    width: 100%;
+    padding: 0 8px;
+  }
+  .license-offline-actions {
+    align-items: stretch;
+  }
+  .license-offline-actions > button,
+  .license-offline-actions > label {
+    flex: 1 1 160px;
+  }
+  .license-offline-sep {
+    flex: 0 0 100%;
+    text-align: center;
+  }
+  .status-row {
+    grid-template-columns: minmax(100px, 0.9fr) minmax(0, 1.1fr);
+  }
+  .license-master-side .resource-grid {
+    grid-template-columns: 1fr;
+  }
+  .license-child-filters {
+    grid-template-columns: 1fr;
+  }
+  .license-station-row {
+    grid-template-columns: 1fr;
+  }
+  .license-quota-editor {
+    grid-template-columns: 1fr;
+  }
+  .license-station-actions {
+    grid-template-columns: 1fr;
+  }
+  .license-province-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .license-usage-summary {
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 380px) {
+  .license-page {
+    padding: 8px;
+  }
+  .license-card {
+    padding: 12px;
+  }
+  .license-header h1 {
+    font-size: 16px;
+  }
+  .license-header p {
+    font-size: 12px;
+  }
+  .license-offline-actions > button,
+  .license-offline-actions > label {
+    flex-basis: 100%;
+  }
 }
 .license-request-result { margin-bottom: 12px; }
 .license-request-output {
