@@ -25,8 +25,28 @@ const BIN_PATHS = {
 
 const DATA_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'MasterStation');
 const PG_DATA_DIR = path.join(DATA_DIR, 'pg_data');
+const LOG_DIR = path.join(DATA_DIR, 'logs');
 const BACKEND_PORT = 5000;
-const PG_PORT = 5432;
+const PG_PORT = 6432;
+
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function writeLog(file, data) {
+  try {
+    const cleanData = data.toString().replace(/\r?\n$/, '');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(path.join(LOG_DIR, file), `[${timestamp}] ${cleanData}\n`);
+  } catch (err) {
+    // Ignore logging errors
+  }
+}
+
+function logOrchestrator(msg, type = 'INFO') {
+  console.log(`[Orchestrator][${type}]: ${msg}`);
+  writeLog('orchestrator.log', `[${type}] ${msg}`);
+}
 
 // Active process handles
 const processes = {
@@ -50,7 +70,7 @@ async function killProcessByName(name) {
 }
 
 async function cleanupOldServices() {
-  console.log('Cleaning up old services...');
+  logOrchestrator('Cleaning up old services...');
   await killProcessByName('StationOS.Api.exe');
   await killProcessByName('go2rtc.exe');
   await killProcessByName('postgres.exe');
@@ -60,7 +80,7 @@ async function cleanupOldServices() {
 async function initializeDatabase() {
   const initdbExe = path.join(BIN_PATHS.postgres, 'bin', 'initdb.exe');
   if (!fs.existsSync(PG_DATA_DIR)) {
-    console.log('Initializing PostgreSQL Database...');
+    logOrchestrator('Initializing PostgreSQL Database...');
     fs.mkdirSync(PG_DATA_DIR, { recursive: true });
     
     return new Promise((resolve, reject) => {
@@ -68,25 +88,31 @@ async function initializeDatabase() {
         windowsHide: true,
       });
 
-      initdb.stdout.on('data', data => console.log(`[initdb]: ${data}`));
-      initdb.stderr.on('data', data => console.error(`[initdb ERR]: ${data}`));
+      initdb.stdout.on('data', data => {
+        writeLog('postgres.log', `[initdb stdout] ${data}`);
+      });
+      initdb.stderr.on('data', data => {
+        writeLog('postgres.log', `[initdb stderr] ${data}`);
+      });
       
       initdb.on('close', code => {
         if (code === 0) {
+          logOrchestrator('Database initialized successfully.');
           resolve();
         } else {
+          logOrchestrator(`Database initialization failed with code ${code}`, 'ERROR');
           reject(new Error(`initdb failed with code ${code}`));
         }
       });
     });
   } else {
-    console.log('PostgreSQL Database already initialized.');
+    logOrchestrator('PostgreSQL Database already initialized.');
   }
 }
 
 async function startPostgres() {
   const pgCtlExe = path.join(BIN_PATHS.postgres, 'bin', 'pg_ctl.exe');
-  console.log('Starting PostgreSQL...');
+  logOrchestrator('Starting PostgreSQL...');
 
   return new Promise((resolve) => {
     const pg = spawn(pgCtlExe, ['start', '-D', PG_DATA_DIR, '-w', '-t', '10'], {
@@ -94,60 +120,71 @@ async function startPostgres() {
       env: { ...process.env, PGPORT: PG_PORT.toString() }
     });
 
-    pg.stdout.on('data', data => console.log(`[pg_ctl]: ${data}`));
-    pg.stderr.on('data', data => console.error(`[pg_ctl ERR]: ${data}`));
+    pg.stdout.on('data', data => {
+      writeLog('postgres.log', `[pg_ctl stdout] ${data}`);
+    });
+    pg.stderr.on('data', data => {
+      writeLog('postgres.log', `[pg_ctl stderr] ${data}`);
+    });
 
     pg.on('close', code => {
-      console.log(`[pg_ctl] exited with code ${code}`);
-      // pg_ctl exits after starting postgres process
+      logOrchestrator(`pg_ctl exited with code ${code}`);
       resolve();
     });
     
-    // Fallback delay to ensure it's running
     setTimeout(resolve, 2000);
   });
 }
 
 async function stopPostgres() {
   const pgCtlExe = path.join(BIN_PATHS.postgres, 'bin', 'pg_ctl.exe');
+  logOrchestrator('Stopping PostgreSQL...');
   return new Promise((resolve) => {
     const pg = spawn(pgCtlExe, ['stop', '-D', PG_DATA_DIR, '-m', 'fast'], {
       windowsHide: true
     });
-    pg.on('close', () => resolve());
+    pg.stdout.on('data', data => writeLog('postgres.log', `[pg_ctl stop stdout] ${data}`));
+    pg.stderr.on('data', data => writeLog('postgres.log', `[pg_ctl stop stderr] ${data}`));
+    pg.on('close', () => {
+      logOrchestrator('PostgreSQL stopped.');
+      resolve();
+    });
     setTimeout(resolve, 3000);
   });
 }
 
 function startBackend() {
   if (processes.backend) return;
-  console.log('Starting Backend...');
+  logOrchestrator('Starting Backend...');
   if (!fs.existsSync(BIN_PATHS.backend)) {
-    console.error('Backend executable not found at', BIN_PATHS.backend);
+    logOrchestrator(`Backend executable not found at ${BIN_PATHS.backend}`, 'ERROR');
     return;
   }
   
-  // Set ASPNETCORE_URLS to ensure it runs on port 5000
   processes.backend = spawn(BIN_PATHS.backend, [], {
     windowsHide: true,
     cwd: path.dirname(BIN_PATHS.backend),
     env: { ...process.env, ASPNETCORE_URLS: `http://localhost:${BACKEND_PORT}` }
   });
 
-  processes.backend.stdout.on('data', data => console.log(`[Backend]: ${data}`));
-  processes.backend.stderr.on('data', data => console.error(`[Backend ERR]: ${data}`));
+  processes.backend.stdout.on('data', data => {
+    writeLog('backend.log', data);
+  });
+  processes.backend.stderr.on('data', data => {
+    writeLog('backend.log', `[ERR] ${data}`);
+  });
   
   processes.backend.on('close', code => {
-    console.log(`Backend exited with code ${code}`);
+    logOrchestrator(`Backend exited with code ${code}`);
     processes.backend = null;
   });
 }
 
 function startGo2RTC() {
   if (processes.go2rtc) return;
-  console.log('Starting go2rtc...');
+  logOrchestrator('Starting go2rtc...');
   if (!fs.existsSync(BIN_PATHS.go2rtc)) {
-    console.error('go2rtc executable not found at', BIN_PATHS.go2rtc);
+    logOrchestrator(`go2rtc executable not found at ${BIN_PATHS.go2rtc}`, 'ERROR');
     return;
   }
 
@@ -156,11 +193,15 @@ function startGo2RTC() {
     cwd: path.dirname(BIN_PATHS.go2rtc),
   });
 
-  processes.go2rtc.stdout.on('data', data => console.log(`[go2rtc]: ${data}`));
-  processes.go2rtc.stderr.on('data', data => console.error(`[go2rtc ERR]: ${data}`));
+  processes.go2rtc.stdout.on('data', data => {
+    writeLog('go2rtc.log', data);
+  });
+  processes.go2rtc.stderr.on('data', data => {
+    writeLog('go2rtc.log', `[ERR] ${data}`);
+  });
   
   processes.go2rtc.on('close', code => {
-    console.log(`go2rtc exited with code ${code}`);
+    logOrchestrator(`go2rtc exited with code ${code}`);
     processes.go2rtc = null;
   });
 }
@@ -168,7 +209,7 @@ function startGo2RTC() {
 function checkBackendReady() {
   return new Promise((resolve) => {
     const req = http.get(`http://localhost:${BACKEND_PORT}/health`, (res) => {
-      resolve(res.statusCode === 200 || res.statusCode === 404); // Health endpoint or just response
+      resolve(res.statusCode === 200 || res.statusCode === 404);
     });
     req.on('error', () => resolve(false));
     req.end();
@@ -177,7 +218,6 @@ function checkBackendReady() {
 
 function checkDbAlive() {
   return new Promise((resolve) => {
-    // Attempting a simple socket connection to PG port
     const net = require('net');
     const socket = new net.Socket();
     let isConnected = false;
@@ -192,23 +232,20 @@ function checkDbAlive() {
 async function watchdogLoop() {
   if (!servicesStarted) return;
   
-  // Check Database
   const dbAlive = await checkDbAlive();
   if (!dbAlive) {
-    console.log('Watchdog: DB is down, restarting PostgreSQL...');
+    logOrchestrator('Watchdog: DB is down, restarting PostgreSQL...', 'WARNING');
     await killProcessByName('postgres.exe');
     await startPostgres();
   }
   
-  // Check Backend
   if (!processes.backend) {
-    console.log('Watchdog: Backend is down, restarting...');
+    logOrchestrator('Watchdog: Backend is down, restarting...', 'WARNING');
     startBackend();
   }
 
-  // Check Go2RTC
   if (!processes.go2rtc) {
-    console.log('Watchdog: go2rtc is down, restarting...');
+    logOrchestrator('Watchdog: go2rtc is down, restarting...', 'WARNING');
     startGo2RTC();
   }
 }
@@ -224,7 +261,7 @@ async function startAllServices(webContents) {
         webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Đang khởi động Database...')`).catch(() => {});
         await startPostgres();
     } else {
-        console.warn("PostgreSQL not bundled or not found in dev env.");
+        logOrchestrator("PostgreSQL not bundled or not found in dev env.", "WARNING");
     }
     
     webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Đang khởi động Máy chủ API & Camera...')`).catch(() => {});
@@ -233,10 +270,8 @@ async function startAllServices(webContents) {
     
     servicesStarted = true;
     
-    // Start Watchdog
     watchdogInterval = setInterval(watchdogLoop, 10000);
 
-    // Wait for backend to be ready
     webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Đang chờ hệ thống sẵn sàng...')`).catch(() => {});
     
     let attempts = 0;
@@ -250,22 +285,22 @@ async function startAllServices(webContents) {
     }
 
     if (attempts >= 30) {
-      console.warn("Backend startup timed out!");
+      logOrchestrator("Backend startup timed out!", "WARNING");
     } else {
-      console.log("Backend is ready!");
+      logOrchestrator("Backend is ready!");
     }
     
     return true;
 
   } catch (err) {
-    console.error("Failed to start services:", err);
+    logOrchestrator(`Failed to start services: ${err.message}`, "ERROR");
     webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Lỗi khởi động: ${err.message}')`).catch(() => {});
     return false;
   }
 }
 
 async function stopAllServices() {
-  console.log('Shutting down all services...');
+  logOrchestrator('Shutting down all services...');
   servicesStarted = false;
   if (watchdogInterval) clearInterval(watchdogInterval);
   

@@ -24,8 +24,10 @@ linux:
   category: Utility
   maintainer: StationOS Team <support@stationos.com>
 win:
+  icon: public/favico/worldmonitor-icon-1024.png
   target:
     - nsis
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  shortcutName: "Master Station"
