@@ -124,6 +124,7 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   const [teamsList, setTeamsList] = useState<Team[]>([]);
   const [selectedLog, setSelectedLog] = useState<LogItem | null>(null);
   const [isEpOpen, setIsEpOpen] = useState(true);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentUser = authService.getUser();
   const isCentralMode = isCentralUser(currentUser);
@@ -224,6 +225,30 @@ export default function AuditLogPage({ embeddedMode = 'default', stationIdOverri
   }, [activeMode, dates, filterStation, stationsList]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    const handleAuditLogChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ stationId?: string }>).detail;
+      const changedStationId = detail?.stationId;
+      const isGlobalChange = !changedStationId || changedStationId === '00000000-0000-0000-0000-000000000000';
+      if (filterStation && !isGlobalChange && changedStationId !== filterStation) return;
+
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = setTimeout(() => {
+        loadData();
+        reloadTimerRef.current = null;
+      }, 300);
+    };
+
+    window.addEventListener('auditlog:changed', handleAuditLogChanged);
+    return () => {
+      window.removeEventListener('auditlog:changed', handleAuditLogChanged);
+      if (reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
+    };
+  }, [filterStation, loadData]);
 
   // Tập stationId thuộc tỉnh/tổ đang chọn; null = không có bộ lọc nào
   const filteredStationIds = useMemo<Set<string> | null>(() => {

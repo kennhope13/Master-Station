@@ -20,8 +20,9 @@ export class LogService {
   }
 
   /** Lịch sử đăng nhập/đăng xuất theo khoảng thời gian. */
-  async getLoginLogs(opts?: { from?: string; to?: string; stationId?: string }): Promise<LoginLogEntry[]> {
+  async getLoginLogs(opts?: { limit?: number; from?: string; to?: string; stationId?: string }): Promise<LoginLogEntry[]> {
     const params = new URLSearchParams();
+    if (opts?.limit) params.set('limit', String(opts.limit));
     if (opts?.from) params.set('from', opts.from);
     if (opts?.to)   params.set('to', opts.to);
     if (opts?.stationId) params.set('stationId', opts.stationId);
@@ -30,8 +31,9 @@ export class LogService {
   }
 
   /** Log gửi thông báo (email/SMS) từ rule engine. */
-  async getNotifyLogs(opts?: { from?: string; to?: string; stationId?: string }): Promise<NotifyLogEntry[]> {
+  async getNotifyLogs(opts?: { limit?: number; from?: string; to?: string; stationId?: string }): Promise<NotifyLogEntry[]> {
     const params = new URLSearchParams();
+    if (opts?.limit) params.set('limit', String(opts.limit));
     if (opts?.from) params.set('from', opts.from);
     if (opts?.to)   params.set('to', opts.to);
     if (opts?.stationId) params.set('stationId', opts.stationId);
@@ -40,8 +42,9 @@ export class LogService {
   }
 
   /** Log các lần rule được kích hoạt (trigger) — dùng để debug rule engine. */
-  async getRuleTriggerLogs(opts?: { from?: string; to?: string; stationId?: string }): Promise<RuleTriggerLogEntry[]> {
+  async getRuleTriggerLogs(opts?: { limit?: number; from?: string; to?: string; stationId?: string }): Promise<RuleTriggerLogEntry[]> {
     const params = new URLSearchParams();
+    if (opts?.limit) params.set('limit', String(opts.limit));
     if (opts?.from) params.set('from', opts.from);
     if (opts?.to)   params.set('to', opts.to);
     if (opts?.stationId) params.set('stationId', opts.stationId);

@@ -40,6 +40,7 @@ export const alertLevelLabel = (l: string): string => {
     case ALERT_LEVEL.INFO:    return 'Thông tin';
     case ALERT_LEVEL.WARNING: return 'Cảnh báo';
     case ALERT_LEVEL.ALARM:   return 'Báo động';
+    case 'danger':            return 'Báo động';
     default: return l;
   }
 };

@@ -214,8 +214,9 @@ export default function AppShell() {
     // 1. Lắng nghe cảnh báo mới từ Rule Engine, Camera, Maintenance
     hub.on('AlertNew', (alert: AlertItem) => {
       invalidateAlerts(ALERT_STATUS.OPEN);
-      useAlertStore.getState().prepend(alert);
       fetchAlerts(ALERT_STATUS.OPEN, true);
+      if (!alert?.id || !alert?.status || !alert?.triggeredAt) return;
+      useAlertStore.getState().prepend(alert);
 
       const isFire = alert.message?.toLowerCase().includes('cháy') || alert.message?.toLowerCase().includes('fire') || alert.message?.toLowerCase().includes('lửa');
       const isAlarm = alert.level === 'alarm' || alert.level === 'danger' || isFire;

@@ -19,6 +19,7 @@ const alertSourceLabel = (src: string): string => {
   const sourceMap: Record<string, string> = {
     rule_engine: 'NGƯỠNG ĐO',
     ai_detection: 'NGƯỜI',
+    ai: 'NGƯỜI',
     manual: 'THỦ CÔNG',
     maintenance: 'BẢO TRÌ',
     camera: 'CAMERA',
@@ -86,9 +87,12 @@ export default function AlertsHistoryPage() {
       setAlerts(prev => prev.map(a => a.id === data.id ? { ...a, ...data } : a));
       if (selectedAlertId === data.id) loadDetail(data.id, true);
     });
+    hub.on('AlertNew', () => {
+      loadAlerts();
+    });
     hub.start().catch(() => {});
     return () => { hub.stop(); };
-  }, [selectedAlertId]);
+  }, [loadAlerts, selectedAlertId]);
 
   const loadDetail = async (id: string, silent = false) => {
     setSelectedAlertId(id);
@@ -102,7 +106,9 @@ export default function AlertsHistoryPage() {
   const filtered = useMemo(() => {
     let list = alerts;
     if (filterSource) {
-      list = list.filter(a => a.source === filterSource);
+      list = filterSource === 'person_ai'
+        ? list.filter(a => a.source === 'ai_detection' || a.source === 'ai')
+        : list.filter(a => a.source === filterSource);
     }
     if (!searchText) return list;
     const q = searchText.toLowerCase();
@@ -259,7 +265,7 @@ export default function AlertsHistoryPage() {
            <select className="nvr-sel" value={filterSource} onChange={e => setFilterSource(e.target.value)}>
               <option value="">TẤT CẢ</option>
               <option value="rule_engine">NGƯỠNG ĐO</option>
-              <option value="ai_detection">NGƯỜI</option>
+              <option value="person_ai">NGƯỜI</option>
               <option value="manual">THỦ CÔNG</option>
               <option value="maintenance">BẢO TRÌ</option>
               <option value="camera">CAMERA</option>

@@ -48,6 +48,20 @@ public class IngestController : ControllerBase
         await _notifier.SendStationStatusAsync(station.Id, "online", lastSeenAt, reason);
     }
 
+    private static string? ResolveStationMediaUrl(Station station, string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return path;
+
+        var apiUrl = station.ApiUrl?.TrimEnd('/');
+        if (string.IsNullOrWhiteSpace(apiUrl)) return path;
+        return $"{apiUrl}{(path.StartsWith('/') ? "" : "/")}{path}";
+    }
+
+
     // ── POST /api/v1/ingest/alerts ───────────────────────────
     /// <summary>Trạm cục bộ đẩy danh sách alert lên trạm trung tâm. Hỗ trợ cả camelCase và snake_case.</summary>
     [HttpPost("alerts")]
@@ -71,6 +85,7 @@ public class IngestController : ControllerBase
 
         int saved = 0;
         var addedIds = new HashSet<Guid>();
+        var pushedAlerts = new List<object>();
         foreach (var elem in items)
         {
             // Lấy ID — bỏ qua nếu đã tồn tại (idempotent)
@@ -83,6 +98,8 @@ public class IngestController : ControllerBase
 
             TryGuid(elem, "deviceId", "device_id", out var deviceId);
             TryGuid(elem, "ruleId",   "rule_id",   out var ruleId);
+            TryGuid(elem, "detectionId", "detection_id", out var detectionId);
+            TryGuid(elem, "boundaryId", "boundary_id", out var boundaryId);
 
             double? value = null;
             if (elem.TryGetProperty("value", out var vEl) && vEl.ValueKind == System.Text.Json.JsonValueKind.Number)
@@ -98,6 +115,8 @@ public class IngestController : ControllerBase
                 StationId    = station.Id,
                 DeviceId     = deviceId == Guid.Empty ? null : deviceId,
                 RuleId       = ruleId   == Guid.Empty ? null : ruleId,
+                DetectionId  = detectionId == Guid.Empty ? null : detectionId,
+                BoundaryId   = boundaryId == Guid.Empty ? null : boundaryId,
                 Source       = Str(elem, "source",       "source")        ?? "station_push",
                 Level        = level,
                 Status       = Str(elem, "status",       "status")        ?? "open",
@@ -109,14 +128,33 @@ public class IngestController : ControllerBase
                 VideoUrl     = Str(elem, "videoUrl",     "video_url"),
             };
             _db.Alerts.Add(alert);
+            pushedAlerts.Add(new
+            {
+                id = alert.Id,
+                source = alert.Source,
+                level = alert.Level,
+                status = alert.Status,
+                message = alert.Message,
+                value = alert.Value,
+                stationId = alert.StationId,
+                stationName = station.Name,
+                deviceId = alert.DeviceId,
+                ruleId = alert.RuleId,
+                detectionId = alert.DetectionId,
+                boundaryId = alert.BoundaryId,
+                triggeredAt = alert.TriggeredAt,
+                imageUrl = ResolveStationMediaUrl(station, alert.ImageUrl),
+                thumbnailUrl = ResolveStationMediaUrl(station, alert.ThumbnailUrl),
+                videoUrl = ResolveStationMediaUrl(station, alert.VideoUrl),
+            });
             saved++;
         }
 
         await _db.SaveChangesAsync(ct);
         await MarkStationOnlineAsync(station, "alerts_ingest");
         await _notifier.SendStationDataReceivedAsync(station.Id, station.Name, 0, saved, 0, DateTime.UtcNow);
-        if (saved > 0)
-            await _notifier.SendAlertAsync(new { stationId = station.Id, count = saved, message = $"[{station.Name}] {saved} cảnh báo mới" });
+        foreach (var pushedAlert in pushedAlerts)
+            await _notifier.SendAlertAsync(pushedAlert);
 
         _logger.LogInformation("[Ingest] Trạm {Name}: nhận {Saved}/{Total} alerts", station.Name, saved, items.Count);
         return Ok(new { received = items.Count, saved });
@@ -189,29 +227,65 @@ public class IngestController : ControllerBase
     // ── POST /api/v1/ingest/events ───────────────────────────
     /// <summary>Trạm cục bộ đẩy detection events (AI) lên trạm trung tâm.</summary>
     [HttpPost("events")]
-    public async Task<IActionResult> IngestEvents([FromBody] List<IngestEventDto> items, CancellationToken ct)
+    public async Task<IActionResult> IngestEvents([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
     {
         var station = await AuthenticateStationAsync();
         if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
 
+        static string? Str(System.Text.Json.JsonElement e, string camel, string snake)
+        {
+            if (e.TryGetProperty(camel, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) return v.GetString();
+            if (e.TryGetProperty(snake, out var v2) && v2.ValueKind == System.Text.Json.JsonValueKind.String) return v2.GetString();
+            return null;
+        }
+        static bool TryGuid(System.Text.Json.JsonElement e, string camel, string snake, out Guid result)
+        {
+            if (e.TryGetProperty(camel, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String && v.TryGetGuid(out result)) return true;
+            if (e.TryGetProperty(snake, out var v2) && v2.ValueKind == System.Text.Json.JsonValueKind.String && v2.TryGetGuid(out result)) return true;
+            result = Guid.Empty; return false;
+        }
+        static float Float(System.Text.Json.JsonElement e, string camel, string snake)
+        {
+            if (e.TryGetProperty(camel, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number && v.TryGetSingle(out var f)) return f;
+            if (e.TryGetProperty(snake, out var v2) && v2.ValueKind == System.Text.Json.JsonValueKind.Number && v2.TryGetSingle(out var f2)) return f2;
+            return 0f;
+        }
+        static DateTime Date(System.Text.Json.JsonElement e, string camel, string snake)
+        {
+            if (e.TryGetProperty(camel, out var v) && v.TryGetDateTime(out var d)) return d;
+            if (e.TryGetProperty(snake, out var v2) && v2.TryGetDateTime(out var d2)) return d2;
+            return DateTime.UtcNow;
+        }
+
         int saved = 0;
         var addedIds = new HashSet<Guid>();
-        foreach (var dto in items)
+        foreach (var elem in items)
         {
-            if (addedIds.Contains(dto.Id) || await _db.DetectionEvents.AnyAsync(e => e.Id == dto.Id, ct)) continue;
-            addedIds.Add(dto.Id);
+            if (!TryGuid(elem, "id", "id", out var id)) continue;
+            if (addedIds.Contains(id) || await _db.DetectionEvents.AnyAsync(e => e.Id == id, ct)) continue;
+            addedIds.Add(id);
+
+            TryGuid(elem, "cameraId", "camera_id", out var cameraId);
+            if (cameraId == Guid.Empty) continue;
+            TryGuid(elem, "alertId", "alert_id", out var alertId);
+            TryGuid(elem, "boundaryId", "boundary_id", out var boundaryId);
 
             _db.DetectionEvents.Add(new DetectionEvent
             {
-                Id            = dto.Id,
+                Id            = id,
                 StationId     = station.Id,
-                CameraId      = dto.CameraId,
-                Source        = dto.Source ?? "station_push",
-                DetectionType = dto.DetectionType ?? "unknown",
-                Confidence    = dto.Confidence,
-                BoundingBoxes = dto.BoundingBoxes ?? "[]",
-                Metadata      = dto.Metadata,
-                DetectedAt    = dto.DetectedAt == default ? DateTime.UtcNow : dto.DetectedAt,
+                CameraId      = cameraId,
+                Source        = Str(elem, "source", "source") ?? "station_push",
+                DetectionType = Str(elem, "detectionType", "detection_type") ?? "unknown",
+                Label         = Str(elem, "label", "label"),
+                Confidence    = Float(elem, "confidence", "confidence"),
+                Severity      = Str(elem, "severity", "severity") ?? "warning",
+                Message       = Str(elem, "message", "message"),
+                BoundingBoxes = Str(elem, "boundingBoxes", "bounding_boxes") ?? "[]",
+                Metadata      = Str(elem, "metadata", "metadata"),
+                AlertId       = alertId == Guid.Empty ? null : alertId,
+                BoundaryId    = boundaryId == Guid.Empty ? null : boundaryId,
+                DetectedAt    = Date(elem, "detectedAt", "detected_at"),
             });
             saved++;
         }
@@ -513,8 +587,3 @@ public class IngestController : ControllerBase
         return Ok(new { ok = true, stationName = station.Name, serverTime = DateTime.UtcNow });
     }
 }
-
-// ── DTOs ─────────────────────────────────────────────────────
-public record IngestEventDto(
-    Guid Id, Guid CameraId, string? Source, string? DetectionType,
-    float Confidence, string? BoundingBoxes, string? Metadata, DateTime DetectedAt);

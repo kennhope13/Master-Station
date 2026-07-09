@@ -8,6 +8,7 @@ using System.Security.Claims;
 using System.Text;
 using StationOS.Data;
 using StationOS.Data.Entities;
+using StationOS.Services;
 
 namespace StationOS.Api.Middleware;
 
@@ -20,7 +21,7 @@ public class AuditMiddleware
     /// <summary>Xử lý request và tự động ghi AuditLog cho mọi thao tác thay đổi dữ liệu (POST/PUT/PATCH/DELETE) trên /api/v1/** sau khi response thành công.</summary>
     /// <param name="ctx">HttpContext của request hiện tại.</param>
     /// <param name="db">AppDbContext để ghi audit log vào database.</param>
-    public async Task InvokeAsync(HttpContext ctx, AppDbContext db)
+    public async Task InvokeAsync(HttpContext ctx, AppDbContext db, IRealtimeNotifier notifier)
     {
         var method = ctx.Request.Method;
         var path   = ctx.Request.Path.Value ?? "";
@@ -53,7 +54,7 @@ public class AuditMiddleware
 
         try
         {
-            db.AuditLogs.Add(new AuditLog
+            var auditLog = new AuditLog
             {
                 UserId     = Guid.TryParse(userId, out var uid) ? uid : null,
                 Action     = action,
@@ -62,8 +63,10 @@ public class AuditMiddleware
                 OldValue   = ctx.Items["AuditOldValue"] as string,
                 NewValue   = (ctx.Items["AuditNewValue"] as string) ?? requestBody,
                 IpAddress  = ctx.Connection.RemoteIpAddress?.ToString(),
-            });
+            };
+            db.AuditLogs.Add(auditLog);
             await db.SaveChangesAsync();
+            await notifier.SendAuditLogListChangedAsync(action, auditLog.StationId ?? Guid.Empty);
         }
         catch
         {

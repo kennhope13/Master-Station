@@ -365,6 +365,53 @@ public class PersonDetectionController : ControllerBase
         evt.AlertId = alert.Id;
         await _db.SaveChangesAsync();
 
+        _db.SyncQueues.Add(new SyncQueue
+        {
+            EntityType = "Alert",
+            EntityId = alert.Id,
+            Payload = JsonSerializer.Serialize(new
+            {
+                id = alert.Id,
+                station_id = alert.StationId,
+                device_id = alert.DeviceId,
+                detection_id = evt.Id,
+                source = alert.Source,
+                level = alert.Level,
+                status = alert.Status,
+                message = alert.Message,
+                value = alert.Value,
+                triggered_at = alert.TriggeredAt,
+                image_url = alert.ImageUrl,
+                thumbnail_url = alert.ThumbnailUrl,
+                video_url = alert.VideoUrl
+            }),
+            Status = "pending"
+        });
+        _db.SyncQueues.Add(new SyncQueue
+        {
+            EntityType = "DetectionEvent",
+            EntityId = evt.Id,
+            Payload = JsonSerializer.Serialize(new
+            {
+                id = evt.Id,
+                station_id = evt.StationId,
+                camera_id = evt.CameraId,
+                source = evt.Source,
+                detection_type = evt.DetectionType,
+                label = evt.Label,
+                confidence = evt.Confidence,
+                severity = evt.Severity,
+                message = evt.Message,
+                detected_at = evt.DetectedAt,
+                bounding_boxes = evt.BoundingBoxes,
+                metadata = evt.Metadata,
+                alert_id = evt.AlertId,
+                boundary_id = evt.BoundaryId
+            }),
+            Status = "pending"
+        });
+        await _db.SaveChangesAsync();
+
         _logger.LogInformation("[PersonDetection] Đã lưu sự kiện thành công vào DB (AlertId: {alertId})", alert.Id);
 
         // Gửi tín hiệu Realtime qua SignalR
@@ -391,6 +438,7 @@ public class PersonDetectionController : ControllerBase
                 message = alert.Message,
                 source = alert.Source,
                 triggeredAt = alert.TriggeredAt,
+                stationId = alert.StationId,
                 deviceId = alert.DeviceId,
                 thumbnailUrl = alert.ThumbnailUrl,
                 imageUrl = alert.ImageUrl,
