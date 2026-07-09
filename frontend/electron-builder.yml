@@ -7,7 +7,7 @@ files:
   - thin-client-ui/**/*
   - package.json
 extraResources:
-  - from: ../backend_published
+  - from: ../backend_published/win-x64
     to: backend_published
   - from: ../pg_portable
     to: pg_portable

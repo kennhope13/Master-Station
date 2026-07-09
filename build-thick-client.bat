@@ -35,7 +35,7 @@ if not exist "pg_portable" (
 )
 
 REM 2.2 go2rtc
-if not exist "go2rtc" (
+if not exist "go2rtc\go2rtc.exe" (
     echo Tai go2rtc...
     mkdir go2rtc
     curl -Lo go2rtc.zip "https://github.com/AlexxIT/go2rtc/releases/download/v1.9.2/go2rtc_win64.zip"

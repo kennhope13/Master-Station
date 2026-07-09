@@ -33,7 +33,7 @@ else
 fi
 
 # 2.2 go2rtc
-if [ ! -d "go2rtc" ]; then
+if [ ! -f "go2rtc/go2rtc.exe" ]; then
     echo "Tai go2rtc..."
     mkdir -p go2rtc
     curl -Lo go2rtc.zip "https://github.com/AlexxIT/go2rtc/releases/download/v1.9.2/go2rtc_win64.zip"
