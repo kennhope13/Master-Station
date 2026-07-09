@@ -1,86 +1,295 @@
-const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
+const http = require('http');
 
 let mainWindow = null;
+let servicesStarted = false;
+let watchdogInterval = null;
 
-// Resolve the configuration path to be 100% compatible with Tauri's config location
-function getConfigPath() {
-  const home = os.homedir();
-  if (process.platform === 'win32') {
-    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'StationOS', 'config.json');
-  } else if (process.platform === 'darwin') {
-    return path.join(home, 'Library', 'Application Support', 'StationOS', 'config.json');
-  } else {
-    // Linux/Unix fallback
-    return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'StationOS', 'config.json');
-  }
-}
+// ==========================================
+// THICK CLIENT ARCHITECTURE CONFIG
+// ==========================================
+const IS_PACKAGED = app.isPackaged;
+const RESOURCES_PATH = IS_PACKAGED ? process.resourcesPath : path.join(app.getAppPath(), 'resources');
+// For dev mode, if backend_published is built in root dir:
+const DEV_ROOT = path.join(app.getAppPath(), '..');
 
-// Read saved server URL
-function getSavedServerUrl() {
-  const configPath = getConfigPath();
-  if (fs.existsSync(configPath)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      return data.serverUrl || null;
-    } catch (e) {
-      console.error('Failed to read config:', e);
-      return null;
-    }
-  }
-  return null;
-}
+const BIN_PATHS = {
+  backend: IS_PACKAGED ? path.join(RESOURCES_PATH, 'backend_published', 'StationOS.Api.exe') : path.join(DEV_ROOT, 'backend_published', 'win-x64', 'StationOS.Api.exe'),
+  postgres: IS_PACKAGED ? path.join(RESOURCES_PATH, 'pg_portable') : path.join(DEV_ROOT, 'pg_portable'),
+  go2rtc: IS_PACKAGED ? path.join(RESOURCES_PATH, 'go2rtc', 'go2rtc.exe') : path.join(DEV_ROOT, 'go2rtc', 'go2rtc.exe'),
+};
 
-// Save server URL to config
-function saveServerUrl(url) {
-  const configPath = getConfigPath();
-  const dir = path.dirname(configPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  fs.writeFileSync(configPath, JSON.stringify({ serverUrl: url }), 'utf8');
-}
+const DATA_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'StationOS');
+const PG_DATA_DIR = path.join(DATA_DIR, 'pg_data');
+const BACKEND_PORT = 5000;
+const PG_PORT = 5432;
 
-// Clear config
-function clearConfig() {
-  const configPath = getConfigPath();
-  if (fs.existsSync(configPath)) {
-    try {
-      fs.unlinkSync(configPath);
-    } catch (e) {
-      console.error('Failed to clear config:', e);
-    }
-  }
-}
+// Active process handles
+const processes = {
+  postgres: null,
+  backend: null,
+  go2rtc: null,
+};
 
-// Get the absolute path to the launcher UI
-function getLauncherPath() {
-  return path.join(app.getAppPath(), 'thin-client-ui', 'index.html');
-}
-
-// Load the launcher UI
-async function loadLauncher() {
-  if (mainWindow) {
-    const launcherPath = getLauncherPath();
-    if (fs.existsSync(launcherPath)) {
-      await mainWindow.loadFile(launcherPath);
+async function killProcessByName(name) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      exec(`taskkill /F /IM ${name} /T`, (err) => {
+        resolve(); // Ignore error if not found
+      });
     } else {
-      console.error('Launcher UI not found at:', launcherPath);
-      // Fallback for dev mode if path structure differs
-      const devLauncherPath = path.join(__dirname, '..', 'thin-client-ui', 'index.html');
-      if (fs.existsSync(devLauncherPath)) {
-        await mainWindow.loadFile(devLauncherPath);
-      } else {
-        await mainWindow.loadURL('data:text/html,<h1>Station Monitor Launcher UI not found.</h1>');
-      }
+      exec(`pkill -f ${name}`, (err) => {
+        resolve();
+      });
     }
+  });
+}
+
+async function cleanupOldServices() {
+  console.log('Cleaning up old services...');
+  await killProcessByName('StationOS.Api.exe');
+  await killProcessByName('go2rtc.exe');
+  await killProcessByName('postgres.exe');
+  await killProcessByName('pg_ctl.exe');
+}
+
+async function initializeDatabase() {
+  const initdbExe = path.join(BIN_PATHS.postgres, 'bin', 'initdb.exe');
+  if (!fs.existsSync(PG_DATA_DIR)) {
+    console.log('Initializing PostgreSQL Database...');
+    fs.mkdirSync(PG_DATA_DIR, { recursive: true });
+    
+    return new Promise((resolve, reject) => {
+      const initdb = spawn(initdbExe, ['-D', PG_DATA_DIR, '-U', 'postgres', '--encoding=UTF8'], {
+        windowsHide: true,
+      });
+
+      initdb.stdout.on('data', data => console.log(`[initdb]: ${data}`));
+      initdb.stderr.on('data', data => console.error(`[initdb ERR]: ${data}`));
+      
+      initdb.on('close', code => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`initdb failed with code ${code}`));
+        }
+      });
+    });
+  } else {
+    console.log('PostgreSQL Database already initialized.');
   }
 }
 
-function createWindow() {
+async function startPostgres() {
+  const pgCtlExe = path.join(BIN_PATHS.postgres, 'bin', 'pg_ctl.exe');
+  console.log('Starting PostgreSQL...');
+
+  return new Promise((resolve) => {
+    const pg = spawn(pgCtlExe, ['start', '-D', PG_DATA_DIR, '-w', '-t', '10'], {
+      windowsHide: true,
+      env: { ...process.env, PGPORT: PG_PORT.toString() }
+    });
+
+    pg.stdout.on('data', data => console.log(`[pg_ctl]: ${data}`));
+    pg.stderr.on('data', data => console.error(`[pg_ctl ERR]: ${data}`));
+
+    pg.on('close', code => {
+      console.log(`[pg_ctl] exited with code ${code}`);
+      // pg_ctl exits after starting postgres process
+      resolve();
+    });
+    
+    // Fallback delay to ensure it's running
+    setTimeout(resolve, 2000);
+  });
+}
+
+async function stopPostgres() {
+  const pgCtlExe = path.join(BIN_PATHS.postgres, 'bin', 'pg_ctl.exe');
+  return new Promise((resolve) => {
+    const pg = spawn(pgCtlExe, ['stop', '-D', PG_DATA_DIR, '-m', 'fast'], {
+      windowsHide: true
+    });
+    pg.on('close', () => resolve());
+    setTimeout(resolve, 3000);
+  });
+}
+
+function startBackend() {
+  if (processes.backend) return;
+  console.log('Starting Backend...');
+  if (!fs.existsSync(BIN_PATHS.backend)) {
+    console.error('Backend executable not found at', BIN_PATHS.backend);
+    return;
+  }
+  
+  // Set ASPNETCORE_URLS to ensure it runs on port 5000
+  processes.backend = spawn(BIN_PATHS.backend, [], {
+    windowsHide: true,
+    cwd: path.dirname(BIN_PATHS.backend),
+    env: { ...process.env, ASPNETCORE_URLS: `http://localhost:${BACKEND_PORT}` }
+  });
+
+  processes.backend.stdout.on('data', data => console.log(`[Backend]: ${data}`));
+  processes.backend.stderr.on('data', data => console.error(`[Backend ERR]: ${data}`));
+  
+  processes.backend.on('close', code => {
+    console.log(`Backend exited with code ${code}`);
+    processes.backend = null;
+  });
+}
+
+function startGo2RTC() {
+  if (processes.go2rtc) return;
+  console.log('Starting go2rtc...');
+  if (!fs.existsSync(BIN_PATHS.go2rtc)) {
+    console.error('go2rtc executable not found at', BIN_PATHS.go2rtc);
+    return;
+  }
+
+  processes.go2rtc = spawn(BIN_PATHS.go2rtc, [], {
+    windowsHide: true,
+    cwd: path.dirname(BIN_PATHS.go2rtc),
+  });
+
+  processes.go2rtc.stdout.on('data', data => console.log(`[go2rtc]: ${data}`));
+  processes.go2rtc.stderr.on('data', data => console.error(`[go2rtc ERR]: ${data}`));
+  
+  processes.go2rtc.on('close', code => {
+    console.log(`go2rtc exited with code ${code}`);
+    processes.go2rtc = null;
+  });
+}
+
+function checkBackendReady() {
+  return new Promise((resolve) => {
+    const req = http.get(`http://localhost:${BACKEND_PORT}/health`, (res) => {
+      resolve(res.statusCode === 200 || res.statusCode === 404); // Health endpoint or just response
+    });
+    req.on('error', () => resolve(false));
+    req.end();
+  });
+}
+
+function checkDbAlive() {
+  return new Promise((resolve) => {
+    // Attempting a simple socket connection to PG port
+    const net = require('net');
+    const socket = new net.Socket();
+    let isConnected = false;
+    socket.setTimeout(2000);
+    socket.on('connect', () => { isConnected = true; socket.destroy(); resolve(true); });
+    socket.on('timeout', () => { socket.destroy(); resolve(false); });
+    socket.on('error', () => { resolve(false); });
+    socket.connect(PG_PORT, '127.0.0.1');
+  });
+}
+
+async function watchdogLoop() {
+  if (!servicesStarted) return;
+  
+  // Check Database
+  const dbAlive = await checkDbAlive();
+  if (!dbAlive) {
+    console.log('Watchdog: DB is down, restarting PostgreSQL...');
+    await killProcessByName('postgres.exe');
+    await startPostgres();
+  }
+  
+  // Check Backend
+  if (!processes.backend) {
+    console.log('Watchdog: Backend is down, restarting...');
+    startBackend();
+  }
+
+  // Check Go2RTC
+  if (!processes.go2rtc) {
+    console.log('Watchdog: go2rtc is down, restarting...');
+    startGo2RTC();
+  }
+}
+
+async function startAllServices(webContents) {
+  try {
+    webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Dọn dẹp hệ thống cũ...')`).catch(() => {});
+    await cleanupOldServices();
+    
+    webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Khởi tạo Database...')`).catch(() => {});
+    if (fs.existsSync(BIN_PATHS.postgres)) {
+        await initializeDatabase();
+        webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Đang khởi động Database...')`).catch(() => {});
+        await startPostgres();
+    } else {
+        console.warn("PostgreSQL not bundled or not found in dev env.");
+    }
+    
+    webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Đang khởi động Máy chủ API & Camera...')`).catch(() => {});
+    startBackend();
+    startGo2RTC();
+    
+    servicesStarted = true;
+    
+    // Start Watchdog
+    watchdogInterval = setInterval(watchdogLoop, 10000);
+
+    // Wait for backend to be ready
+    webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Đang chờ hệ thống sẵn sàng...')`).catch(() => {});
+    
+    let attempts = 0;
+    while (attempts < 30) {
+      const isReady = await checkBackendReady();
+      if (isReady) {
+        break;
+      }
+      await new Promise(r => setTimeout(r, 1000));
+      attempts++;
+    }
+
+    if (attempts >= 30) {
+      console.warn("Backend startup timed out!");
+    } else {
+      console.log("Backend is ready!");
+    }
+    
+    return true;
+
+  } catch (err) {
+    console.error("Failed to start services:", err);
+    webContents.executeJavaScript(`if(typeof updateStatus === 'function') updateStatus('Lỗi khởi động: ${err.message}')`).catch(() => {});
+    return false;
+  }
+}
+
+async function stopAllServices() {
+  console.log('Shutting down all services...');
+  servicesStarted = false;
+  if (watchdogInterval) clearInterval(watchdogInterval);
+  
+  if (processes.backend) processes.backend.kill();
+  if (processes.go2rtc) processes.go2rtc.kill();
+  await stopPostgres();
+  await cleanupOldServices();
+}
+
+
+// ==========================================
+// ELECTRON WINDOW MANAGEMENT
+// ==========================================
+
+async function clearRendererRuntimeCache() {
+  try {
+    await session.defaultSession.clearCache();
+    await session.defaultSession.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] });
+  } catch (err) {
+    console.error('Failed to clear renderer cache:', err);
+  }
+}
+
+async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -89,7 +298,7 @@ function createWindow() {
     resizable: true,
     center: true,
     backgroundColor: '#0f172a',
-    title: 'Hệ Thống Giám Sát — Station Monitor',
+    title: 'Hệ Thống Giám Sát — Station Monitor (Thick Client)',
     darkTheme: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -101,147 +310,94 @@ function createWindow() {
 
   mainWindow.maximize();
   mainWindow.focus();
+  await clearRendererRuntimeCache();
 
-  // Live wall popup — frameless, no OS chrome, pure camera grid
+  // Create loading HTML internally
+  const loadingHtml = `
+    <!DOCTYPE html>
+    <html lang="vi">
+    <head>
+      <meta charset="UTF-8">
+      <title>Đang khởi động...</title>
+      <style>
+        body { background: #0f172a; color: white; font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        #status { font-size: 1.1rem; color: #94a3b8; }
+      </style>
+    </head>
+    <body>
+      <div class="spinner"></div>
+      <h2>Station Monitor đang khởi động</h2>
+      <div id="status">Vui lòng chờ...</div>
+      <script>
+        function updateStatus(msg) { document.getElementById('status').innerText = msg; }
+      </script>
+    </body>
+    </html>
+  `;
+  await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHtml)}`);
+
+  // Start background services
+  await startAllServices(mainWindow.webContents);
+
+  // Load the Local UI (Vite dev server or built frontend)
+  const LOCAL_UI_URL = process.env.VITE_DEV_SERVER_URL || `file://${path.join(__dirname, '..', 'dist', 'index.html')}`;
+  
+  try {
+    if (!process.env.VITE_DEV_SERVER_URL && fs.existsSync(path.join(__dirname, '..', 'dist', 'index.html'))) {
+        await mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    } else if (process.env.VITE_DEV_SERVER_URL) {
+        await mainWindow.loadURL(LOCAL_UI_URL);
+    } else {
+        // Fallback if built file is missing in dev
+        await mainWindow.loadURL(`http://localhost:5173`);
+    }
+  } catch (err) {
+    console.error("Failed to load UI:", err);
+  }
+  
+  // Live wall popup logic
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.includes('/live-wall')) {
       return {
         action: 'allow',
-        overrideBrowserWindowOptions: {
-          frame: false,
-          titleBarStyle: 'hidden',
-          autoHideMenuBar: true,
-          backgroundColor: '#070c14',
-          webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: false,
-          },
-        },
+        overrideBrowserWindowOptions: { frame: false, titleBarStyle: 'hidden', autoHideMenuBar: true, backgroundColor: '#070c14' },
       };
     }
     return { action: 'allow' };
   });
-
-  // Handle network/load failure for remote URLs
-  mainWindow.webContents.on('did-fail-load', async (event, errorCode, errorDescription, validatedURL) => {
-    console.log(`Failed to load URL: ${validatedURL}, error: ${errorDescription} (${errorCode})`);
-    
-    // Check if the failed URL was a remote server URL (not the local launcher file)
-    if (!validatedURL.startsWith('file://')) {
-      console.log('Reverting to local launcher due to load failure.');
-      await loadLauncher();
-      
-      // Inject connection error warning to UI
-      mainWindow.webContents.executeJavaScript(`
-        if (typeof showStatus === 'function') {
-          showStatus('error', 'Không thể kết nối tới máy chủ đã lưu. Vui lòng kiểm tra lại mạng hoặc địa chỉ.');
-          if (typeof setIdle === 'function') setIdle();
-        }
-      `).catch(err => console.error('Failed to execute UI error script:', err));
-    }
-  });
-
-  // Determine starting view based on config
-  const savedUrl = getSavedServerUrl();
-  if (savedUrl) {
-    console.log('Loading saved server URL:', savedUrl);
-    mainWindow.loadURL(savedUrl).catch(async (err) => {
-      console.error('Failed to load saved URL on startup:', err.message);
-      await loadLauncher();
-    });
-  } else {
-    console.log('No saved server URL, loading launcher UI.');
-    loadLauncher();
-  }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
-// Register IPC Handlers to emulate Tauri commands called from thin-client-ui/index.html
-ipcMain.handle('get_server_url', () => {
-  return getSavedServerUrl();
-});
-
-ipcMain.handle('connect_to_server', async (event, { url }) => {
-  console.log('Connecting to server:', url);
-  saveServerUrl(url);
-  
-  if (mainWindow) {
-    try {
-      await mainWindow.loadURL(url);
-      return { success: true };
-    } catch (err) {
-      console.error('Failed to connect to server URL:', err.message);
-      // Let the caller handle the error
-      throw new Error(err.message);
-    }
-  }
-  return { success: false };
-});
-
-ipcMain.handle('disconnect', async () => {
-  console.log('Disconnecting and clearing config.');
-  clearConfig();
-  await loadLauncher();
-  return { success: true };
-});
-
-ipcMain.handle('open_url', async (event, { url }) => {
-  console.log('Opening external URL:', url);
-  try {
-    await shell.openExternal(url);
-    return { success: true };
-  } catch (err) {
-    console.error('Failed to open external URL:', err.message);
-    throw err;
-  }
-});
-
-ipcMain.handle('install_tailscale', async () => {
-  console.log('Triggering Tailscale installation.');
-  if (process.platform !== 'win32') {
-    throw new Error('Tính năng cài đặt nhanh Tailscale chỉ hỗ trợ trên hệ điều hành Windows.');
-  }
-
-  // Find tailscale installer. Packages resources are at process.resourcesPath.
-  const installerPath = app.isPackaged 
-    ? path.join(process.resourcesPath, 'tailscale-setup.exe')
-    : path.join(app.getAppPath(), 'resources', 'tailscale-setup.exe');
-
-  if (!fs.existsSync(installerPath)) {
-    throw new Error('File cài đặt Tailscale không tồn tại trong tài nguyên của app.');
-  }
-
-  exec(`"${installerPath}"`, (err) => {
-    if (err) {
-      console.error('Failed to execute Tailscale installer:', err);
-    }
-  });
-
-  return { success: true };
-});
-
+// IPC Handlers
 ipcMain.handle('close_app', () => {
-  console.log('Closing application.');
   app.quit();
 });
-
 ipcMain.handle('minimize_app', () => {
   if (mainWindow) mainWindow.minimize();
 });
-
 ipcMain.handle('maximize_app', () => {
   if (mainWindow) {
-    if (mainWindow.isMaximized()) {
-      mainWindow.unmaximize();
-    } else {
-      mainWindow.maximize();
-    }
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
   }
 });
+
+// For backward compatibility with the frontend that might call these
+ipcMain.handle('get_server_url', () => {
+  return `http://localhost:${BACKEND_PORT}`;
+});
+ipcMain.handle('connect_to_server', async () => {
+  return { success: true };
+});
+ipcMain.handle('install_tailscale', async () => {
+  return { success: false, error: 'Not needed in Thick Client.' };
+});
+
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
@@ -254,8 +410,16 @@ app.whenReady().then(() => {
   });
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   if (process.platform !== 'darwin') {
     app.quit();
+  }
+});
+
+app.on('before-quit', async (e) => {
+  if (servicesStarted) {
+    e.preventDefault();
+    await stopAllServices();
+    app.exit(0);
   }
 });

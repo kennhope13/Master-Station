@@ -7,6 +7,14 @@ files:
   - thin-client-ui/**/*
   - package.json
 extraResources:
+  - from: ../backend_published
+    to: backend_published
+  - from: ../pg_portable
+    to: pg_portable
+  - from: ../go2rtc
+    to: go2rtc
+  - from: ../vc_redist.x64.exe
+    to: vc_redist.x64.exe
   - from: resources/tailscale-setup.exe
     to: tailscale-setup.exe
 linux:

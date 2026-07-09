@@ -1,0 +1,73 @@
+name: 🏗️ Build Thick Client Installer
+
+on:
+  # Chạy thủ công từ GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Phiên bản (VD: 3.0.2)'
+        required: false
+        default: '3.0.2'
+
+  # Tự động build khi push tag v*
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    name: 🪟 Build Windows Thick Client
+    runs-on: windows-latest
+
+    steps:
+      - name: 📥 Checkout source
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: ⚙️ Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 🏗️ Build Thick Client Installer
+        run: |
+          ./build-thick-client.bat
+        shell: cmd
+
+      - name: 📤 Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: master-station-thick-client-windows
+          path: frontend/dist-electron/*.exe
+          retention-days: 30
+
+      - name: 🚀 Update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Master Station ${{ github.ref_name }}
+          body: |
+            ## 📦 Master Station Thick Client (All-in-One)
+
+            Phiên bản Thick Client đóng gói đầy đủ:
+            - Backend .NET 8 API
+            - Cơ sở dữ liệu PostgreSQL Portable
+            - Máy chủ Camera WebRTC (go2rtc)
+            - Giao diện quản trị React
+
+            ### Cài đặt
+            1. Tải file `.exe` ở dưới.
+            2. Mở file và tiến hành cài đặt.
+            3. Ứng dụng sẽ tự động chạy ngầm Database và API khi bạn mở.
+
+          files: frontend/dist-electron/*.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
