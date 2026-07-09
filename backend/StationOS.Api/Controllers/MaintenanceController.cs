@@ -113,7 +113,7 @@ public class MaintenanceController : ControllerBase
             Checklist     = req.Checklist,
             Status        = "pending",
             CreatedAt     = DateTime.UtcNow,
-            SyncSource    = "central",  // Tạo tại trạm tổng → đẩy xuống trạm con
+            SyncSource    = "central",  // Tạo tại trạm trung tâm → đẩy xuống trạm cục bộ
         };
 
         _db.MaintenanceTasks.Add(task);
@@ -464,7 +464,7 @@ public class MaintenanceController : ControllerBase
             sourceAlertId = t.SourceAlertId,
             createdAt     = t.CreatedAt,
             completedAt   = t.CompletedAt,
-            syncSource    = t.SyncSource,   // "station" = trạm con tạo; null/"central" = trạm tổng tạo
+            syncSource    = t.SyncSource,   // "station" = trạm cục bộ tạo; null/"central" = trạm trung tâm tạo
         };
     }
 }

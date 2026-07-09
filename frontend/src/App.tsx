@@ -53,7 +53,7 @@ const ProtectedRoute = ({ children, roles, allowOnlyMulti, denyRestricted }: { c
   }
 
   if (denyRestricted && user.is_restricted && !isCentralInDrillDown) {
-    // Nếu trang cấm restricted admin (admin trạm con), đưa về Dashboard
+    // Nếu trang cấm restricted admin (admin trạm cục bộ), đưa về Dashboard
     return <Navigate to="/dashboard" replace />;
   }
   
@@ -107,7 +107,7 @@ export default function App() {
           {/* Trang đăng nhập — không cần xác thực */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Trạm tổng — không cần đăng nhập, tự auto-login */}
+          {/* Trạm trung tâm — không cần đăng nhập, tự auto-login */}
           <Route path="/multisite" element={<MultisitePage />} />
           <Route path="/live-camera" element={<LiveCameraPopup />} />
           <Route path="/live-wall" element={<LiveWallPopup />} />

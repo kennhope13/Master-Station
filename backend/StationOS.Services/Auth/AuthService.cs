@@ -199,7 +199,7 @@ public class AuthService
 
         await SyncStationProvinceAssignmentsAsync();
 
-        // 1. Upsert admin (Trạm con) - Only if not Central
+        // 1. Upsert admin (Trạm cục bộ) - Only if not Central
         var connStr = _config.GetConnectionString("Default") ?? "";
         bool isCentral = connStr.Contains("Central", StringComparison.OrdinalIgnoreCase);
         if (isCentral)
@@ -220,7 +220,7 @@ public class AuthService
                 _db.Users.Add(admin);
             }
             admin.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123", workFactor: 12);
-            admin.FullName = "Quản trị viên Trạm con";
+            admin.FullName = "Quản trị viên Trạm cục bộ";
             admin.Email = "admin@StationOS.vn";
             admin.IsActive = true;
             admin.MustChangePassword = false;

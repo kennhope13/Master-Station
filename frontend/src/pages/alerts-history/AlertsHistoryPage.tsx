@@ -59,7 +59,7 @@ export default function AlertsHistoryPage() {
       const from = dates.from ? new Date(dates.from).toISOString() : undefined;
       const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
 
-      // Nếu đang xem trạm con (có apiUrl), proxy qua remote-alerts thay vì query local DB
+      // Nếu đang xem trạm cục bộ (có apiUrl), proxy qua remote-alerts thay vì query local DB
       const targetStation = stationId ? stations.find(s => s.id === stationId) : null;
       const isChildStation = !!targetStation?.apiUrl;
 

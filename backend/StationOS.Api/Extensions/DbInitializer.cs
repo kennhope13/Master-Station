@@ -193,7 +193,7 @@ public static class DbInitializer
             await db.SaveChangesAsync();
         }
 
-        // 3. Đảm bảo các trạm con khác tồn tại
+        // 3. Đảm bảo các trạm cục bộ khác tồn tại
         if (!await db.Stations.AnyAsync(s => s.Code == "TBA-DT01"))
         {
             db.Stations.Add(new StationOS.Data.Entities.Station

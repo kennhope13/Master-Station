@@ -881,7 +881,7 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
   if (!historyDeviceId && remotePoints.length === 0) {
     return (
       <div style={{ display: 'flex', flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--admin-text-muted)', background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', fontSize: '.8rem', fontFamily: 'var(--admin-font-mono)' }}>
-        {station.apiUrl ? 'TRẠM CON CHƯA TRẢ VỀ DỮ LIỆU NHIỆT' : 'TRẠM NÀY CHƯA CÓ DỮ LIỆU NHIỆT'}
+        {station.apiUrl ? 'TRẠM CỤC BỘ CHƯA TRẢ VỀ DỮ LIỆU NHIỆT' : 'TRẠM NÀY CHƯA CÓ DỮ LIỆU NHIỆT'}
       </div>
     );
   }
@@ -987,17 +987,17 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
           </div>
 
           <MetricSectionCard
-            title="ĐIỂM NHIỆT TRẠM CON"
+            title="ĐIỂM NHIỆT TRẠM CỤC BỘ"
             accent="#A855F7"
             rows={thermalRoiRows.length > 0 ? thermalRoiRows : allRemotePointRows.filter((row: MetricRow) => /NHIỆT/i.test(row.meta || '') || /nhiet|temp|thermal/i.test(row.label))}
-            emptyText="Trạm con chưa trả về điểm nhiệt."
+            emptyText="Trạm cục bộ chưa trả về điểm nhiệt."
           />
         </div>
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, height: '100%', minWidth: 0 }}>
           <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: 16, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-              <div style={{ fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '.8px' }}>DỮ LIỆU TRỰC TIẾP TỪ TRẠM CON</div>
+              <div style={{ fontSize: '.62rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '.8px' }}>DỮ LIỆU TRỰC TIẾP TỪ TRẠM CỤC BỘ</div>
               <div style={{ fontSize: '.55rem', color: 'var(--admin-text-muted)', fontWeight: 700 }}>{station.apiUrl ? 'PROXY MASTER' : 'LOCAL'}</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, overflow: 'auto' }} className="sidebar-scroll">
@@ -1005,13 +1005,13 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
                 title="CHỈ SỐ NHIỆT ĐỘ"
                 accent="#3B82F6"
                 rows={thermalPointRows}
-                emptyText="Chưa có điểm nhiệt từ trạm con."
+                emptyText="Chưa có điểm nhiệt từ trạm cục bộ."
               />
               <MetricSectionCard
                 title="CHỈ SỐ PD"
                 accent="#F59E0B"
                 rows={pdPointRows}
-                emptyText="Chưa có chỉ số PD từ trạm con."
+                emptyText="Chưa có chỉ số PD từ trạm cục bộ."
               />
               <MetricSectionCard
                 title="VÙNG NHIỆT"
@@ -1036,20 +1036,20 @@ function ThermalForecastPanel({ station, devices }: { station: Station; devices:
               title="ĐIỂM NHIỆT THỰC TẾ"
               accent="#A855F7"
               rows={thermalRoiRows}
-              emptyText="Chưa có điểm nhiệt từ trạm con."
+              emptyText="Chưa có điểm nhiệt từ trạm cục bộ."
             />
           </div>
           <MetricSectionCard
-            title="TẤT CẢ ĐIỂM TRẠM CON"
+            title="TẤT CẢ ĐIỂM TRẠM CỤC BỘ"
             accent="#22C55E"
             rows={allRemotePointRows}
-            emptyText="Trạm con chưa trả về điểm nào."
+            emptyText="Trạm cục bộ chưa trả về điểm nào."
           />
           <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', borderRadius: 0, padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontSize: '.58rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase', letterSpacing: '.8px' }}>TRẠNG THÁI DỮ LIỆU</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
-                <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--admin-text)' }}>{station.apiUrl ? (remotePoints.length > 0 ? 'ĐÃ NHẬN DỮ LIỆU TRẠM CON' : 'ĐANG KẾT NỐI TRẠM CON') : 'DỮ LIỆU NỘI BỘ'}</span>
+                <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--admin-text)' }}>{station.apiUrl ? (remotePoints.length > 0 ? 'ĐÃ NHẬN DỮ LIỆU TRẠM CỤC BỘ' : 'ĐANG KẾT NỐI TRẠM CỤC BỘ') : 'DỮ LIỆU NỘI BỘ'}</span>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: remotePoints.length > 0 ? 'var(--admin-success)' : 'var(--admin-warning)', animation: 'pulse 2s infinite' }} />
               </div>
             </div>
@@ -1545,7 +1545,7 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
                 <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:15:22]</span><span>AI Engine: Đã tải mô hình YOLOv8 thành công</span></div>
                 <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:15:25]</span><span>NVR: Bắt đầu ghi hình luồng Camera 153</span></div>
                 <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-warning)' }}>[10:18:01]</span><span>Network: Độ trễ Gateway tăng cao (45ms)</span></div>
-                <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:20:00]</span><span>Sync: Đã đồng bộ 120 bản ghi lên trạm tổng</span></div>
+                <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:20:00]</span><span>Sync: Đã đồng bộ 120 bản ghi lên trạm trung tâm</span></div>
                 <div style={{ display: 'flex', gap: 10 }}><span style={{ color: 'var(--admin-success)' }}>[10:22:15]</span><span>System: Kiểm tra định kỳ thiết bị - OK</span></div>
              </div>
              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1566,7 +1566,7 @@ function StationAnalysisOverlay({ snapshot, onClose, openStationDevices, openSta
            onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-accent)'; e.currentTarget.style.color = '#000'; }}
            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--admin-accent)'; }}
          >
-           MỞ TẠI TRẠM TỔNG
+           MỞ TẠI TRẠM TRUNG TÂM
          </button>
       </div>
     </div>

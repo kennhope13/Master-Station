@@ -84,7 +84,7 @@ public class MeasurementsController : ControllerBase
             }
         }
 
-        // 5. Nếu chưa có dữ liệu cache, thử đọc SensorReadings đã sync từ DB (trạm con push lên)
+        // 5. Nếu chưa có dữ liệu cache, thử đọc SensorReadings đã sync từ DB (trạm cục bộ push lên)
         if (result.Count == 0 && !isFleet && stationId.HasValue)
         {
             var since = DateTime.UtcNow.AddHours(-1);
@@ -135,7 +135,7 @@ public class MeasurementsController : ControllerBase
 
     /// <summary>
     /// Lấy giá trị nhiệt độ mới nhất của từng điểm đo trên một thiết bị cụ thể (camera nhiệt, PLC...).
-    /// Trả về { pointId: value } — dùng cho cả trạm con và trạm chính.
+    /// Trả về { pointId: value } — dùng cho cả trạm cục bộ và trạm chính.
     /// </summary>
     [HttpGet("devices/{deviceId}/thermal-readings")]
     public IActionResult GetThermalReadings(Guid deviceId)

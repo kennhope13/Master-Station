@@ -78,7 +78,7 @@ class AuthService {
         localStorage.removeItem('station_token');
     }
 
-    /** Dùng khi trạm tổng mở trạm con kèm sẵn JWT token hợp lệ trên URL. */
+    /** Dùng khi trạm trung tâm mở trạm cục bộ kèm sẵn JWT token hợp lệ trên URL. */
     public acceptExternalToken(token: string, refreshToken?: string): boolean {
         try {
             const user = this.buildUserFromToken(token);

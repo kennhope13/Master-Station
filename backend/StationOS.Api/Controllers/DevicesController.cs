@@ -416,7 +416,7 @@ public class DevicesController : ControllerBase
             bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
             if (!isOnline)
             {
-                return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể tự động cấu hình thiết bị lúc này." });
+                return StatusCode(503, new { error = "station_offline", message = "Trạm cục bộ đang ngoại tuyến. Không thể tự động cấu hình thiết bị lúc này." });
             }
 
             var apiBase = station.ApiUrl.TrimEnd('/');
@@ -445,7 +445,7 @@ public class DevicesController : ControllerBase
             catch (Exception ex)
             {
                 System.Console.WriteLine($"[DevicesController] Error forwarding auto-configure to station {req.StationId}: {ex.Message}");
-                return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+                return StatusCode(502, new { error = $"Lỗi kết nối trạm cục bộ: {ex.Message}" });
             }
         }
 
@@ -574,7 +574,7 @@ public class DevicesController : ControllerBase
                 var resourceLabel = licenseResource == "cameras" ? "camera" : "sensor/thiết bị đo";
                 return BadRequest(new
                 {
-                    message = $"Trạm {station.Name} đã dùng hết quota {resourceLabel} được cấp ({stationCurrent}/{stationQuota.Value}). Vui lòng tăng quota từ trạm tổng hoặc xóa bớt thiết bị."
+                    message = $"Trạm {station.Name} đã dùng hết quota {resourceLabel} được cấp ({stationCurrent}/{stationQuota.Value}). Vui lòng tăng quota từ trạm trung tâm hoặc xóa bớt thiết bị."
                 });
             }
         }
@@ -585,7 +585,7 @@ public class DevicesController : ControllerBase
             bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
             if (!isOnline)
             {
-                return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể thêm thiết bị lúc này." });
+                return StatusCode(503, new { error = "station_offline", message = "Trạm cục bộ đang ngoại tuyến. Không thể thêm thiết bị lúc này." });
             }
 
             var apiBase = station.ApiUrl.TrimEnd('/');
@@ -601,7 +601,7 @@ public class DevicesController : ControllerBase
                     var remoteStationId = await GetRemoteStationIdAsync(client, apiBase);
                     if (!remoteStationId.HasValue)
                     {
-                        return StatusCode(502, new { error = "remote_station_not_found", message = "Không lấy được StationId nội bộ từ trạm con." });
+                        return StatusCode(502, new { error = "remote_station_not_found", message = "Không lấy được StationId nội bộ từ trạm cục bộ." });
                     }
 
                     var forwardReq = new {
@@ -629,12 +629,12 @@ public class DevicesController : ControllerBase
             catch (TaskCanceledException ex)
             {
                 System.Console.WriteLine($"[DevicesController] Timeout forwarding create device to station {req.StationId}: {ex.Message}");
-                return StatusCode(504, new { error = "station_timeout", message = "Trạm con phản hồi quá chậm khi thêm thiết bị. Kiểm tra kết nối trạm con/camera rồi thử lại." });
+                return StatusCode(504, new { error = "station_timeout", message = "Trạm cục bộ phản hồi quá chậm khi thêm thiết bị. Kiểm tra kết nối trạm cục bộ/camera rồi thử lại." });
             }
             catch (Exception ex)
             {
                 System.Console.WriteLine($"[DevicesController] Error forwarding create device to station {req.StationId}: {ex.Message}");
-                return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+                return StatusCode(502, new { error = $"Lỗi kết nối trạm cục bộ: {ex.Message}" });
             }
         }
 
@@ -920,7 +920,7 @@ public class DevicesController : ControllerBase
                     bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
                     if (!isOnline)
                     {
-                        return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể cập nhật thiết bị lúc này." });
+                        return StatusCode(503, new { error = "station_offline", message = "Trạm cục bộ đang ngoại tuyến. Không thể cập nhật thiết bị lúc này." });
                     }
 
                     var token = await GetOrFetchTokenAsync(station, apiBase);
@@ -946,7 +946,7 @@ public class DevicesController : ControllerBase
                 }
                 catch (Exception ex)
                 {
-                    return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+                    return StatusCode(502, new { error = $"Lỗi kết nối trạm cục bộ: {ex.Message}" });
                 }
             }
             return NotFound();
@@ -1017,7 +1017,7 @@ public class DevicesController : ControllerBase
                     bool isOnline = station.LastContactAt.HasValue && station.LastContactAt.Value >= threshold;
                     if (!isOnline)
                     {
-                        return StatusCode(503, new { error = "station_offline", message = "Trạm con đang ngoại tuyến. Không thể xóa thiết bị lúc này." });
+                        return StatusCode(503, new { error = "station_offline", message = "Trạm cục bộ đang ngoại tuyến. Không thể xóa thiết bị lúc này." });
                     }
 
                     var token = await GetOrFetchTokenAsync(station, apiBase);
@@ -1042,7 +1042,7 @@ public class DevicesController : ControllerBase
                 }
                 catch (Exception ex)
                 {
-                    return StatusCode(502, new { error = $"Lỗi kết nối trạm con: {ex.Message}" });
+                    return StatusCode(502, new { error = $"Lỗi kết nối trạm cục bộ: {ex.Message}" });
                 }
             }
             return NotFound();

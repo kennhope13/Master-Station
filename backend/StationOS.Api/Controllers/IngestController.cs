@@ -1,10 +1,10 @@
 // ============================================================
-// IngestController — Nhận data từ trạm con đẩy lên trạm tổng
-// POST /api/v1/ingest/alerts   — Nhận alert từ trạm con
-// POST /api/v1/ingest/sensors  — Nhận sensor readings từ trạm con
-// POST /api/v1/ingest/events   — Nhận detection events từ trạm con
+// IngestController — Nhận data từ trạm cục bộ đẩy lên trạm trung tâm
+// POST /api/v1/ingest/alerts   — Nhận alert từ trạm cục bộ
+// POST /api/v1/ingest/sensors  — Nhận sensor readings từ trạm cục bộ
+// POST /api/v1/ingest/events   — Nhận detection events từ trạm cục bộ
 //
-// Auth: Header X-Station-Id (Guid của trạm con — phải tồn tại trong DB)
+// Auth: Header X-Station-Id (Guid của trạm cục bộ — phải tồn tại trong DB)
 // ============================================================
 
 using Microsoft.AspNetCore.Mvc;
@@ -30,7 +30,7 @@ public class IngestController : ControllerBase
         _logger = logger;
     }
 
-    // ── Xác thực trạm con ────────────────────────────────────
+    // ── Xác thực trạm cục bộ ────────────────────────────────────
     private async Task<Station?> AuthenticateStationAsync()
     {
         if (!Request.Headers.TryGetValue("X-Station-Id", out var raw) ||
@@ -49,7 +49,7 @@ public class IngestController : ControllerBase
     }
 
     // ── POST /api/v1/ingest/alerts ───────────────────────────
-    /// <summary>Trạm con đẩy danh sách alert lên trạm tổng. Hỗ trợ cả camelCase và snake_case.</summary>
+    /// <summary>Trạm cục bộ đẩy danh sách alert lên trạm trung tâm. Hỗ trợ cả camelCase và snake_case.</summary>
     [HttpPost("alerts")]
     public async Task<IActionResult> IngestAlerts([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
     {
@@ -123,7 +123,7 @@ public class IngestController : ControllerBase
     }
 
     // ── POST /api/v1/ingest/sensors ──────────────────────────
-    /// <summary>Trạm con đẩy sensor readings lên trạm tổng. Hỗ trợ cả camelCase và snake_case.</summary>
+    /// <summary>Trạm cục bộ đẩy sensor readings lên trạm trung tâm. Hỗ trợ cả camelCase và snake_case.</summary>
     [HttpPost("sensors")]
     public async Task<IActionResult> IngestSensors([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
     {
@@ -187,7 +187,7 @@ public class IngestController : ControllerBase
     }
 
     // ── POST /api/v1/ingest/events ───────────────────────────
-    /// <summary>Trạm con đẩy detection events (AI) lên trạm tổng.</summary>
+    /// <summary>Trạm cục bộ đẩy detection events (AI) lên trạm trung tâm.</summary>
     [HttpPost("events")]
     public async Task<IActionResult> IngestEvents([FromBody] List<IngestEventDto> items, CancellationToken ct)
     {
@@ -224,7 +224,7 @@ public class IngestController : ControllerBase
     }
 
     // ── POST /api/v1/ingest/reports ─────────────────────────
-    /// <summary>Nhận danh sách báo cáo từ trạm con.</summary>
+    /// <summary>Nhận danh sách báo cáo từ trạm cục bộ.</summary>
     [HttpPost("reports")]
     public async Task<IActionResult> IngestReports([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
     {
@@ -280,7 +280,7 @@ public class IngestController : ControllerBase
     }
 
     // ── POST /api/v1/ingest/audit-logs ──────────────────────
-    /// <summary>Nhận audit log từ trạm con.</summary>
+    /// <summary>Nhận audit log từ trạm cục bộ.</summary>
     [HttpPost("audit-logs")]
     public async Task<IActionResult> IngestAuditLogs([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
     {
@@ -334,7 +334,7 @@ public class IngestController : ControllerBase
     }
 
     // ── POST /api/v1/ingest/maintenance ─────────────────────
-    /// <summary>Nhận maintenance tasks từ trạm con.</summary>
+    /// <summary>Nhận maintenance tasks từ trạm cục bộ.</summary>
     [HttpPost("maintenance")]
     public async Task<IActionResult> IngestMaintenance([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
     {
@@ -366,10 +366,10 @@ public class IngestController : ControllerBase
             var existing = await _db.MaintenanceTasks.FindAsync([id], ct);
             if (existing != null)
             {
-                // Đánh dấu nguồn gốc từ trạm con, không ghi đè task của trạm tổng (SyncSource="central")
+                // Đánh dấu nguồn gốc từ trạm cục bộ, không ghi đè task của trạm trung tâm (SyncSource="central")
                 if (existing.SyncSource != "central") existing.SyncSource = "station";
 
-                // Cập nhật status/completedAt nếu task trạm con báo cáo về
+                // Cập nhật status/completedAt nếu task trạm cục bộ báo cáo về
                 var newStatus = StrMT(elem, "status");
                 if (newStatus != null && existing.Status != newStatus)
                 {
@@ -409,14 +409,14 @@ public class IngestController : ControllerBase
     }
 
     // ── GET /api/v1/ingest/tasks ─────────────────────────────
-    /// <summary>Trạm con lấy danh sách task bảo trì được tạo từ trạm tổng cho mình.</summary>
+    /// <summary>Trạm cục bộ lấy danh sách task bảo trì được tạo từ trạm trung tâm cho mình.</summary>
     [HttpGet("tasks")]
     public async Task<IActionResult> GetTasksForStation([FromQuery] DateTime? since, CancellationToken ct)
     {
         var station = await AuthenticateStationAsync();
         if (station == null) return Unauthorized(new { message = "X-Station-Id không hợp lệ" });
 
-        // Chỉ trả task tạo từ trạm tổng (SyncSource null hoặc "central"), không trả task do trạm tự tạo sync lên
+        // Chỉ trả task tạo từ trạm trung tâm (SyncSource null hoặc "central"), không trả task do trạm tự tạo sync lên
         var q = _db.MaintenanceTasks
             .Where(t => t.StationId == station.Id && (t.SyncSource == null || t.SyncSource == "central"));
 
@@ -444,7 +444,7 @@ public class IngestController : ControllerBase
         if (tasks.Any()) await _db.SaveChangesAsync(ct);
 
         await MarkStationOnlineAsync(station, "task_pull");
-        _logger.LogInformation("[Ingest] Trạm {Name} pull {Count} tasks từ trạm tổng", station.Name, tasks.Count);
+        _logger.LogInformation("[Ingest] Trạm {Name} pull {Count} tasks từ trạm trung tâm", station.Name, tasks.Count);
 
         return Ok(tasks.Select(t => new {
             t.Id, t.StationId, t.DeviceId, t.Title, t.Type, t.Status,
@@ -457,7 +457,7 @@ public class IngestController : ControllerBase
     }
 
     // ── GET /api/v1/ingest/ping ──────────────────────────────
-    /// <summary>Trạm con kiểm tra kết nối đến trạm tổng.</summary>
+    /// <summary>Trạm cục bộ kiểm tra kết nối đến trạm trung tâm.</summary>
     [HttpPost("devices")]
     public async Task<IActionResult> IngestDevices([FromBody] List<System.Text.Json.JsonElement> items, CancellationToken ct)
     {

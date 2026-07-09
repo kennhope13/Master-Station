@@ -87,10 +87,10 @@ export default function AppShell() {
   }, [user, navigate]);
 
 
-  // Trạm tổng = tài khoản 'multi' HOẶC admin không bị giới hạn trạm (không có station_ids)
+  // Trạm trung tâm = tài khoản 'multi' HOẶC admin không bị giới hạn trạm (không có station_ids)
   const isCentralUser = isCentralUserAccount(user);
 
-  // Global admin drill-down: đang xem trạm con từ màn hình đa trạm
+  // Global admin drill-down: đang xem trạm cục bộ từ màn hình đa trạm
   const viewingStationId = useStationStore(s => s.viewingStationId);
   const setViewingStation = useStationStore(s => s.setViewingStation);
   const isDrillDown = isCentralUser && !!viewingStationId && location.pathname !== '/multisite';
@@ -102,7 +102,7 @@ export default function AppShell() {
     }
   }, [location.pathname, viewingStationId, setViewingStation]);
 
-  // Nếu là tài khoản trạm tổng/cấp tỉnh nhưng đang ở route con mà không chọn trạm drill-down, tự động chuyển về /multisite
+  // Nếu là tài khoản trạm trung tâm/cấp tỉnh nhưng đang ở route con mà không chọn trạm drill-down, tự động chuyển về /multisite
   useEffect(() => {
     const allowedCentralPaths = new Set([
       '/multisite',
@@ -127,13 +127,13 @@ export default function AppShell() {
   const navItems = isCentralMode ? CENTRAL_NAV : CHILD_NAV;
 
   // Lọc adminNavItems theo quyền:
-  // - Restricted admin (trạm con): ẩn settings, license
+  // - Restricted admin (trạm cục bộ): ẩn settings, license
   // - Global admin (kể cả khi drill-down): giữ nguyên toàn bộ CHILD_ADMIN_NAV
   const adminNavItems = (isCentralMode ? CENTRAL_ADMIN_NAV : CHILD_ADMIN_NAV).filter(item => {
     if (item.permission && !authService.hasPermission(item.permission)) {
       return false;
     }
-    // Nếu bị giới hạn trạm con (station_ids có phần tử), ẩn cả settings và license
+    // Nếu bị giới hạn trạm cục bộ (station_ids có phần tử), ẩn cả settings và license
     if (user && user.station_ids && user.station_ids.length > 0) {
       return !['settings', 'license'].includes(item.id);
     }
@@ -202,7 +202,7 @@ export default function AppShell() {
              !shownAlertIdsRef.current.has(a.id)
       );
       // Enqueue từng alert chưa xem, delay nhỏ để tránh spam ngay lúc load
-      // Trạm tổng không hiện popup
+      // Trạm trung tâm không hiện popup
       if (!isCentralMode) {
         unseen.forEach((a, i) => setTimeout(() => enqueueAlertWithTrack(a), i * 300));
       }
@@ -572,7 +572,7 @@ export default function AppShell() {
                 }}
               >
                 <span style={{ fontSize: '0.8rem', lineHeight: 1, position: 'relative', top: 1 }}>←</span>
-                <span>Trạm tổng</span>
+                <span>Trạm trung tâm</span>
               </button>
             )}
             <img

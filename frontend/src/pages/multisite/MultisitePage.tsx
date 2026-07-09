@@ -590,7 +590,7 @@ export default function MultisitePage() {
     );
   }, [stations]);
 
-  // Fetch remote KPIs từ trạm con có apiUrl
+  // Fetch remote KPIs từ trạm cục bộ có apiUrl
   useEffect(() => {
     const stationsWithUrl = stations.filter(s => s.apiUrl);
     if (stationsWithUrl.length === 0) return;
@@ -632,7 +632,7 @@ export default function MultisitePage() {
       }));
 
       if ((previousStatus === 'online' || previousStatus === 'offline') && previousStatus !== nextStatus) {
-        const stationName = stationNameRef.current[stationId] || 'Trạm con';
+        const stationName = stationNameRef.current[stationId] || 'Trạm cục bộ';
         if (nextStatus === 'offline') {
           setRemoteKpis(prev => ({
             ...prev,
@@ -837,7 +837,7 @@ export default function MultisitePage() {
       return;
     }
     if (!newStationApiUrl.trim()) {
-      alert('Vui lòng nhập địa chỉ IP / host của trạm con');
+      alert('Vui lòng nhập địa chỉ IP / host của trạm cục bộ');
       return;
     }
 
@@ -1025,7 +1025,7 @@ export default function MultisitePage() {
     return views.find(v => v.station.id === selectedStationId) || null;
   }, [views, selectedStationId]);
 
-  // Auto-select single station chỉ ở tab overview cho người dùng bị giới hạn trạm con (không phải trạm tổng) sau khi load xong
+  // Auto-select single station chỉ ở tab overview cho người dùng bị giới hạn trạm cục bộ (không phải trạm trung tâm) sau khi load xong
   const isCentral = useMemo(() => isCentralUser(user), [user]);
   useEffect(() => {
     if (!isCentral && !isLoadingStations && activeTab === 'overview' && views.length === 1 && views[0] && !selectedStationId) {
@@ -2485,7 +2485,7 @@ export default function MultisitePage() {
                           setEditCameraQuota(selectedView.station.cameraQuota == null ? '' : String(selectedView.station.cameraQuota));
                           setEditSensorQuota(selectedView.station.sensorQuota == null ? '' : String(selectedView.station.sensorQuota));
                         }}
-                        title="Cấu hình trạm con"
+                        title="Cấu hình trạm cục bộ"
                         style={{
                           background: 'transparent', border: '1px solid var(--admin-border)',
                           cursor: 'pointer', color: 'var(--admin-text-muted)',
@@ -2576,7 +2576,7 @@ export default function MultisitePage() {
                     </div>
                   </div>
 
-                  {/* Điểm nhiệt + Vùng từ trạm con */}
+                  {/* Điểm nhiệt + Vùng từ trạm cục bộ */}
                   {(() => {
                     const kpi = remoteKpis[selectedView.station.id];
                     const points = kpi?.points ?? [];
@@ -2678,7 +2678,7 @@ export default function MultisitePage() {
                           } catch { return selectedView.station.apiUrl!; }
                         })();
 
-                        // Nếu trạm con cùng máy với trạm tổng → Electron chỉ bind localhost
+                        // Nếu trạm cục bộ cùng máy với trạm trung tâm → Electron chỉ bind localhost
                         // thay IP bằng localhost để browser kết nối được
                         let baseUrl = raw.replace(/\/$/, '');
                         try {
@@ -2964,10 +2964,10 @@ export default function MultisitePage() {
                 )}
               </div>
 
-              {/* Địa chỉ trạm con */}
+              {/* Địa chỉ trạm cục bộ */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
-                  ĐỊA CHỈ IP TRẠM CON *
+                  ĐỊA CHỈ IP TRẠM CỤC BỘ *
                 </label>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <input
@@ -2998,7 +2998,7 @@ export default function MultisitePage() {
                 )}
                 {connStatus === 'fail' && (
                   <span style={{ fontSize: '0.68rem', color: 'var(--admin-danger)' }}>
-                    ● Không thể kết nối tới trạm con (Vẫn có thể lưu trạm, hệ thống sẽ tự kết nối sau)
+                    ● Không thể kết nối tới trạm cục bộ (Vẫn có thể lưu trạm, hệ thống sẽ tự kết nối sau)
                   </span>
                 )}
                 <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
@@ -3034,7 +3034,7 @@ export default function MultisitePage() {
                   }}
                 />
                 <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
-                  Nếu trạm con chưa đổi mật khẩu, có thể để trống.
+                  Nếu trạm cục bộ chưa đổi mật khẩu, có thể để trống.
                 </span>
               </div>
 
@@ -3122,7 +3122,7 @@ export default function MultisitePage() {
           <div className="modal-content" style={{ width: 480 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span style={{ fontSize: '0.8rem', fontWeight: 800, letterSpacing: '0.05em' }}>
-                CẤU HÌNH TRẠM CON — {editingStation.name}
+                CẤU HÌNH TRẠM CỤC BỘ — {editingStation.name}
               </span>
               <button className="modal-close" onClick={() => setEditingStation(null)}>✕</button>
             </div>
@@ -3145,7 +3145,7 @@ export default function MultisitePage() {
                   }}
                 />
                 <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
-                  Nhập IP/host backend của trạm con, hệ thống sẽ chuẩn hóa thành URL đầy đủ.
+                  Nhập IP/host backend của trạm cục bộ, hệ thống sẽ chuẩn hóa thành URL đầy đủ.
                 </span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -3181,7 +3181,7 @@ export default function MultisitePage() {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--admin-text-muted)' }}>
-                  MẬT KHẨU API TRẠM CON
+                  MẬT KHẨU API TRẠM CỤC BỘ
                 </label>
                 <input
                   type="password"
@@ -3194,7 +3194,7 @@ export default function MultisitePage() {
                   }}
                 />
                 <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
-                  Nếu trạm con đã đổi mật khẩu của `stationadmin`, cập nhật lại tại đây.
+                  Nếu trạm cục bộ đã đổi mật khẩu của `stationadmin`, cập nhật lại tại đây.
                 </span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -4552,7 +4552,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
       alert('Không có dữ liệu để xuất CSV');
       return;
     }
-    const headers = ['Thời gian', 'Tỉnh', 'Trạm con', 'Loại cảnh báo', 'Nội dung', 'Mức độ', 'Trạng thái'];
+    const headers = ['Thời gian', 'Tỉnh', 'Trạm cục bộ', 'Loại cảnh báo', 'Nội dung', 'Mức độ', 'Trạng thái'];
     const rows = filtered.map(alert => {
       const station = stations.find(s => s.id === alert.stationId);
       const provinceName = provinces.find(p => p.id === station?.provinceId)?.name || '—';
@@ -4592,7 +4592,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
       return {
         'Thời gian': fmtDateTime(alert.triggeredAt),
         'Tỉnh': provinceName,
-        'Trạm con': alert.stationName || station?.name || '—',
+        'Trạm cục bộ': alert.stationName || station?.name || '—',
         'Loại cảnh báo': alertSourceLabel(alert.source),
         'Nội dung': cleanAlertMessage(alert.message),
         'Mức độ': lv.label,
@@ -4839,7 +4839,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
             <tr>
               <th style={AL.th}>Thời gian</th>
               <th style={AL.th}>Tỉnh</th>
-              <th style={AL.th}>Trạm con</th>
+              <th style={AL.th}>Trạm cục bộ</th>
               <th style={AL.th}>Loại cảnh báo</th>
               <th style={AL.th}>Nội dung</th>
               <th style={AL.th}>Mức độ</th>
@@ -5190,7 +5190,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
       setShowCreate(false);
       resetCreateForm();
       await load();
-      showToast('Đã tạo nhiệm vụ — sẽ đồng bộ xuống trạm con trong ~30 giây', 'success');
+      showToast('Đã tạo nhiệm vụ — sẽ đồng bộ xuống trạm cục bộ trong ~30 giây', 'success');
     } catch {
       showToast('Lỗi tạo nhiệm vụ bảo trì', 'error');
     } finally {
@@ -5458,7 +5458,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
           <thead>
             <tr>
               <th style={MS.th}>Tỉnh</th>
-              <th style={MS.th}>Trạm con</th>
+              <th style={MS.th}>Trạm cục bộ</th>
               <th style={MS.th}>Tiêu đề</th>
               <th style={MS.th}>Thiết bị</th>
               <th style={MS.th}>Ngày dự kiến</th>
@@ -5486,8 +5486,8 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
                     <td style={{ ...MS.td, fontWeight: 700 }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         {isCentral
-                          ? <span title="Giao từ trạm tổng" style={{ fontSize: '.5rem', background: '#3b82f620', border: '1px solid #3b82f640', color: '#3b82f6', borderRadius: 0, padding: '1px 5px', fontWeight: 800 }}>HQ</span>
-                          : <span title="Tạo tại trạm con" style={{ fontSize: '.5rem', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 0, padding: '1px 5px', fontWeight: 800 }}>CON</span>
+                          ? <span title="Giao từ trạm trung tâm" style={{ fontSize: '.5rem', background: '#3b82f620', border: '1px solid #3b82f640', color: '#3b82f6', borderRadius: 0, padding: '1px 5px', fontWeight: 800 }}>HQ</span>
+                          : <span title="Tạo tại trạm cục bộ" style={{ fontSize: '.5rem', background: '#f59e0b20', border: '1px solid #f59e0b40', color: '#f59e0b', borderRadius: 0, padding: '1px 5px', fontWeight: 800 }}>CON</span>
                         }
                         {task.title}
                         {isExpanded ? <ChevronUp size={11} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} /> : <ChevronDown size={11} style={{ color: 'var(--admin-text-muted)', flexShrink: 0 }} />}
@@ -5542,7 +5542,7 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
                             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 4, color: 'var(--admin-text-muted)' }}>
                               <span>Loại: <b style={{ color: 'var(--admin-text)' }}>{task.type}</b></span>
                               {task.completedAt && <span>Hoàn thành: <b style={{ color: 'var(--admin-success)' }}>{fmtDateTime(task.completedAt)}</b></span>}
-                              <span>Nguồn: <b style={{ color: isCentral ? '#3b82f6' : '#f59e0b' }}>{isCentral ? 'Giao từ trạm tổng (HQ)' : 'Trạm con tự tạo'}</b></span>
+                              <span>Nguồn: <b style={{ color: isCentral ? '#3b82f6' : '#f59e0b' }}>{isCentral ? 'Giao từ trạm trung tâm (HQ)' : 'Trạm cục bộ tự tạo'}</b></span>
                             </div>
                           </div>
                         </div>
@@ -5562,16 +5562,16 @@ function CentralMaintenanceView({ stations, provinces, teams }: { stations: Stat
           <div style={{ background: 'var(--admin-panel)', border: '1px solid var(--admin-border)', borderRadius: 0, width: 560, maxHeight: '88vh', overflow: 'auto', padding: 24 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
               <Wrench size={16} style={{ color: 'var(--admin-accent)' }} />
-              <h3 style={{ margin: 0, fontSize: '.9rem', fontWeight: 800, color: 'var(--admin-text)' }}>Giao nhiệm vụ bảo trì xuống trạm con</h3>
+              <h3 style={{ margin: 0, fontSize: '.9rem', fontWeight: 800, color: 'var(--admin-text)' }}>Giao nhiệm vụ bảo trì xuống trạm cục bộ</h3>
               <button onClick={() => { setShowCreate(false); resetCreateForm(); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer' }}><X size={16} /></button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
-              {/* Trạm con */}
+              {/* Trạm cục bộ */}
               <div>
-                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Trạm con nhận việc <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
+                <label style={{ display: 'block', fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)', textTransform: 'uppercase' as const, letterSpacing: '.08em', marginBottom: 5 }}>Trạm cục bộ nhận việc <span style={{ color: 'var(--admin-danger)' }}>*</span></label>
                 <select value={cStation} onChange={e => setCStation(e.target.value)} style={{ width: '100%', padding: '7px 10px', background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', borderRadius: 0, color: 'var(--admin-text)', fontSize: '.75rem' }}>
-                  <option value="">— Chọn trạm con —</option>
+                  <option value="">— Chọn trạm cục bộ —</option>
                   {visibleStations.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>

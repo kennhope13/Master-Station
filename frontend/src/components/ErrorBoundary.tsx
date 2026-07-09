@@ -2,6 +2,22 @@ import React from 'react';
 
 interface State { error: Error | null; }
 
+const RECOVERY_FLAG = 'stationos-ui-recovered-once';
+
+function clearBrowserRuntimeCache() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations()
+      .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+      .catch(() => {});
+  }
+
+  if ('caches' in window) {
+    caches.keys()
+      .then(keys => Promise.all(keys.map(key => caches.delete(key))))
+      .catch(() => {});
+  }
+}
+
 export default class ErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
   state: State = { error: null };
 
@@ -11,6 +27,15 @@ export default class ErrorBoundary extends React.Component<{ children: React.Rea
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[ErrorBoundary] Render crash:', error, info.componentStack);
+
+    const canRecover = error.message.includes('Maximum update depth exceeded')
+      && sessionStorage.getItem(RECOVERY_FLAG) !== '1';
+
+    if (canRecover) {
+      sessionStorage.setItem(RECOVERY_FLAG, '1');
+      clearBrowserRuntimeCache();
+      window.setTimeout(() => window.location.reload(), 100);
+    }
   }
 
   render() {

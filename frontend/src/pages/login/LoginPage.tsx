@@ -32,7 +32,7 @@ export default function LoginPage() {
       navigate(resolveNextPath() || '/dashboard', { replace: true });
       return;
     }
-    // Nếu có params tự động đăng nhập từ trạm tổng
+    // Nếu có params tự động đăng nhập từ trạm trung tâm
     const embedUser = params.get('u');
     const embedPass = params.get('p');
     const nextPath = resolveNextPath();

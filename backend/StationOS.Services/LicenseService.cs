@@ -524,7 +524,7 @@ public class LicenseService
         // Dọn dẹp phiên hết hạn trước
         CleanExpiredSessions();
 
-        // Kiểm tra bypass: admin hoặc tài khoản trạm tổng ("multi")
+        // Kiểm tra bypass: admin hoặc tài khoản trạm trung tâm ("multi")
         var isBypass = string.Equals(role, "admin", StringComparison.OrdinalIgnoreCase) 
                     || string.Equals(username, "multi", StringComparison.OrdinalIgnoreCase);
 
@@ -598,7 +598,7 @@ public class LicenseService
         int sensorQuota)
     {
         if (string.IsNullOrWhiteSpace(licenseRequestJson))
-            return (false, "Thiếu .licreq của trạm con", null);
+            return (false, "Thiếu .licreq của trạm cục bộ", null);
 
         if (cameraQuota < 0 || sensorQuota < 0)
             return (false, "Quota camera/sensor phải là số nguyên không âm", null);
@@ -628,7 +628,7 @@ public class LicenseService
         }
         catch (Exception ex)
         {
-            return (false, $"Không đọc được .licreq của trạm con: {ex.Message}", null);
+            return (false, $"Không đọc được .licreq của trạm cục bộ: {ex.Message}", null);
         }
 
         var status = await GetStatusAsync();
@@ -663,7 +663,7 @@ public class LicenseService
         }
         catch (Exception ex)
         {
-            return (false, $"Không thể tạo license cho trạm con: {ex.Message}", null);
+            return (false, $"Không thể tạo license cho trạm cục bộ: {ex.Message}", null);
         }
     }
 
@@ -673,7 +673,7 @@ public class LicenseService
         int sensorQuota)
     {
         if (string.IsNullOrWhiteSpace(_vendorSecret))
-            return (false, "Thiếu VendorSecret để ký license cho trạm con cũ", null);
+            return (false, "Thiếu VendorSecret để ký license cho trạm cục bộ cũ", null);
 
         var licenseId = Guid.NewGuid();
         var issuedAt = DateTime.UtcNow;

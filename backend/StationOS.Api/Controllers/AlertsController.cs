@@ -99,7 +99,7 @@ public class AlertsController : ControllerBase
             })
             .ToListAsync();
 
-        // Lấy thông tin trạm để trả về cho frontend trạm tổng và phân giải URL ảnh/video
+        // Lấy thông tin trạm để trả về cho frontend trạm trung tâm và phân giải URL ảnh/video
         var stationIds = alertsRaw.Select(a => a.StationId).Distinct().ToList();
         var stationsMap = await _db.Stations
             .Where(s => stationIds.Contains(s.Id))

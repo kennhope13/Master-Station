@@ -18,7 +18,7 @@ interface StationStore {
   isLoading: boolean;
   lastFetchedAt: number | null;
   error: string | null;
-  // Global admin drill-down: ID trạm con đang được xem từ màn hình đa trạm
+  // Global admin drill-down: ID trạm cục bộ đang được xem từ màn hình đa trạm
   viewingStationId: string | null;
   fetch: (force?: boolean) => Promise<Station[]>;
   invalidate: () => void;

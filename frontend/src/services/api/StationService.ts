@@ -38,12 +38,12 @@ export class StationService {
     return apiMutate<Station>('POST', '/stations', { name, code, location, apiUrl, webUrl, apiPassword, apiUsername, provinceId, cameraQuota, sensorQuota });
   }
 
-  /** Kiểm tra kết nối tới trạm con. */
+  /** Kiểm tra kết nối tới trạm cục bộ. */
   async testConnection(url: string): Promise<{ reachable: boolean; responseMs: number; error?: string }> {
     return apiMutate('POST', '/stations/test-connection', { url });
   }
 
-  /** Lấy KPI thực từ trạm con (bao gồm devices, alerts, sensor points, health scores). */
+  /** Lấy KPI thực từ trạm cục bộ (bao gồm devices, alerts, sensor points, health scores). */
   async getRemoteKpi(id: string, force = false): Promise<{
     devicesOnline: number;
     devicesTotal: number;
@@ -60,7 +60,7 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-kpi`, force);
   }
 
-  /** Lấy danh sách camera từ trạm con qua proxy master station. */
+  /** Lấy danh sách camera từ trạm cục bộ qua proxy master station. */
   async getRemoteCameras(id: string): Promise<{
     go2rtcBase: string | null;
     rtspBase: string | null;
@@ -69,17 +69,17 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-cameras`);
   }
 
-  /** Lấy JWT token từ trạm con để SSO. */
+  /** Lấy JWT token từ trạm cục bộ để SSO. */
   async getRemoteToken(id: string): Promise<{ token: string }> {
     return apiFetch(`/stations/${id}/remote-token`);
   }
 
-  /** Xuất request string license từ trạm con qua proxy trạm tổng. */
+  /** Xuất request string license từ trạm cục bộ qua proxy trạm trung tâm. */
   async getRemoteLicenseRequest(id: string): Promise<{ request: string; fileName: string }> {
     return apiFetch(`/stations/${id}/remote-license-request`, true);
   }
 
-  /** Nhập file license .lic vào trạm con qua proxy trạm tổng. */
+  /** Nhập file license .lic vào trạm cục bộ qua proxy trạm trung tâm. */
   async importRemoteLicense(id: string, file: File): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
@@ -92,24 +92,24 @@ export class StationService {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ message: res.statusText }));
-      throw new Error(err.message || err.detail || 'Import license trạm con thất bại');
+      throw new Error(err.message || err.detail || 'Import license trạm cục bộ thất bại');
     }
     const data = await res.json();
     clearGetCache();
     return data;
   }
 
-  /** Tạo license theo quota đã cấp và nhập trực tiếp vào trạm con. */
+  /** Tạo license theo quota đã cấp và nhập trực tiếp vào trạm cục bộ. */
   async provisionRemoteLicense(id: string): Promise<any> {
     return apiMutate('POST', `/stations/${id}/remote-license-provision`);
   }
 
-  /** Xóa toàn bộ license đang áp dụng trên trạm con. */
+  /** Xóa toàn bộ license đang áp dụng trên trạm cục bộ. */
   async clearRemoteLicense(id: string): Promise<any> {
     return apiMutate('DELETE', `/stations/${id}/remote-license-clear`);
   }
 
-  /** Proxy danh sách cảnh báo từ trạm con. */
+  /** Proxy danh sách cảnh báo từ trạm cục bộ. */
   async getRemoteAlerts(id: string, opts?: { status?: string; from?: string; to?: string; limit?: number }): Promise<import('@/types/api.types').AlertItem[]> {
     const params = new URLSearchParams();
     if (opts?.status) params.set('status', opts.status);
@@ -119,12 +119,12 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-alerts?${params.toString()}`);
   }
 
-  /** Lấy danh sách người dùng từ trạm con qua proxy master station. */
+  /** Lấy danh sách người dùng từ trạm cục bộ qua proxy master station. */
   async getRemoteUsers(id: string): Promise<UserItem[]> {
     return apiFetch<UserItem[]>(`/stations/${id}/remote-users`);
   }
 
-  /** Proxy audit logs từ trạm con. */
+  /** Proxy audit logs từ trạm cục bộ. */
   async getRemoteAuditLogs(id: string, opts?: { action?: string; entityType?: string; userId?: string; from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').AuditLogEntry[]> {
     const params = new URLSearchParams();
     if (opts?.action) params.set('action', opts.action);
@@ -137,7 +137,7 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-audit-logs?${params.toString()}`);
   }
 
-  /** Proxy login logs từ trạm con. */
+  /** Proxy login logs từ trạm cục bộ. */
   async getRemoteLoginLogs(id: string, opts?: { from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').LoginLogEntry[]> {
     const params = new URLSearchParams();
     if (opts?.from) params.set('from', opts.from);
@@ -147,7 +147,7 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-login-logs?${params.toString()}`);
   }
 
-  /** Proxy notify logs từ trạm con. */
+  /** Proxy notify logs từ trạm cục bộ. */
   async getRemoteNotifyLogs(id: string, opts?: { status?: string; channel?: string; from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').NotifyLogEntry[]> {
     const params = new URLSearchParams();
     if (opts?.status) params.set('status', opts.status);
@@ -159,7 +159,7 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-notify-logs?${params.toString()}`);
   }
 
-  /** Proxy rule trigger logs từ trạm con. */
+  /** Proxy rule trigger logs từ trạm cục bộ. */
   async getRemoteRuleTriggerLogs(id: string, opts?: { ruleId?: string; deviceId?: string; from?: string; to?: string; stationId?: string; limit?: number }): Promise<import('@/types/api.types').RuleTriggerLogEntry[]> {
     const params = new URLSearchParams();
     if (opts?.ruleId) params.set('ruleId', opts.ruleId);
@@ -171,30 +171,30 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-rule-trigger-logs?${params.toString()}`);
   }
 
-  /** Lấy lịch sử dự báo của trạm con qua proxy. */
+  /** Lấy lịch sử dự báo của trạm cục bộ qua proxy. */
   async getRemotePredictionHistory(id: string, params: Record<string, string>): Promise<any> {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`/stations/${id}/remote-prediction-history?${q}`);
   }
 
-  /** Lấy dự báo mới nhất của trạm con qua proxy. */
+  /** Lấy dự báo mới nhất của trạm cục bộ qua proxy. */
   async getRemoteLatestPrediction(id: string, params: Record<string, string>): Promise<any> {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`/stations/${id}/remote-latest-prediction?${q}`);
   }
 
-  /** Lấy trạng thái huấn luyện AI của trạm con qua proxy. */
+  /** Lấy trạng thái huấn luyện AI của trạm cục bộ qua proxy. */
   async getRemoteTrainingStatus(id: string): Promise<any> {
     return apiFetch(`/stations/${id}/remote-training-status`);
   }
 
-  /** Lấy cấu hình dự báo AI của trạm con qua proxy. */
+  /** Lấy cấu hình dự báo AI của trạm cục bộ qua proxy. */
   async getRemotePredictionConfig(id: string, params: Record<string, string>): Promise<any> {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`/stations/${id}/remote-prediction-config?${q}`);
   }
 
-  /** Lấy danh sách sự kiện phát hiện của trạm con qua proxy. */
+  /** Lấy danh sách sự kiện phát hiện của trạm cục bộ qua proxy. */
   async getRemoteDetections(id: string, params: Record<string, string>): Promise<any[]> {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`/stations/${id}/remote-detections?${q}`);

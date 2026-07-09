@@ -31,7 +31,7 @@ public class AuthController : ControllerBase
     private readonly InternalAuthService _internalAuth;
     private readonly IConfiguration _config;
 
-    // Các role chỉ dùng cho trạm con — không được đăng nhập vào trạm tổng
+    // Các role chỉ dùng cho trạm cục bộ — không được đăng nhập vào trạm trung tâm
     private static readonly HashSet<string> StationOnlyRoles = new(StringComparer.OrdinalIgnoreCase)
         { "admin_station", "manager", "operator" };
 
@@ -59,9 +59,9 @@ public class AuthController : ControllerBase
 
         var (token, refreshToken, user) = result.Value;
 
-        // Chặn tài khoản trạm con đăng nhập vào trạm tổng
+        // Chặn tài khoản trạm cục bộ đăng nhập vào trạm trung tâm
         if (_config["StationMode"] == "master" && StationOnlyRoles.Contains(user.Role))
-            return StatusCode(403, new { message = "Tài khoản này chỉ dùng để đăng nhập vào trạm con, không thể đăng nhập vào trạm tổng." });
+            return StatusCode(403, new { message = "Tài khoản này chỉ dùng để đăng nhập vào trạm cục bộ, không thể đăng nhập vào trạm trung tâm." });
 
         // Kiểm tra license: giới hạn concurrent users
         var tokenHash  = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));

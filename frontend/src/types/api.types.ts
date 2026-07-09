@@ -32,11 +32,11 @@ export interface Station {
   /** JSON string từ backend: {"lat": 10.768, "lng": 106.790, "address": "..."} */
   location?: string;
   createdAt?: string;
-  /** URL API của trạm con, ví dụ: http://192.168.1.100:5000 */
+  /** URL API của trạm cục bộ, ví dụ: http://192.168.1.100:5000 */
   apiUrl?: string;
   apiUsername?: string;
   hasApiPassword?: boolean;
-  /** URL giao diện web của trạm con, ví dụ: http://192.168.1.100:4173. Nếu để trống sẽ tự suy từ apiUrl. */
+  /** URL giao diện web của trạm cục bộ, ví dụ: http://192.168.1.100:4173. Nếu để trống sẽ tự suy từ apiUrl. */
   webUrl?: string;
   connectionStatus?: 'online' | 'offline' | 'unknown' | string;
   lastSeenAt?: string;
@@ -178,7 +178,7 @@ export interface AlertItem {
   pointId?: string;       // điểm đo kích hoạt (vd: nhiet_do_pha_1, phong_dien)
   ruleId?: string;
   stationId?: string;     // trạm nguồn phát sinh cảnh báo
-  stationName?: string;   // tên trạm (để hiển thị ở trạm tổng)
+  stationName?: string;   // tên trạm (để hiển thị ở trạm trung tâm)
   triggeredAt: string;
   ackedAt?: string;
   closedAt?: string;

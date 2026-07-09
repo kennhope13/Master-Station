@@ -244,7 +244,7 @@ export default function LicensePage() {
   const getActualResourceCounts = async (): Promise<ResourceCountSummary> => {
     const stations = await stationApi.getStations().catch(() => []);
 
-    // Lấy KPI (boundaries + roiPoints) từ tất cả trạm con có apiUrl song song
+    // Lấy KPI (boundaries + roiPoints) từ tất cả trạm cục bộ có apiUrl song song
     const subStations = stations.filter(s => (s as any).apiUrl);
     const remoteKpis = await Promise.all(
       subStations.map(s => stationApi.getRemoteKpi(s.id).catch(() => null))
@@ -256,7 +256,7 @@ export default function LicensePage() {
     );
     const devices = deviceGroups.flat();
 
-    // Gộp boundaries + roiPoints từ tất cả trạm con
+    // Gộp boundaries + roiPoints từ tất cả trạm cục bộ
     let roi_regions = 0;
     let pd_regions = 0;
     let roi_points = 0;
@@ -267,7 +267,7 @@ export default function LicensePage() {
       roi_points  += (kpi.roiPoints ?? []).length;
     }
 
-    // Fallback sang local DB nếu không lấy được từ trạm con
+    // Fallback sang local DB nếu không lấy được từ trạm cục bộ
     if (roi_regions === 0 && pd_regions === 0 && roi_points === 0) {
       const thermalDevices = devices.filter(isThermalDevice);
       const pdDevices = devices.filter(isPdDevice);
@@ -490,9 +490,9 @@ export default function LicensePage() {
       const stationCode = station?.code || station?.name || 'ChildStation';
       const safeStationCode = stationCode.replace(/[^\w.-]+/g, '_');
       downloadLicenseRequest(data, `${safeStationCode}_Request.licreq`);
-      setImportMsg(`Đã xuất .licreq của trạm con ${station?.name ?? ''}`.trim());
+      setImportMsg(`Đã xuất .licreq của trạm cục bộ ${station?.name ?? ''}`.trim());
     } catch (err: any) {
-      setImportMsg(err?.message ?? 'Lỗi tạo yêu cầu từ trạm con');
+      setImportMsg(err?.message ?? 'Lỗi tạo yêu cầu từ trạm cục bộ');
     } finally {
       setChildRequestLoadingId(null);
     }
@@ -509,9 +509,9 @@ export default function LicensePage() {
     setImportMsg('');
     try {
       const data = await stationApi.importRemoteLicense(station.id, file);
-      setImportMsg(data?.message ?? `Đã nhập license cho trạm con ${station.name}`);
+      setImportMsg(data?.message ?? `Đã nhập license cho trạm cục bộ ${station.name}`);
     } catch (err: any) {
-      setImportMsg(err?.message ?? 'Lỗi nhập license vào trạm con');
+      setImportMsg(err?.message ?? 'Lỗi nhập license vào trạm cục bộ');
     } finally {
       setChildImportLoadingId(null);
     }
@@ -523,8 +523,8 @@ export default function LicensePage() {
       return;
     }
     const ok = await confirmDialog({
-      title: 'Xóa license trạm con',
-      message: `Xóa toàn bộ license đang áp dụng trên trạm con ${station.name}?`,
+      title: 'Xóa license trạm cục bộ',
+      message: `Xóa toàn bộ license đang áp dụng trên trạm cục bộ ${station.name}?`,
       confirmText: 'Xóa license',
       cancelText: 'Hủy',
       danger: true,
@@ -554,9 +554,9 @@ export default function LicensePage() {
         setQuotaDraft({ cameras: '0', sensors: '0' });
       }
       await loadManagedStations();
-      setImportMsg(data?.message ?? `Đã xóa license trạm con ${station.name}`);
+      setImportMsg(data?.message ?? `Đã xóa license trạm cục bộ ${station.name}`);
     } catch (err: any) {
-      setImportMsg(err?.message ?? 'Lỗi xóa license trạm con');
+      setImportMsg(err?.message ?? 'Lỗi xóa license trạm cục bộ');
     } finally {
       setChildClearLoadingId(null);
     }
@@ -604,13 +604,13 @@ export default function LicensePage() {
           const provision = await stationApi.provisionRemoteLicense(station.id);
           setImportMsg(provision?.message ?? `Đã cấp và nhập license cho trạm ${station.name}: ${cameraQuota ?? 0} cam, ${sensorQuota ?? 0} sensor`);
         } catch (provisionErr: any) {
-          setImportMsg(`Đã lưu quota cho trạm ${station.name}, nhưng chưa đẩy được license vào trạm con: ${provisionErr?.message ?? provisionErr}`);
+          setImportMsg(`Đã lưu quota cho trạm ${station.name}, nhưng chưa đẩy được license vào trạm cục bộ: ${provisionErr?.message ?? provisionErr}`);
         }
       } else {
         setImportMsg(`Đã cấp quota cho trạm ${station.name}: ${cameraQuota ?? 0} cam, ${sensorQuota ?? 0} sensor`);
       }
     } catch (err: any) {
-      setImportMsg(err?.message ?? 'Lỗi cấp quota cho trạm con');
+      setImportMsg(err?.message ?? 'Lỗi cấp quota cho trạm cục bộ');
     } finally {
       setQuotaSavingId(null);
     }
@@ -642,7 +642,7 @@ export default function LicensePage() {
 
   const handleClear = async () => {
     const confirmed = await confirmDialog({
-      title: 'Xóa license trạm tổng',
+      title: 'Xóa license trạm trung tâm',
       message: 'Xóa license hiện tại đang áp dụng trên ứng dụng này?',
       confirmText: 'Xóa license',
       cancelText: 'Hủy',
@@ -875,7 +875,7 @@ export default function LicensePage() {
           <div className="license-activate-section" id="activateSection">
             <h3>Kích hoạt Offline Trạm Tổng</h3>
             <p className="license-hint">
-              Xuất mã yêu cầu phần cứng của máy trạm tổng thành file <code>.licreq</code>, sau đó nhập file <code>.lic</code> nhận được cho trạm tổng.
+              Xuất mã yêu cầu phần cứng của máy trạm trung tâm thành file <code>.licreq</code>, sau đó nhập file <code>.lic</code> nhận được cho trạm trung tâm.
             </p>
 
             <div className="license-offline-actions">
@@ -885,7 +885,7 @@ export default function LicensePage() {
                 disabled={loading}
                 id="btnLicenseRequest"
               >
-                {loading ? 'Đang tạo...' : '📋 Xuất .licreq trạm tổng'}
+                {loading ? 'Đang tạo...' : '📋 Xuất .licreq trạm trung tâm'}
               </button>
 
               <span className="license-offline-sep">hoặc</span>
@@ -1007,7 +1007,7 @@ export default function LicensePage() {
     'Chiếm trạm': '1',
     'Camera đã cấp': String(station.cameraQuota ?? 0),
     'Sensor đã cấp': String(station.sensorQuota ?? 0),
-    'API trạm con': station.apiUrl || 'Chưa cấu hình API URL',
+    'API trạm cục bộ': station.apiUrl || 'Chưa cấu hình API URL',
     'Trạng thái': station.apiUrl ? (station.connectionStatus || 'unknown') : 'no api',
   }));
 
@@ -1017,7 +1017,7 @@ export default function LicensePage() {
       alert('Không có dữ liệu để xuất CSV');
       return;
     }
-    const headers = ['Tỉnh', 'Tên trạm', 'Mã trạm', 'Chiếm trạm', 'Camera đã cấp', 'Sensor đã cấp', 'API trạm con', 'Trạng thái'];
+    const headers = ['Tỉnh', 'Tên trạm', 'Mã trạm', 'Chiếm trạm', 'Camera đã cấp', 'Sensor đã cấp', 'API trạm cục bộ', 'Trạng thái'];
     const csv = [headers, ...rows.map(row => headers.map(key => (row as Record<string, string>)[key]))]
       .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n');
@@ -1057,7 +1057,7 @@ export default function LicensePage() {
     autoTable(doc, {
       startY: 72,
       styles: { fontSize: 8, cellPadding: 4 },
-      head: [['Tinh', 'Ten tram', 'Ma tram', 'Tram', 'Camera', 'Sensor', 'API tram con', 'Trang thai']],
+      head: [['Tinh', 'Ten tram', 'Ma tram', 'Tram', 'Camera', 'Sensor', 'API tram cuc bo', 'Trang thai']],
       body: rows.map(row => [
         row['Tỉnh'],
         row['Tên trạm'],
@@ -1065,7 +1065,7 @@ export default function LicensePage() {
         row['Chiếm trạm'],
         row['Camera đã cấp'],
         row['Sensor đã cấp'],
-        row['API trạm con'],
+        row['API trạm cục bộ'],
         row['Trạng thái'],
       ]),
       margin: { left: 24, right: 24 },
@@ -1080,7 +1080,7 @@ export default function LicensePage() {
 
       {childStations.length === 0 ? (
         <div className="license-empty-state">
-          Chưa có trạm con nào trong hệ thống.
+          Chưa có trạm cục bộ nào trong hệ thống.
         </div>
       ) : (
         <>
@@ -1106,7 +1106,7 @@ export default function LicensePage() {
           </div>
           {(() => {
             if (sortedChildLicenseGroups.length === 0) {
-              return <div className="license-empty-state">Không có trạm con nào khớp bộ lọc hiện tại.</div>;
+              return <div className="license-empty-state">Không có trạm cục bộ nào khớp bộ lọc hiện tại.</div>;
             }
 
             return (
@@ -1289,10 +1289,10 @@ export default function LicensePage() {
 
           <div className="license-tabs">
             <button className={activeTab === 'master' ? 'active' : ''} onClick={() => setActiveTab('master')}>
-              Trạm tổng
+              Trạm trung tâm
             </button>
             <button className={activeTab === 'child' ? 'active' : ''} onClick={() => setActiveTab('child')}>
-              Trạm con
+              Trạm cục bộ
             </button>
           </div>
 

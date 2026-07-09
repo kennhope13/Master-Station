@@ -132,7 +132,7 @@ public class StationsController : ControllerBase
         {
             return BadRequest(new
             {
-                message = $"Tổng quota camera cấp xuống các trạm ({nextCameras}) vượt license trạm tổng ({cameraLimit.Max})."
+                message = $"Tổng quota camera cấp xuống các trạm ({nextCameras}) vượt license trạm trung tâm ({cameraLimit.Max})."
             });
         }
 
@@ -140,7 +140,7 @@ public class StationsController : ControllerBase
         {
             return BadRequest(new
             {
-                message = $"Tổng quota sensor/thiết bị đo cấp xuống các trạm ({nextSensors}) vượt license trạm tổng ({sensorLimit.Max})."
+                message = $"Tổng quota sensor/thiết bị đo cấp xuống các trạm ({nextSensors}) vượt license trạm trung tâm ({sensorLimit.Max})."
             });
         }
 
@@ -887,7 +887,7 @@ public class StationsController : ControllerBase
         return null;
     }
 
-    /// <summary>Lấy KPI thực từ trạm con (devices, alerts, points, health).</summary>
+    /// <summary>Lấy KPI thực từ trạm cục bộ (devices, alerts, points, health).</summary>
     [HttpGet("{id}/remote-kpi")]
     public async Task<IActionResult> GetRemoteKpi(Guid id)
     {
@@ -914,7 +914,7 @@ public class StationsController : ControllerBase
             station.LastContactAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
 
-            // 2. Gọi song song 4 endpoint trạm con
+            // 2. Gọi song song 4 endpoint trạm cục bộ
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -924,7 +924,7 @@ public class StationsController : ControllerBase
             var healthTask  = client.GetAsync($"{apiBase}/api/v1/analytics/health");
             await Task.WhenAll(devicesTask, alertsTask, pointsTask, healthTask);
 
-            // Nếu nhận được 401 Unauthorized từ bất kỳ endpoint nào, có thể token đã hết hạn sớm ở trạm con.
+            // Nếu nhận được 401 Unauthorized từ bất kỳ endpoint nào, có thể token đã hết hạn sớm ở trạm cục bộ.
             // Thử login lại 1 lần duy nhất.
             if (devicesTask.Result.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
                 alertsTask.Result.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
@@ -1088,7 +1088,7 @@ public class StationsController : ControllerBase
     }
 
     /// <summary>
-    /// Proxy danh sách cảnh báo từ trạm con — hỗ trợ lọc status, from, to, limit.
+    /// Proxy danh sách cảnh báo từ trạm cục bộ — hỗ trợ lọc status, from, to, limit.
     /// Trả về mảng AlertItem với stationId gắn vào để frontend phân biệt nguồn.
     /// </summary>
     [HttpGet("{id}/remote-alerts")]
@@ -1179,7 +1179,7 @@ public class StationsController : ControllerBase
     }
 
     /// <summary>
-    /// Proxy danh sách người dùng từ trạm con.
+    /// Proxy danh sách người dùng từ trạm cục bộ.
     /// Dùng cho multisite central để hiển thị tài khoản đang tồn tại ở trạm có kết nối.
     /// </summary>
     [HttpGet("{id}/remote-users")]
@@ -1250,7 +1250,7 @@ public class StationsController : ControllerBase
         }
     }
 
-    /// <summary>Proxy audit log từ trạm con.</summary>
+    /// <summary>Proxy audit log từ trạm cục bộ.</summary>
     [HttpGet("{id}/remote-audit-logs")]
     public async Task<IActionResult> GetRemoteAuditLogs(
         Guid id,
@@ -1310,7 +1310,7 @@ public class StationsController : ControllerBase
         }
     }
 
-    /// <summary>Proxy login log từ trạm con.</summary>
+    /// <summary>Proxy login log từ trạm cục bộ.</summary>
     [HttpGet("{id}/remote-login-logs")]
     public async Task<IActionResult> GetRemoteLoginLogs(
         Guid id,
@@ -1364,7 +1364,7 @@ public class StationsController : ControllerBase
         }
     }
 
-    /// <summary>Proxy notify log từ trạm con.</summary>
+    /// <summary>Proxy notify log từ trạm cục bộ.</summary>
     [HttpGet("{id}/remote-notify-logs")]
     public async Task<IActionResult> GetRemoteNotifyLogs(
         Guid id,
@@ -1422,7 +1422,7 @@ public class StationsController : ControllerBase
         }
     }
 
-    /// <summary>Proxy rule trigger log từ trạm con.</summary>
+    /// <summary>Proxy rule trigger log từ trạm cục bộ.</summary>
     [HttpGet("{id}/remote-rule-trigger-logs")]
     public async Task<IActionResult> GetRemoteRuleTriggerLogs(
         Guid id,
@@ -1537,8 +1537,8 @@ public class StationsController : ControllerBase
     }
 
     /// <summary>
-    /// Lấy danh sách camera từ trạm con + URL stream go2rtc của trạm con.
-    /// go2rtc của trạm con chạy port 1984 (WebRTC/HLS) và 8554 (RTSP).
+    /// Lấy danh sách camera từ trạm cục bộ + URL stream go2rtc của trạm cục bộ.
+    /// go2rtc của trạm cục bộ chạy port 1984 (WebRTC/HLS) và 8554 (RTSP).
     /// </summary>
     [HttpGet("{id}/remote-cameras")]
     public async Task<IActionResult> GetRemoteCameras(Guid id)
@@ -1549,7 +1549,7 @@ public class StationsController : ControllerBase
 
         var apiBase = station.ApiUrl.TrimEnd('/');
 
-        // Derive go2rtc URLs từ host của apiUrl (theo tài liệu trạm con: port 1984 WebRTC, 8554 RTSP)
+        // Derive go2rtc URLs từ host của apiUrl (theo tài liệu trạm cục bộ: port 1984 WebRTC, 8554 RTSP)
         var uri       = new Uri(apiBase);
         var go2rtcBase = $"{uri.Scheme}://{uri.Host}:1984";
         var rtspBase   = $"rtsp://{uri.Host}:8554";
@@ -1567,7 +1567,7 @@ public class StationsController : ControllerBase
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            // Lấy tất cả devices vì filter type=camera không đồng nhất giữa các phiên bản trạm con
+            // Lấy tất cả devices vì filter type=camera không đồng nhất giữa các phiên bản trạm cục bộ
             var res = await client.GetAsync($"{apiBase}/api/v1/devices");
             if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
@@ -1594,7 +1594,7 @@ public class StationsController : ControllerBase
                     .Where(d => d.TryGetProperty("type", out var t) && t.GetString()?.StartsWith("camera") == true)
                 : Enumerable.Empty<JsonElement>();
 
-            // Enrich mỗi camera với stream URLs từ go2rtc của trạm con
+            // Enrich mỗi camera với stream URLs từ go2rtc của trạm cục bộ
             var cameras = new List<object>();
             foreach (var d in arr)
             {
@@ -1647,7 +1647,7 @@ public class StationsController : ControllerBase
         }
     }
 
-    /// <summary>Lấy JWT token từ trạm con để SSO (trạm tổng không cần login lại).</summary>
+    /// <summary>Lấy JWT token từ trạm cục bộ để SSO (trạm trung tâm không cần login lại).</summary>
     [HttpGet("{id}/remote-token")]
     public async Task<IActionResult> GetRemoteToken(Guid id)
     {
@@ -1669,7 +1669,7 @@ public class StationsController : ControllerBase
         }
     }
 
-    /// <summary>Xuất mã yêu cầu license từ trạm con qua trạm tổng.</summary>
+    /// <summary>Xuất mã yêu cầu license từ trạm cục bộ qua trạm trung tâm.</summary>
     [HttpGet("{id}/remote-license-request")]
     [HasPermission("license:manage")]
     public async Task<IActionResult> GetRemoteLicenseRequest(Guid id)
@@ -1677,7 +1677,7 @@ public class StationsController : ControllerBase
         return await ProxyGetToStationAsync(id, "/api/v1/license/request");
     }
 
-    /// <summary>Nhập file license vào trạm con qua trạm tổng.</summary>
+    /// <summary>Nhập file license vào trạm cục bộ qua trạm trung tâm.</summary>
     [HttpPost("{id}/remote-license-import")]
     [HasPermission("license:manage")]
     public async Task<IActionResult> ImportRemoteLicense(Guid id, [FromForm] IFormFile file)
@@ -1688,7 +1688,7 @@ public class StationsController : ControllerBase
         return await ProxyLicenseImportToStationAsync(id, file);
     }
 
-    /// <summary>Tạo license theo quota đã cấp và đẩy trực tiếp vào trạm con.</summary>
+    /// <summary>Tạo license theo quota đã cấp và đẩy trực tiếp vào trạm cục bộ.</summary>
     [HttpPost("{id}/remote-license-provision")]
     [HasPermission("license:manage")]
     public async Task<IActionResult> ProvisionRemoteLicense(Guid id)
@@ -1696,7 +1696,7 @@ public class StationsController : ControllerBase
         return await ProvisionLicenseToStationAsync(id);
     }
 
-    /// <summary>Xóa toàn bộ license đang áp dụng trên trạm con.</summary>
+    /// <summary>Xóa toàn bộ license đang áp dụng trên trạm cục bộ.</summary>
     [HttpDelete("{id}/remote-license-clear")]
     [HasPermission("license:manage")]
     public async Task<IActionResult> ClearRemoteLicense(Guid id)
@@ -1725,7 +1725,7 @@ public class StationsController : ControllerBase
         return result;
     }
 
-    /// <summary>Kiểm tra kết nối tới trạm con qua ApiUrl.</summary>
+    /// <summary>Kiểm tra kết nối tới trạm cục bộ qua ApiUrl.</summary>
     [HttpPost("test-connection")]
     [HasPermission("station:manage")]
     public async Task<IActionResult> TestConnection([FromBody] StationPingRequest req)
@@ -1838,7 +1838,7 @@ public class StationsController : ControllerBase
                 return new ContentResult
                 {
                     Content = string.IsNullOrWhiteSpace(body)
-                        ? JsonSerializer.Serialize(new { message = $"Đã xóa license trạm con {station.Name}" })
+                        ? JsonSerializer.Serialize(new { message = $"Đã xóa license trạm cục bộ {station.Name}" })
                         : body,
                     ContentType = "application/json",
                     StatusCode = (int)resp.StatusCode
@@ -1921,7 +1921,7 @@ public class StationsController : ControllerBase
         var cameraQuota = station.CameraQuota ?? 0;
         var sensorQuota = station.SensorQuota ?? 0;
         if (cameraQuota <= 0 && sensorQuota <= 0)
-            return BadRequest(new { message = "Chưa cấp quota camera/sensor cho trạm con" });
+            return BadRequest(new { message = "Chưa cấp quota camera/sensor cho trạm cục bộ" });
 
         var apiBase = station.ApiUrl.TrimEnd('/');
 
@@ -1971,7 +1971,7 @@ public class StationsController : ControllerBase
             }
 
             if (string.IsNullOrWhiteSpace(licenseRequest))
-                return StatusCode(502, new { message = "Trạm con không trả về .licreq hợp lệ" });
+                return StatusCode(502, new { message = "Trạm cục bộ không trả về .licreq hợp lệ" });
 
             var generated = await _license.CreateChildBaseLicenseAsync(licenseRequest, cameraQuota, sensorQuota);
             if (!generated.success || string.IsNullOrWhiteSpace(generated.licenseJson))

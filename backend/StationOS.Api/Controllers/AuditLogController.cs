@@ -149,7 +149,7 @@ public class AuditLogController : ControllerBase
             : new Dictionary<Guid, Guid>();
 
         var mappedLogs = logs.Select(l => {
-            // Ưu tiên StationId đã được set sẵn (ví dụ: log được đẩy từ trạm con qua IngestController)
+            // Ưu tiên StationId đã được set sẵn (ví dụ: log được đẩy từ trạm cục bộ qua IngestController)
             Guid? resolvedStationId = l.StationId;
             if (resolvedStationId == null)
             {
