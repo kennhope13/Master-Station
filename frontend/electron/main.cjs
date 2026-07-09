@@ -23,7 +23,7 @@ const BIN_PATHS = {
   go2rtc: IS_PACKAGED ? path.join(RESOURCES_PATH, 'go2rtc', 'go2rtc.exe') : path.join(DEV_ROOT, 'go2rtc', 'go2rtc.exe'),
 };
 
-const DATA_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'StationOS');
+const DATA_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'MasterStation');
 const PG_DATA_DIR = path.join(DATA_DIR, 'pg_data');
 const BACKEND_PORT = 5000;
 const PG_PORT = 5432;
@@ -298,7 +298,7 @@ async function createWindow() {
     resizable: true,
     center: true,
     backgroundColor: '#0f172a',
-    title: 'Hệ Thống Giám Sát — Station Monitor (Thick Client)',
+    title: 'Hệ Thống Giám Sát Trung Tâm — Master Station (Thick Client)',
     darkTheme: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -328,7 +328,7 @@ async function createWindow() {
     </head>
     <body>
       <div class="spinner"></div>
-      <h2>Station Monitor đang khởi động</h2>
+      <h2>Master Station đang khởi động</h2>
       <div id="status">Vui lòng chờ...</div>
       <script>
         function updateStatus(msg) { document.getElementById('status').innerText = msg; }

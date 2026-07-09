@@ -1,5 +1,5 @@
-appId: com.stationmonitor.desktop
-productName: Station Monitor
+appId: com.masterstation.desktop
+productName: Master Station
 directories:
   output: dist-electron
 files:
