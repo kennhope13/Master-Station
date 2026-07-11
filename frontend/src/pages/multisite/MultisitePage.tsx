@@ -3677,15 +3677,6 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
 
   useEffect(() => {
     loadLogs();
-
-    const handleLogChanged = () => {
-      loadLogs();
-    };
-
-    window.addEventListener('auditlog:changed', handleLogChanged);
-    return () => {
-      window.removeEventListener('auditlog:changed', handleLogChanged);
-    };
   }, [loadLogs]);
 
 
@@ -3928,6 +3919,17 @@ function CentralLogView({ stations, provinces, teams }: { stations: Station[]; p
         />
 
         <div style={{ flex: 1 }} />
+
+        <button
+          type="button"
+          onClick={loadLogs}
+          disabled={loading}
+          title="Làm mới dữ liệu"
+          aria-label="Làm mới nhật ký hệ thống"
+          style={{ width: 28, height: 26, padding: 0, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text-muted)', borderRadius: 0, cursor: loading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', opacity: loading ? .65 : 1 }}
+        >
+          <RefreshCw size={12} style={loading ? { animation: 'crv-spin 1s linear infinite' } : {}} />
+        </button>
 
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
@@ -4405,7 +4407,50 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
     try {
       const from = dates.from ? new Date(dates.from).toISOString() : undefined;
       const to = dates.to ? new Date(dates.to + 'T23:59:59').toISOString() : undefined;
-      const data = await stationApi.getAlerts(status || undefined, from, to, 500, stationId || undefined);
+
+      // Nhật ký trung tâm phải đọc trực tiếp lịch sử của các trạm con, không
+      // chỉ dựa vào bảng Alerts đã đồng bộ (có thể thiếu khi mạng gián đoạn).
+      let targetStations = visibleStations;
+      if (stationId) {
+        targetStations = visibleStations.filter(s => s.id === stationId);
+      } else {
+        if (provinceId) targetStations = targetStations.filter(s => s.provinceId === provinceId);
+        if (filterTeam) {
+          const teamStationIds = new Set(visibleTeams.find(t => t.id === filterTeam)?.stationIds || []);
+          targetStations = targetStations.filter(s => teamStationIds.has(s.id));
+        }
+      }
+
+      const centralRequest = stationApi.getAlerts(
+        status || undefined, from, to, 10_000, stationId || undefined
+      );
+      const remoteRequests = targetStations
+        .filter(s => !!s.apiUrl)
+        .map(s => stationApi.getRemoteAlerts(s.id, {
+          status: status || undefined,
+          from,
+          to,
+          limit: 10_000,
+        }));
+
+      const [centralResult, ...remoteResults] = await Promise.allSettled([
+        centralRequest,
+        ...remoteRequests,
+      ]);
+
+      // Dữ liệu trực tiếp từ trạm con ghi đè bản đã đồng bộ nếu trùng ID vì
+      // nó có trạng thái/ảnh/video mới nhất. Trạm offline vẫn dùng bản trung tâm.
+      const merged = new Map<string, AlertItem>();
+      if (centralResult.status === 'fulfilled') {
+        centralResult.value.forEach(a => merged.set(a.id, a));
+      }
+      remoteResults.forEach(result => {
+        if (result.status === 'fulfilled') {
+          result.value.forEach(a => merged.set(a.id, a));
+        }
+      });
+      const data = Array.from(merged.values())
+        .sort((a, b) => new Date(b.triggeredAt).getTime() - new Date(a.triggeredAt).getTime());
       
       let filteredData = data;
       // Filter by role-based visible stations
@@ -4729,6 +4774,16 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
         </div>
 
         <div style={{ flex: 1 }} />
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading}
+          title="Làm mới dữ liệu"
+          aria-label="Làm mới nhật ký cảnh báo"
+          style={{ width: 28, height: 26, padding: 0, border: '1px solid var(--admin-border)', background: 'var(--admin-layer-2)', color: 'var(--admin-text-muted)', borderRadius: 0, cursor: loading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', opacity: loading ? .65 : 1 }}
+        >
+          <RefreshCw size={12} style={loading ? { animation: 'crv-spin 1s linear infinite' } : {}} />
+        </button>
         <div ref={downloadDropdownRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setDownloadDropdownOpen(v => !v)}
@@ -4847,7 +4902,7 @@ function CentralAlertsHistoryView({ stations, provinces, teams }: { stations: St
             </tr>
           </thead>
           <tbody>
-            {loading ? (
+            {loading && alerts.length === 0 ? (
               <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--admin-text-muted)' }}>Đang tải...</td></tr>
             ) : filtered.length === 0 ? (
               <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--admin-text-muted)', opacity: .5 }}>Không có dữ liệu cảnh báo</td></tr>

@@ -268,7 +268,7 @@ public class StationsController : ControllerBase
         var stations = await q
             .OrderBy(s => s.Name)
             .Select(s => new {
-                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.ApiUsername, s.ApiPassword, s.WebUrl, s.LastContactAt, s.CameraQuota, s.SensorQuota, s.ProvinceId
+                s.Id, s.Name, s.Code, s.Location, s.Status, s.CreatedAt, s.ApiUrl, s.ApiUsername, s.ApiPassword, s.WebUrl, s.LastContactAt, s.ConnectionStatus, s.ConnectionStatusChangedAt, s.CameraQuota, s.SensorQuota, s.ProvinceId
             }).ToListAsync();
 
         var stationIds = stations.Select(s => s.Id).ToList();
@@ -290,8 +290,6 @@ public class StationsController : ControllerBase
             .Select(g => new { StationId = g.Key, LastSeenAt = (DateTime?)g.Max(x => x.DetectedAt) })
             .ToDictionaryAsync(x => x.StationId, x => x.LastSeenAt);
 
-        var threshold = DateTime.UtcNow.AddSeconds(-45);
-
         return Ok(stations.Select(s =>
         {
             var lastSeenAt = new[]
@@ -304,9 +302,7 @@ public class StationsController : ControllerBase
 
             var connectionStatus = string.IsNullOrWhiteSpace(s.ApiUrl)
                 ? "unknown"
-                : s.LastContactAt.HasValue && s.LastContactAt.Value >= threshold
-                    ? "online"
-                    : "offline";
+                : s.ConnectionStatus;
 
             return new
             {
@@ -321,6 +317,7 @@ public class StationsController : ControllerBase
                 hasApiPassword = !string.IsNullOrWhiteSpace(s.ApiPassword),
                 webUrl = s.WebUrl ?? DeriveWebUrl(s.ApiUrl),
                 connectionStatus,
+                connectionStatusChangedAt = s.ConnectionStatusChangedAt,
                 lastSeenAt,
                 s.CameraQuota,
                 s.SensorQuota,
@@ -1099,9 +1096,42 @@ public class StationsController : ControllerBase
         [FromQuery] DateTime? to,
         [FromQuery] int limit = 200)
     {
+        limit = Math.Clamp(limit, 1, 10_000);
         var station = await _db.Stations.FindAsync(id);
-        if (station == null || string.IsNullOrWhiteSpace(station.ApiUrl))
-            return Ok(Array.Empty<object>());
+        if (station == null)
+            return NotFound(new { message = "Không tìm thấy trạm con" });
+
+        // Khi trạm con tạm mất kết nối, vẫn trả các cảnh báo mà trạm tổng đã
+        // nhận qua /ingest/alerts. Nhờ vậy nhật ký không biến thành danh sách
+        // rỗng chỉ vì kết nối trực tiếp đang gián đoạn.
+        async Task<IActionResult> GetSyncedAlertsAsync(string reason)
+        {
+            var query = _db.Alerts.AsNoTracking().Where(a => a.StationId == id);
+            if (!string.IsNullOrEmpty(status)) query = query.Where(a => a.Status == status);
+            if (from.HasValue) query = query.Where(a => a.TriggeredAt >= from.Value);
+            if (to.HasValue) query = query.Where(a => a.TriggeredAt <= to.Value);
+
+            var synced = await query
+                .OrderByDescending(a => a.TriggeredAt)
+                .Take(limit)
+                .Select(a => new
+                {
+                    a.Id, a.Source, a.Level, a.Status, a.Message, a.Value,
+                    a.DeviceId, a.RuleId, a.StationId,
+                    stationName = station.Name,
+                    a.TriggeredAt, a.AckedAt, a.ClosedAt, a.AckNote,
+                    a.ImageUrl, a.VideoUrl, a.ThumbnailUrl,
+                })
+                .ToListAsync();
+
+            _logger.LogWarning(
+                "[RemoteAlerts] Dùng dữ liệu đã đồng bộ của trạm {StationId}; lý do: {Reason}; số bản ghi: {Count}",
+                id, reason, synced.Count);
+            return Ok(synced);
+        }
+
+        if (string.IsNullOrWhiteSpace(station.ApiUrl))
+            return await GetSyncedAlertsAsync("Trạm chưa cấu hình ApiUrl");
 
         var apiBase = station.ApiUrl.TrimEnd('/');
 
@@ -1109,7 +1139,7 @@ public class StationsController : ControllerBase
         {
             var token = await GetOrFetchTokenAsync(station, apiBase);
             if (string.IsNullOrEmpty(token))
-                return Ok(Array.Empty<object>());
+                return await GetSyncedAlertsAsync("Không xác thực được với trạm con");
 
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -1126,12 +1156,14 @@ public class StationsController : ControllerBase
             if (res.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
                 token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
-                if (string.IsNullOrEmpty(token)) return Ok(Array.Empty<object>());
+                if (string.IsNullOrEmpty(token))
+                    return await GetSyncedAlertsAsync("Token trạm con hết hạn và không thể cấp lại");
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
                 res = await client.GetAsync($"{apiBase}/api/v1/alerts?{qs}");
             }
 
-            if (!res.IsSuccessStatusCode) return Ok(Array.Empty<object>());
+            if (!res.IsSuccessStatusCode)
+                return await GetSyncedAlertsAsync($"Trạm con trả HTTP {(int)res.StatusCode}");
 
             var json = await res.Content.ReadFromJsonAsync<JsonElement>();
             var arr = json.ValueKind == JsonValueKind.Array ? json
@@ -1139,7 +1171,8 @@ public class StationsController : ControllerBase
                     : json.TryGetProperty("data",  out var data)  ? data
                     : default;
 
-            if (arr.ValueKind != JsonValueKind.Array) return Ok(Array.Empty<object>());
+            if (arr.ValueKind != JsonValueKind.Array)
+                return await GetSyncedAlertsAsync("Phản hồi trạm con không đúng định dạng danh sách");
 
             // Gắn thêm stationId và stationName vào mỗi alert để frontend nhận biết nguồn
             string? ResolveUrl(string? path)
@@ -1172,9 +1205,9 @@ public class StationsController : ControllerBase
 
             return Ok(result);
         }
-        catch
+        catch (Exception ex)
         {
-            return Ok(Array.Empty<object>());
+            return await GetSyncedAlertsAsync(ex.Message);
         }
     }
 

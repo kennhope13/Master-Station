@@ -116,7 +116,9 @@ export class StationService {
     if (opts?.from)   params.set('from', opts.from);
     if (opts?.to)     params.set('to', opts.to);
     if (opts?.limit)  params.set('limit', String(opts.limit));
-    return apiFetch(`/stations/${id}/remote-alerts?${params.toString()}`);
+    // Nhật ký cảnh báo phải phản ánh dữ liệu hiện tại của trạm con; không dùng
+    // GET cache vì thao tác làm mới và sự kiện realtime cần tải lại ngay.
+    return apiFetch(`/stations/${id}/remote-alerts?${params.toString()}`, true);
   }
 
   /** Lấy danh sách người dùng từ trạm cục bộ qua proxy master station. */

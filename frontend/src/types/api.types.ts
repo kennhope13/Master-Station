@@ -39,6 +39,7 @@ export interface Station {
   /** URL giao diện web của trạm cục bộ, ví dụ: http://192.168.1.100:4173. Nếu để trống sẽ tự suy từ apiUrl. */
   webUrl?: string;
   connectionStatus?: 'online' | 'offline' | 'unknown' | string;
+  connectionStatusChangedAt?: string;
   lastSeenAt?: string;
   cameraQuota?: number | null;
   sensorQuota?: number | null;

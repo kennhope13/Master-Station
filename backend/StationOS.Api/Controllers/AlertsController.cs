@@ -64,6 +64,7 @@ public class AlertsController : ControllerBase
         [FromQuery] DateTime? to,
         [FromQuery] int limit = 200)
     {
+        limit = Math.Clamp(limit, 1, 10_000);
         var q = _db.Alerts.AsQueryable();
 
         var allowed = await _permissions.GetAllowedStationIdsAsync();

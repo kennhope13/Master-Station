@@ -51,6 +51,8 @@ public static class DbInitializer
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ApiUsername"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ApiPassword"" text;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""WebUrl"" text;");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ConnectionStatus"" text NOT NULL DEFAULT 'unknown';");
+        await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""ConnectionStatusChangedAt"" timestamp with time zone;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""LastContactAt"" timestamptz;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""CameraQuota"" integer;");
         await db.Database.ExecuteSqlRawAsync(@"ALTER TABLE ""Stations"" ADD COLUMN IF NOT EXISTS ""SensorQuota"" integer;");

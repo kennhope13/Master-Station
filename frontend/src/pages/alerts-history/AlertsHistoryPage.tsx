@@ -70,10 +70,10 @@ export default function AlertsHistoryPage() {
           status: filterStatus || undefined,
           from,
           to,
-          limit: 200,
+          limit: 10_000,
         });
       } else {
-        data = await stationApi.getAlerts(filterStatus || undefined, from, to, 200, stationId);
+        data = await stationApi.getAlerts(filterStatus || undefined, from, to, 10_000, stationId);
       }
       setAlerts(data);
     } catch (e) { console.error(e); } finally { setLoading(false); }

@@ -26,7 +26,7 @@ const BIN_PATHS = {
 const DATA_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'MasterStation');
 const PG_DATA_DIR = path.join(DATA_DIR, 'pg_data');
 const LOG_DIR = path.join(DATA_DIR, 'logs');
-const BACKEND_PORT = 5000;
+const BACKEND_PORT = 6000;
 const PG_PORT = 6432;
 
 if (!fs.existsSync(LOG_DIR)) {
@@ -386,7 +386,7 @@ async function createWindow() {
         await mainWindow.loadURL(LOCAL_UI_URL);
     } else {
         // Fallback if built file is missing in dev
-        await mainWindow.loadURL(`http://localhost:5173`);
+        await mainWindow.loadURL(`http://localhost:6173`);
     }
   } catch (err) {
     console.error("Failed to load UI:", err);

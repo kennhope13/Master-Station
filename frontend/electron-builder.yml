@@ -3,8 +3,9 @@ productName: Master Station
 directories:
   output: dist-electron
 files:
-  - electron/**/*
-  - thin-client-ui/**/*
+  - dist/**/*
+  - electron/main.cjs
+  - electron/preload.cjs
   - package.json
 extraResources:
   - from: ../backend_published/win-x64
@@ -29,5 +30,7 @@ win:
     - nsis
 nsis:
   oneClick: false
+  perMachine: true
   allowToChangeInstallationDirectory: true
   shortcutName: "Master Station"
+  include: build/installer.nsh

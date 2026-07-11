@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -14,10 +13,8 @@ public class StationConnectionMonitorWorker : BackgroundService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IRealtimeNotifier _notifier;
     private readonly ILogger<StationConnectionMonitorWorker> _logger;
-    private readonly ConcurrentDictionary<Guid, string> _lastStatusByStation = new();
-
-    private const int StartupDelayMs = 3_000;
-    private const int IntervalMs = 5_000;
+    private const int StartupDelayMs = 500;
+    private const int IntervalMs = 2_000;
     public StationConnectionMonitorWorker(
         IServiceScopeFactory scopeFactory,
         IHttpClientFactory httpClientFactory,
@@ -54,32 +51,41 @@ public class StationConnectionMonitorWorker : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var stations = await db.Stations
+        var stationIds = await db.Stations
             .Where(s => s.Status == "active" && s.ApiUrl != null && s.ApiUrl != "")
+            .Select(s => s.Id)
             .ToListAsync(ct);
 
-        foreach (var station in stations)
-        {
-            var (status, reason) = await ProbeStationAsync(station.ApiUrl!, ct);
-            var lastSeenAt = await GetLastSeenAtAsync(db, station.Id, ct);
+        // Mỗi trạm có scope/DbContext riêng để một trạm timeout không làm chậm
+        // việc phát hiện mất/kết nối lại của các trạm còn lại.
+        await Task.WhenAll(stationIds.Select(id => CheckStationAsync(id, ct)));
+    }
 
-            if (status == "online")
-            {
-                var observedAt = DateTime.UtcNow;
-                if (!station.LastContactAt.HasValue || observedAt > station.LastContactAt.Value)
-                {
-                    station.LastContactAt = observedAt;
-                    await db.SaveChangesAsync(ct);
-                }
-            }
+    private async Task CheckStationAsync(Guid stationId, CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var station = await db.Stations.FindAsync([stationId], ct);
+        if (station?.ApiUrl == null) return;
 
-            if (_lastStatusByStation.TryGetValue(station.Id, out var previous) && previous == status)
-                continue;
+        var (status, reason) = await ProbeStationAsync(station.ApiUrl, ct);
+        var previousStatus = station.ConnectionStatus;
+        var statusChanged = !string.Equals(previousStatus, status, StringComparison.OrdinalIgnoreCase);
+        var observedAt = DateTime.UtcNow;
 
-            _lastStatusByStation[station.Id] = status;
-            _logger.LogInformation("[StationMonitor] {Name} => {Status} ({Reason})", station.Name, status, reason ?? "n/a");
-            await _notifier.SendStationStatusAsync(station.Id, status, lastSeenAt, reason);
-        }
+        if (status == "online")
+            station.LastContactAt = observedAt;
+
+        station.ConnectionStatus = status;
+        if (statusChanged)
+            station.ConnectionStatusChangedAt = observedAt;
+
+        await db.SaveChangesAsync(ct);
+
+        if (!statusChanged) return;
+
+        _logger.LogInformation("[StationMonitor] {Name} => {Status} ({Reason})", station.Name, status, reason ?? "n/a");
+        await _notifier.SendStationStatusAsync(station.Id, status, station.LastContactAt, reason);
     }
 
     private async Task<(string Status, string? Reason)> ProbeStationAsync(string apiUrl, CancellationToken ct)
@@ -98,20 +104,4 @@ public class StationConnectionMonitorWorker : BackgroundService
         }
     }
 
-    private static async Task<DateTime?> GetLastSeenAtAsync(AppDbContext db, Guid stationId, CancellationToken ct)
-    {
-        var lastSensor = await db.SensorReadings
-            .Where(x => x.StationId == stationId)
-            .MaxAsync(x => (DateTime?)x.Time, ct);
-
-        var lastAlert = await db.Alerts
-            .Where(x => x.StationId == stationId)
-            .MaxAsync(x => (DateTime?)x.TriggeredAt, ct);
-
-        var lastEvent = await db.DetectionEvents
-            .Where(x => x.StationId == stationId)
-            .MaxAsync(x => (DateTime?)x.DetectedAt, ct);
-
-        return new[] { lastSensor, lastAlert, lastEvent }.Max();
-    }
 }
