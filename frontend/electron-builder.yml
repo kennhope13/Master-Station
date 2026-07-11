@@ -33,4 +33,4 @@ nsis:
   perMachine: true
   allowToChangeInstallationDirectory: true
   shortcutName: "Master Station"
-  include: build/installer.nsh
+  include: electron/installer.nsh
