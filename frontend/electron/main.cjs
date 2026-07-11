@@ -4,10 +4,13 @@ const fs = require('fs');
 const os = require('os');
 const { exec, spawn } = require('child_process');
 const http = require('http');
+const https = require('https');
 
 let mainWindow = null;
 let servicesStarted = false;
 let watchdogInterval = null;
+let localUiServer = null;
+let localUiPort = null;
 
 // ==========================================
 // THICK CLIENT ARCHITECTURE CONFIG
@@ -312,6 +315,156 @@ async function stopAllServices() {
 
 
 // ==========================================
+// LOCAL HTTP UI SERVER (Serves React UI & Proxies API/WS to Backend on port 6000)
+// ==========================================
+function getMimeType(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.html': return 'text/html; charset=utf-8';
+    case '.js': return 'application/javascript; charset=utf-8';
+    case '.css': return 'text/css; charset=utf-8';
+    case '.json': return 'application/json; charset=utf-8';
+    case '.svg': return 'image/svg+xml';
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.ico': return 'image/x-icon';
+    case '.woff2': return 'font/woff2';
+    default: return 'application/octet-stream';
+  }
+}
+
+function pipeProxy(req, res, targetBase) {
+  const url = new URL(req.url, targetBase);
+  const client = url.protocol === 'https:' ? https : http;
+  const proxyReq = client.request(url, {
+    method: req.method,
+    headers: req.headers,
+  }, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on('error', (err) => {
+    res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(`Proxy error: ${err.message}`);
+  });
+  req.pipe(proxyReq);
+}
+
+function startLocalUiServer() {
+  if (localUiServer) return Promise.resolve(localUiPort);
+
+  const distDir = path.join(app.getAppPath(), 'dist');
+  if (!fs.existsSync(distDir)) {
+    throw new Error(`Không tìm thấy frontend dist tại ${distDir}`);
+  }
+
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      const reqUrl = req.url || '/';
+
+      if (reqUrl.startsWith('/api/') || reqUrl.startsWith('/media/') || reqUrl.startsWith('/ws/')) {
+        pipeProxy(req, res, `http://127.0.0.1:${BACKEND_PORT}`);
+        return;
+      }
+      if (reqUrl === '/ai-api' || reqUrl.startsWith('/ai-api/')) {
+        req.url = reqUrl.replace(/^\/ai-api/, '');
+        pipeProxy(req, res, 'http://127.0.0.1:9100');
+        return;
+      }
+      if (reqUrl.startsWith('/pd-monitor/')) {
+        pipeProxy(req, res, 'http://127.0.0.1:9100');
+        return;
+      }
+
+      const safePath = decodeURIComponent(reqUrl.split('?')[0] || '/');
+      const requested = safePath === '/' ? 'index.html' : safePath.replace(/^\/+/, '');
+      let filePath = path.join(distDir, requested);
+
+      if (!filePath.startsWith(distDir)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Forbidden');
+        return;
+      }
+
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        filePath = path.join(distDir, 'index.html');
+      }
+
+      fs.readFile(filePath, (err, data) => {
+        if (err) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Not found');
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': getMimeType(filePath), 'Cache-Control': 'no-cache' });
+        res.end(data);
+      });
+    });
+
+    server.on('upgrade', (req, socket, head) => {
+      const reqUrl = req.url || '/';
+      if (reqUrl.startsWith('/ws/')) {
+        const targetUrl = new URL(reqUrl, `http://127.0.0.1:${BACKEND_PORT}`);
+        const options = {
+          port: BACKEND_PORT,
+          host: '127.0.0.1',
+          path: targetUrl.pathname + targetUrl.search,
+          headers: req.headers,
+          method: req.method || 'GET'
+        };
+
+        const proxyReq = http.request(options);
+        proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+          socket.write(
+            `HTTP/1.1 101 Switching Protocols\r\n` +
+            Object.keys(proxyRes.headers)
+              .map(key => `${key}: ${proxyRes.headers[key]}`)
+              .join('\r\n') +
+            '\r\n\r\n'
+          );
+
+          if (proxyHead && proxyHead.length > 0) {
+            socket.write(proxyHead);
+          }
+
+          proxySocket.on('error', (err) => {
+            console.error(`[ProxySocket Error] ${err.message}`);
+            socket.destroy();
+          });
+          socket.on('error', (err) => {
+            console.error(`[Socket Error] ${err.message}`);
+            proxySocket.destroy();
+          });
+
+          proxySocket.pipe(socket);
+          socket.pipe(proxySocket);
+        });
+
+        proxyReq.on('error', (err) => {
+          console.error(`[WS Proxy Error] ${err.message}`);
+          socket.end();
+        });
+
+        if (head && head.length > 0) {
+          proxyReq.write(head);
+        }
+        proxyReq.end();
+      } else {
+        socket.end();
+      }
+    });
+
+    server.on('error', reject);
+    server.listen(4173, '0.0.0.0', () => {
+      localUiServer = server;
+      localUiPort = 4173;
+      resolve(localUiPort);
+    });
+  });
+}
+
+// ==========================================
 // ELECTRON WINDOW MANAGEMENT
 // ==========================================
 
@@ -377,16 +530,27 @@ async function createWindow() {
   await startAllServices(mainWindow.webContents);
 
   // Load the Local UI (Vite dev server or built frontend)
-  const LOCAL_UI_URL = process.env.VITE_DEV_SERVER_URL || `file://${path.join(__dirname, '..', 'dist', 'index.html')}`;
+  let targetUrl = process.env.VITE_DEV_SERVER_URL;
+  if (!targetUrl) {
+    if (fs.existsSync(path.join(__dirname, '..', 'dist', 'index.html'))) {
+      try {
+        await startLocalUiServer();
+        targetUrl = `http://127.0.0.1:4173`;
+      } catch (err) {
+        console.error("Failed to start local UI server, falling back to direct loadFile:", err);
+        targetUrl = null;
+      }
+    } else {
+      // Fallback if built file is missing in dev
+      targetUrl = `http://localhost:6173`;
+    }
+  }
   
   try {
-    if (!process.env.VITE_DEV_SERVER_URL && fs.existsSync(path.join(__dirname, '..', 'dist', 'index.html'))) {
-        await mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
-    } else if (process.env.VITE_DEV_SERVER_URL) {
-        await mainWindow.loadURL(LOCAL_UI_URL);
+    if (targetUrl) {
+        await mainWindow.loadURL(targetUrl);
     } else {
-        // Fallback if built file is missing in dev
-        await mainWindow.loadURL(`http://localhost:6173`);
+        await mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
     }
   } catch (err) {
     console.error("Failed to load UI:", err);
@@ -446,12 +610,20 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', async () => {
+  if (localUiServer) {
+    try { localUiServer.close(); } catch {}
+    localUiServer = null;
+  }
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 app.on('before-quit', async (e) => {
+  if (localUiServer) {
+    try { localUiServer.close(); } catch {}
+    localUiServer = null;
+  }
   if (servicesStarted) {
     e.preventDefault();
     await stopAllServices();
