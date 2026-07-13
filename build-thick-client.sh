@@ -19,6 +19,12 @@ cd "$ROOT_DIR"
 echo "[1/5] Building Backend (.NET 8)..."
 dotnet publish backend/StationOS.Api/StationOS.Api.csproj -c Release -r win-x64 --self-contained true -o backend_published/win-x64
 
+echo "Cleaning up unnecessary backend published files..."
+rm -rf backend_published/win-x64/wwwroot/media
+rm -rf backend_published/win-x64/wwwroot/detections
+rm -rf backend_published/win-x64/wwwroot/videos
+rm -rf backend_published/win-x64/wwwroot/reports
+
 echo ""
 echo "[2/5] Preparing Portable Binaries..."
 # 2.1 PostgreSQL Portable
@@ -31,6 +37,13 @@ if [ ! -d "pg_portable" ]; then
 else
     echo "Da ton tai pg_portable."
 fi
+
+echo "Cleaning up pg_portable administrative tools and debug symbols..."
+rm -rf "pg_portable/pgAdmin 4"
+rm -rf pg_portable/symbols
+rm -rf pg_portable/doc
+rm -rf pg_portable/include
+rm -rf pg_portable/StackBuilder
 
 # 2.2 go2rtc
 if [ ! -f "go2rtc/go2rtc.exe" ]; then

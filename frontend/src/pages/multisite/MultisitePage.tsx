@@ -555,12 +555,9 @@ export default function MultisitePage() {
   const devicesByStation = useDeviceStore(s => s.devicesByStation);
   const fetchDevices = useDeviceStore(s => s.fetch);
 
-  // Auto-login as multi if no token, then fetch data
+  // Fetch data on mount
   useEffect(() => {
     const init = async () => {
-      if (!authService.getToken()) {
-        try { await authService.login('multi', 'Demo@2024'); } catch { /* ignore */ }
-      }
       setIsAuthReady(true);
       try { fetchStations(); } catch { /* ignore */ }
       try { fetchAlerts(ALERT_STATUS.OPEN); } catch { /* ignore */ }

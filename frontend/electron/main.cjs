@@ -31,6 +31,8 @@ const PG_DATA_DIR = path.join(DATA_DIR, 'pg_data');
 const LOG_DIR = path.join(DATA_DIR, 'logs');
 const BACKEND_PORT = 6000;
 const PG_PORT = 6432;
+const LOCAL_UI_PORT = 6173;
+const PIDS_FILE = path.join(DATA_DIR, 'pids.json');
 
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -49,6 +51,58 @@ function writeLog(file, data) {
 function logOrchestrator(msg, type = 'INFO') {
   console.log(`[Orchestrator][${type}]: ${msg}`);
   writeLog('orchestrator.log', `[${type}] ${msg}`);
+}
+
+function readSavedPids() {
+  try {
+    if (fs.existsSync(PIDS_FILE)) {
+      return JSON.parse(fs.readFileSync(PIDS_FILE, 'utf8'));
+    }
+  } catch (err) {
+    logOrchestrator(`Failed to read PIDs file: ${err.message}`, 'WARNING');
+  }
+  return {};
+}
+
+function savePid(key, pid) {
+  try {
+    const pids = readSavedPids();
+    if (pid) {
+      pids[key] = pid;
+    } else {
+      delete pids[key];
+    }
+    fs.writeFileSync(PIDS_FILE, JSON.stringify(pids, null, 2), 'utf8');
+  } catch (err) {
+    logOrchestrator(`Failed to save PID for ${key}: ${err.message}`, 'WARNING');
+  }
+}
+
+async function killPid(pid) {
+  if (!pid) return;
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      exec(`taskkill /F /PID ${pid} /T`, () => resolve());
+    } else {
+      exec(`kill -9 ${pid}`, () => resolve());
+    }
+  });
+}
+
+async function killOldPostgres() {
+  const pidFile = path.join(PG_DATA_DIR, 'postmaster.pid');
+  if (fs.existsSync(pidFile)) {
+    try {
+      const content = fs.readFileSync(pidFile, 'utf8');
+      const pid = parseInt(content.split('\n')[0].trim(), 10);
+      if (pid && !isNaN(pid)) {
+        logOrchestrator(`Found old postmaster PID ${pid}, killing...`);
+        await killPid(pid);
+      }
+    } catch (err) {
+      logOrchestrator(`Failed to read postmaster.pid: ${err.message}`, 'WARNING');
+    }
+  }
 }
 
 // Active process handles
@@ -74,10 +128,25 @@ async function killProcessByName(name) {
 
 async function cleanupOldServices() {
   logOrchestrator('Cleaning up old services...');
-  await killProcessByName('StationOS.Api.exe');
-  await killProcessByName('go2rtc.exe');
-  await killProcessByName('postgres.exe');
-  await killProcessByName('pg_ctl.exe');
+  const pids = readSavedPids();
+  
+  if (pids.backend) {
+    logOrchestrator(`Killing old backend process with PID ${pids.backend}...`);
+    await killPid(pids.backend);
+    savePid('backend', null);
+  }
+  if (pids.go2rtc) {
+    logOrchestrator(`Killing old go2rtc process with PID ${pids.go2rtc}...`);
+    await killPid(pids.go2rtc);
+    savePid('go2rtc', null);
+  }
+
+  await killOldPostgres();
+  
+  const pidFile = path.join(PG_DATA_DIR, 'postmaster.pid');
+  if (fs.existsSync(pidFile)) {
+    try { fs.unlinkSync(pidFile); } catch (e) {}
+  }
 }
 
 async function initializeDatabase() {
@@ -170,6 +239,8 @@ function startBackend() {
     env: { ...process.env, ASPNETCORE_URLS: `http://localhost:${BACKEND_PORT}` }
   });
 
+  savePid('backend', processes.backend.pid);
+
   processes.backend.stdout.on('data', data => {
     writeLog('backend.log', data);
   });
@@ -180,6 +251,7 @@ function startBackend() {
   processes.backend.on('close', code => {
     logOrchestrator(`Backend exited with code ${code}`);
     processes.backend = null;
+    savePid('backend', null);
   });
 }
 
@@ -196,6 +268,8 @@ function startGo2RTC() {
     cwd: path.dirname(BIN_PATHS.go2rtc),
   });
 
+  savePid('go2rtc', processes.go2rtc.pid);
+
   processes.go2rtc.stdout.on('data', data => {
     writeLog('go2rtc.log', data);
   });
@@ -206,6 +280,7 @@ function startGo2RTC() {
   processes.go2rtc.on('close', code => {
     logOrchestrator(`go2rtc exited with code ${code}`);
     processes.go2rtc = null;
+    savePid('go2rtc', null);
   });
 }
 
@@ -238,7 +313,7 @@ async function watchdogLoop() {
   const dbAlive = await checkDbAlive();
   if (!dbAlive) {
     logOrchestrator('Watchdog: DB is down, restarting PostgreSQL...', 'WARNING');
-    await killProcessByName('postgres.exe');
+    await killOldPostgres();
     await startPostgres();
   }
   
@@ -456,9 +531,9 @@ function startLocalUiServer() {
     });
 
     server.on('error', reject);
-    server.listen(4173, '0.0.0.0', () => {
+    server.listen(LOCAL_UI_PORT, '0.0.0.0', () => {
       localUiServer = server;
-      localUiPort = 4173;
+      localUiPort = LOCAL_UI_PORT;
       resolve(localUiPort);
     });
   });
@@ -508,18 +583,108 @@ async function createWindow() {
       <meta charset="UTF-8">
       <title>Đang khởi động...</title>
       <style>
-        body { background: #0f172a; color: white; font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        #status { font-size: 1.1rem; color: #94a3b8; }
+        body {
+          background: #1a1c1e;
+          color: #e1e2e1;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          margin: 0;
+          overflow: hidden;
+          position: relative;
+        }
+        .grid {
+          position: absolute; inset: -40px;
+          background-image:
+            linear-gradient(rgba(245,158,11,0.06) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(245,158,11,0.06) 1px, transparent 1px);
+          background-size: 40px 40px;
+          animation: gridScroll 30s linear infinite;
+          pointer-events: none;
+          z-index: 1;
+        }
+        @keyframes gridScroll {
+          from { transform: translateY(0); }
+          to   { transform: translateY(40px); }
+        }
+        .card {
+          position: relative;
+          width: 380px;
+          padding: 40px;
+          background: #24272a;
+          border: 1px solid #33373b;
+          box-shadow: 0 0 0 1px rgba(245,158,11,0.06), 0 24px 60px rgba(0,0,0,0.6);
+          text-align: center;
+          z-index: 2;
+        }
+        .card::before {
+          content: '';
+          position: absolute; top: 0; left: 0; right: 0; height: 2px;
+          background: #f59e0b;
+        }
+        .corner {
+          position: absolute;
+          width: 12px; height: 12px;
+          border-color: #f59e0b;
+          border-style: solid;
+          opacity: 0.5;
+        }
+        .corner--tl { top: -1px; left: -1px;   border-width: 2px 0 0 2px; }
+        .corner--tr { top: -1px; right: -1px;   border-width: 2px 2px 0 0; }
+        .corner--bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+        .corner--br { bottom: -1px; right: -1px;border-width: 0 2px 2px 0; }
+        .spinner {
+          width: 48px;
+          height: 48px;
+          border: 3px solid rgba(245,158,11,0.1);
+          border-left-color: #f59e0b;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 24px;
+        }
+        @keyframes spin {
+          100% { transform: rotate(360deg); }
+        }
+        h2 {
+          margin: 0 0 10px;
+          font-size: 16px;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 2px;
+          color: #e1e2e1;
+        }
+        h2 span {
+          color: #f59e0b;
+        }
+        #status {
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 1.5px;
+          color: #8c9196;
+          margin-top: 15px;
+          padding-top: 15px;
+          border-top: 1px solid #33373b;
+        }
       </style>
     </head>
     <body>
-      <div class="spinner"></div>
-      <h2>Master Station đang khởi động</h2>
-      <div id="status">Vui lòng chờ...</div>
+      <div class="grid"></div>
+      <div class="card">
+        <span class="corner corner--tl"></span>
+        <span class="corner corner--tr"></span>
+        <span class="corner corner--bl"></span>
+        <span class="corner corner--br"></span>
+        <div class="spinner"></div>
+        <h2>Master<span>Station</span></h2>
+        <div id="status">Vui lòng chờ...</div>
+      </div>
       <script>
-        function updateStatus(msg) { document.getElementById('status').innerText = msg; }
+        function updateStatus(msg) {
+          document.getElementById('status').innerText = msg;
+        }
       </script>
     </body>
     </html>
@@ -535,7 +700,7 @@ async function createWindow() {
     if (fs.existsSync(path.join(__dirname, '..', 'dist', 'index.html'))) {
       try {
         await startLocalUiServer();
-        targetUrl = `http://127.0.0.1:4173`;
+        targetUrl = `http://127.0.0.1:${LOCAL_UI_PORT}`;
       } catch (err) {
         console.error("Failed to start local UI server, falling back to direct loadFile:", err);
         targetUrl = null;

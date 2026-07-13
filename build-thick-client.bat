@@ -21,6 +21,12 @@ if %ERRORLEVEL% NEQ 0 (
     pause & exit /b 1
 )
 
+echo Cleaning up unnecessary backend published files...
+if exist "backend_published\win-x64\wwwroot\media" rd /s /q "backend_published\win-x64\wwwroot\media"
+if exist "backend_published\win-x64\wwwroot\detections" rd /s /q "backend_published\win-x64\wwwroot\detections"
+if exist "backend_published\win-x64\wwwroot\videos" rd /s /q "backend_published\win-x64\wwwroot\videos"
+if exist "backend_published\win-x64\wwwroot\reports" rd /s /q "backend_published\win-x64\wwwroot\reports"
+
 echo.
 echo [2/5] Preparing Portable Binaries...
 REM 2.1 PostgreSQL Portable
@@ -33,6 +39,13 @@ if not exist "pg_portable" (
 ) else (
     echo Da ton tai pg_portable.
 )
+
+echo Cleaning up pg_portable administrative tools and debug symbols...
+if exist "pg_portable\pgAdmin 4" rd /s /q "pg_portable\pgAdmin 4"
+if exist "pg_portable\symbols" rd /s /q "pg_portable\symbols"
+if exist "pg_portable\doc" rd /s /q "pg_portable\doc"
+if exist "pg_portable\include" rd /s /q "pg_portable\include"
+if exist "pg_portable\StackBuilder" rd /s /q "pg_portable\StackBuilder"
 
 REM 2.2 go2rtc
 if not exist "go2rtc\go2rtc.exe" (
