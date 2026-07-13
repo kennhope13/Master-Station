@@ -508,18 +508,108 @@ async function createWindow() {
       <meta charset="UTF-8">
       <title>Đang khởi động...</title>
       <style>
-        body { background: #0f172a; color: white; font-family: system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1); border-left-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        #status { font-size: 1.1rem; color: #94a3b8; }
+        body {
+          background: #1a1c1e;
+          color: #e1e2e1;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          margin: 0;
+          overflow: hidden;
+          position: relative;
+        }
+        .grid {
+          position: absolute; inset: -40px;
+          background-image:
+            linear-gradient(rgba(245,158,11,0.06) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(245,158,11,0.06) 1px, transparent 1px);
+          background-size: 40px 40px;
+          animation: gridScroll 30s linear infinite;
+          pointer-events: none;
+          z-index: 1;
+        }
+        @keyframes gridScroll {
+          from { transform: translateY(0); }
+          to   { transform: translateY(40px); }
+        }
+        .card {
+          position: relative;
+          width: 380px;
+          padding: 40px;
+          background: #24272a;
+          border: 1px solid #33373b;
+          box-shadow: 0 0 0 1px rgba(245,158,11,0.06), 0 24px 60px rgba(0,0,0,0.6);
+          text-align: center;
+          z-index: 2;
+        }
+        .card::before {
+          content: '';
+          position: absolute; top: 0; left: 0; right: 0; height: 2px;
+          background: #f59e0b;
+        }
+        .corner {
+          position: absolute;
+          width: 12px; height: 12px;
+          border-color: #f59e0b;
+          border-style: solid;
+          opacity: 0.5;
+        }
+        .corner--tl { top: -1px; left: -1px;   border-width: 2px 0 0 2px; }
+        .corner--tr { top: -1px; right: -1px;   border-width: 2px 2px 0 0; }
+        .corner--bl { bottom: -1px; left: -1px; border-width: 0 0 2px 2px; }
+        .corner--br { bottom: -1px; right: -1px;border-width: 0 2px 2px 0; }
+        .spinner {
+          width: 48px;
+          height: 48px;
+          border: 3px solid rgba(245,158,11,0.1);
+          border-left-color: #f59e0b;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 24px;
+        }
+        @keyframes spin {
+          100% { transform: rotate(360deg); }
+        }
+        h2 {
+          margin: 0 0 10px;
+          font-size: 16px;
+          font-weight: 900;
+          text-transform: uppercase;
+          letter-spacing: 2px;
+          color: #e1e2e1;
+        }
+        h2 span {
+          color: #f59e0b;
+        }
+        #status {
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 1.5px;
+          color: #8c9196;
+          margin-top: 15px;
+          padding-top: 15px;
+          border-top: 1px solid #33373b;
+        }
       </style>
     </head>
     <body>
-      <div class="spinner"></div>
-      <h2>Master Station đang khởi động</h2>
-      <div id="status">Vui lòng chờ...</div>
+      <div class="grid"></div>
+      <div class="card">
+        <span class="corner corner--tl"></span>
+        <span class="corner corner--tr"></span>
+        <span class="corner corner--bl"></span>
+        <span class="corner corner--br"></span>
+        <div class="spinner"></div>
+        <h2>Master<span>Station</span></h2>
+        <div id="status">Vui lòng chờ...</div>
+      </div>
       <script>
-        function updateStatus(msg) { document.getElementById('status').innerText = msg; }
+        function updateStatus(msg) {
+          document.getElementById('status').innerText = msg;
+        }
       </script>
     </body>
     </html>

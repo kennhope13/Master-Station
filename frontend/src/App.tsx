@@ -107,10 +107,10 @@ export default function App() {
           {/* Trang đăng nhập — không cần xác thực */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* Trạm trung tâm — không cần đăng nhập, tự auto-login */}
-          <Route path="/multisite" element={<MultisitePage />} />
-          <Route path="/live-camera" element={<LiveCameraPopup />} />
-          <Route path="/live-wall" element={<LiveWallPopup />} />
+          {/* Trạm trung tâm */}
+          <Route path="/multisite" element={<ProtectedRoute><MultisitePage /></ProtectedRoute>} />
+          <Route path="/live-camera" element={<ProtectedRoute><LiveCameraPopup /></ProtectedRoute>} />
+          <Route path="/live-wall" element={<ProtectedRoute><LiveWallPopup /></ProtectedRoute>} />
 
           {/* AppShell bọc toàn bộ layout (sidebar + header + content) */}
           <Route path="/" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
