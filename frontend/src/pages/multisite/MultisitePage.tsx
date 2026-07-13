@@ -1113,9 +1113,22 @@ export default function MultisitePage() {
       : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
     tileLayerRef.current = L.tileLayer(tileUrl).addTo(map);
 
-    const timer = setTimeout(() => map.invalidateSize(), 500);
+    // Invalidate size at multiple intervals to ensure Leaflet renders correctly when returning
+    const timers = [
+      setTimeout(() => map.invalidateSize(), 100),
+      setTimeout(() => map.invalidateSize(), 500),
+      setTimeout(() => map.invalidateSize(), 1000),
+      setTimeout(() => map.invalidateSize(), 2000),
+    ];
+
+    const handleResize = () => {
+      map.invalidateSize();
+    };
+    window.addEventListener('resize', handleResize);
+
     return () => {
-      clearTimeout(timer);
+      timers.forEach(clearTimeout);
+      window.removeEventListener('resize', handleResize);
       try {
         map.closePopup?.();
         map.eachLayer?.((layer: any) => {
@@ -1724,6 +1737,7 @@ export default function MultisitePage() {
                       <button
                         onClick={() => {
                           setShowUserDropdown(false);
+                          sessionStorage.setItem('license_return_url', window.location.pathname + window.location.search);
                           navigate('/license');
                         }}
                         style={{

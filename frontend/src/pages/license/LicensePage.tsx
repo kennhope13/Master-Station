@@ -8,6 +8,7 @@ import { authService } from '@/services/AuthService';
 import { stationApi } from '@/services/StationApiService';
 import { useRealtime } from '@/hooks/useRealtime';
 import { confirmDialog } from '@/utils/confirm';
+import { isCentralUser } from '@/utils/centralAccess';
 import type { Device, Province, Station } from '@/types/api.types';
 import './LicensePage.css';
 
@@ -199,6 +200,22 @@ function isSensorDevice(device: Device) {
 
 export default function LicensePage() {
   const navigate = useNavigate();
+  const handleBack = () => {
+    const returnUrl = sessionStorage.getItem('license_return_url');
+    if (returnUrl) {
+      sessionStorage.removeItem('license_return_url');
+      navigate(returnUrl);
+    } else if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      const user = authService.getUser();
+      if (isCentralUser(user)) {
+        navigate('/multisite');
+      } else {
+        navigate('/dashboard');
+      }
+    }
+  };
   const refreshTimerRef = useRef<number | null>(null);
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
@@ -1281,7 +1298,7 @@ export default function LicensePage() {
               <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
             <div className="license-title-row">
-              <button className="btn-license-back" onClick={() => navigate(-1)} title="Quay lại">←</button>
+              <button className="btn-license-back" onClick={handleBack} title="Quay lại">←</button>
               <h1>Quản lý License</h1>
             </div>
             <p>Kích hoạt bản quyền phần mềm StationMonitor</p>
