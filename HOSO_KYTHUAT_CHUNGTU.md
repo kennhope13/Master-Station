@@ -63,36 +63,34 @@ Tài liệu này xác định chi tiết các chức năng hệ thống cung c�
 ## II. CÔNG ĐOẠN PHÂN TÍCH & THIẾT KẾ
 
 ### 1. Sơ đồ kiến trúc hệ thống (Architecture Diagram)
-Hệ thống Master Station được đóng gói dưới dạng **Thick Client (All-in-One)**. Các cổng mạng dịch vụ được thiết lập độc lập so với Trạm con:
+Hệ thống Master Station được đóng gói dưới dạng **Thick Client (All-in-One)**. Các cổng mạng dịch vụ được thiết lập độc lập so với Trạm con.
 
-```mermaid
-graph TD
-    subgraph Client [Tầng Giao Diện - Electron Container]
-        A[React UI - Single Page App]
-        A1[Electron Main Process - Port: 6173]
-    end
+![Sơ đồ kiến trúc hệ thống Master Station](/home/admin-/Desktop/Master-Station/docs-project/diagrams/architecture_diagram.png)
 
-    subgraph Service [Tầng Dịch Vụ - Chạy Ngầm]
-        B[ASP.NET Core Web API - Port: 6000]
-        C[go2rtc Streaming Engine - Port: 1984]
-    end
+### 2. Sơ đồ Use Case (Use Case Diagram)
+Phân tích các tác vụ và vai trò tương tác giữa các tài khoản người dùng và hệ thống Master Station:
 
-    subgraph Database [Tầng Dữ Liệu]
-        D[PostgreSQL Database - Port: 6432]
-    end
+![Sơ đồ Use Case hệ thống](/home/admin-/Desktop/Master-Station/docs-project/diagrams/usecase_diagram.png)
 
-    A -- "HTTP / WebSocket (SignalR)" --> B
-    A -- "WebRTC Stream" --> C
-    A1 -- "Orchestration & PID Tracking" --> B
-    A1 -- "Orchestration & PID Tracking" --> C
-    A1 -- "Orchestration & PID Tracking" --> D
-    B -- "EF Core / Npgsql" --> D
-    B -- "REST Client / Ping" --> E[Hệ thống API Trạm con]
-    C -- "RTSP Connection" --> F[Camera an ninh / Camera nhiệt tại các trạm]
-```
+### 3. Sơ đồ lớp (Class Diagram)
+Mô tả cấu trúc thực thể và quan hệ logic giữa các đối tượng trong mã nguồn:
 
-### 2. Sơ đồ cơ sở dữ liệu chi tiết (Database Schema)
-Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục vụ quản lý tập trung:
+![Sơ đồ lớp UML](/home/admin-/Desktop/Master-Station/docs-project/diagrams/class_diagram.png)
+
+### 4. Sơ đồ hoạt động (Activity Diagram)
+Mô tả quy trình xử lý dữ liệu đồng bộ song song từ các trạm con về màn hình giám sát trung tâm:
+
+![Sơ đồ hoạt động](/home/admin-/Desktop/Master-Station/docs-project/diagrams/activity_diagram.png)
+
+### 5. Sơ đồ trạng thái (State Diagram)
+Mô tả sự chuyển đổi trạng thái kết nối của trạm con và vòng đời của sự cố cảnh báo:
+
+![Sơ đồ trạng thái](/home/admin-/Desktop/Master-Station/docs-project/diagrams/state_diagram.png)
+
+### 6. Sơ đồ cơ sở dữ liệu chi tiết (Database ERD Diagram)
+Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục vụ quản lý tập trung.
+
+![Sơ đồ mối quan hệ cơ sở dữ liệu ERD](/home/admin-/Desktop/Master-Station/docs-project/diagrams/erd_diagram.png)
 
 #### Bảng `Users` (Thông tin tài khoản và phạm vi quản lý)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
@@ -195,20 +193,206 @@ Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục 
 
 ## III. CÔNG ĐOẠN LẬP TRÌNH & VIẾT MÃ NGUỒN
 
-### 1. Nhật ký lập trình (Commit Log / Git Log)
-Lịch sử commit kiểm soát mã nguồn dự án Master Station:
-```text
-7a72c18 - kennhope13 : bump(version): 3.0.13
-c2bc5c7 - kennhope13 : fix(ui): resolve layout and styling leaks/glitches when returning from License page to Multisite dashboard
-95bccad - kennhope13 : chore: clean up pg_portable and backend wwwroot to optimize installer size
-e822ce7 - kennhope13 : fix: resolve central monitor branding and startup freeze on loadscreen
-c6a34f7 - kennhope13 : fix: relocate installer.nsh to non-ignored electron directory and bump version to 3.0.9
-5ad2b54 - kennhope13 : chore: bump version to 3.0.8
-a80d2e8 - kennhope13 : feat: configure Master Station thick client packaging and sync legacy vendor secret
-9494e5c - kennhope13 : fix: correct go2rtc download check and backend extraResources path, bump version to 3.0.7
-6a585e9 - kennhope13 : feat: configure custom icon, port 6432, file logging, and bump version to 3.0.6
-3316095 - kennhope13 : feat: rename app to Master Station to prevent conflicts with Station Monitor
-```
+### 1. Nhật ký lập trình đầy đủ (Git Commit Log)
+Dưới đây là toàn bộ nhật ký kiểm soát mã nguồn lịch sử phát triển của dự án Master Station:
+
+* 08e4a06 - kennhope13, 18 hours ago : docs: generate and commit HOSO_KYTHUAT_CHUNGTU.docx
+* f0400a5 - kennhope13, 18 hours ago : docs: expand technical profile with exhaustive details, schemas, and test matrices
+* 16c7fc9 - kennhope13, 18 hours ago : docs: add software production technical profile (HOSO_KYTHUAT_CHUNGTU.md)
+* 7a72c18 - kennhope13, 19 hours ago : bump(version): 3.0.13
+* c2bc5c7 - kennhope13, 19 hours ago : fix(ui): resolve layout and styling leaks/glitches when returning from License page to Multisite dashboard
+* 95bccad - kennhope13, 24 hours ago : chore: clean up pg_portable and backend wwwroot to optimize installer size
+* e822ce7 - kennhope13, 3 days ago : fix: resolve central monitor branding and startup freeze on loadscreen
+* c6a34f7 - kennhope13, 3 days ago : fix: relocate installer.nsh to non-ignored electron directory and bump version to 3.0.9
+* 5ad2b54 - kennhope13, 3 days ago : chore: bump version to 3.0.8
+* a80d2e8 - kennhope13, 3 days ago : feat: configure Master Station thick client packaging and sync legacy vendor secret
+* 9494e5c - kennhope13, 5 days ago : fix: correct go2rtc download check and backend extraResources path, bump version to 3.0.7
+* 6a585e9 - kennhope13, 5 days ago : feat: configure custom icon, port 6432, file logging, and bump version to 3.0.6
+* 3316095 - kennhope13, 5 days ago : feat: rename app to Master Station to prevent conflicts with Station Monitor
+* cfba0bb - kennhope13, 5 days ago : chore: bump version to 3.0.4 and add GITHUB_TOKEN permissions
+* f81f9d6 - kennhope13, 5 days ago : chore: bump version to 3.0.3
+* d2d0427 - kennhope13, 5 days ago : chore: bump version to 3.0.2
+* 37ec6f3 - kennhope13, 5 days ago : chore: remove old build-thin-client.bat
+* 7bc7a84 - kennhope13, 5 days ago : feat: apply Thick Client All-in-One architecture for Master Station
+* 230c95f - kennhope13, 6 days ago : fix license và thêm license cho trạm con
+* 10de561 - kennhope13, 7 days ago : feat: fix station monitor and license
+* 2619b2d - kennhope13, 10 days ago : fix(license): implement license and sensor limit validation and UI updates
+* 2edda7c - kennhope13, 10 days ago : feat: implement real-time synchronization for devices, audit logs, and maintenance tasks upon ingestion
+* f5d4136 - kennhope13, 10 days ago : feat: remove delete license button and explanation text from UI
+* 3ea1cb9 - kennhope13, 10 days ago : style(multisite): wrap selected station detail body in scrollable container and remove stray text
+* f6d356a - kennhope13, 10 days ago : style(multisite): overhaul station panels layout to full height and integrate collapse & back navigation into headers
+* 7e9dbe1 - kennhope13, 10 days ago : style(multisite): make user profile dropdown menu solid background instead of transparent
+* 3abe468 - kennhope13, 10 days ago : fix(sync): resolve EF Core tracking conflicts for duplicate ingest items in same batch
+* 601def2 - kennhope13, 10 days ago : fix(frontend): bypass sessionStorage cache for device list and remote kpis on refresh
+* fbf951d - kennhope13, 11 days ago : fix: resolve province matching and license check on station registration
+* 202dcc6 - kennhope13, 12 days ago : fix license
+* 52c5b5c - kennhope13, 3 weeks ago : feat: implement remote station daily pd and thermal history queries via proxy API and match styling
+* b75666a - kennhope13, 3 weeks ago : feat: modernize central analytics dashboard by replacing leaflet map with fleet diagnostic grid
+* 594d523 - kennhope13, 3 weeks ago : Simplify date filter: single native date picker for multisite logs
+* b2aeeb6 - kennhope13, 3 weeks ago : style: hide old/new value column in audit change details table based on action
+* 10655b8 - kennhope13, 3 weeks ago : style: convert audit config changes into structured table, translate field labels and format ISO date strings
+* b955ed4 - kennhope13, 3 weeks ago : feat: convert system logs detail panel to centered modal overlay matching alert details
+* 62271be - kennhope13, 3 weeks ago : style: left-align alert message text inside detail modal
+* 1376fdf - kennhope13, 3 weeks ago : style: center modal header and details, set border radius to 0, and use system colors for alert details
+* c1a18d2 - kennhope13, 3 weeks ago : style: enhance alert detail modal aesthetics and key-value alignment
+* a841ce8 - kennhope13, 3 weeks ago : feat: show alert details in a centered modal dialog with a dimmed background overlay
+* b227508 - kennhope13, 3 weeks ago : fix: group filter labels and dropdowns in alert history to prevent layout issues
+* a25b9bc - kennhope13, 3 weeks ago : feat: remove per-station summary strip (THEO TRẠM) from Central System Logs
+* 3e891e6 - kennhope13, 3 weeks ago : style: center Xóa cấu hình title text in preset delete confirmation dialog
+* 3d49b52 - kennhope13, 3 weeks ago : feat: remove search bar from Central System Logs view toolbar
+* ba14534 - kennhope13, 3 weeks ago : feat: add BẢO TRÌ category mapping for maintenance alerts in dashboard AlertPanel
+* b229f5d - kennhope13, 3 weeks ago : style: change default calendar picker display text to Lịch
+* b55b3da - kennhope13, 3 weeks ago : feat: add team filter to central alerts history view
+* c22ecd0 - kennhope13, 3 weeks ago : feat: standardize multisite export utility with consolidated CSV/PDF dropdown and optimize filters
+* bb2e48a - kennhope13, 3 weeks ago : feat: support commercial package license key format with right-to-left parsing
+* a37b465 - kennhope13, 3 weeks ago : Fix license activation frontend bug, refine demo limits UI text, and add database initializer upgrades
+* 9405a85 - kennhope13, 3 weeks ago : Fix license activation check to treat any successful 2xx API response as success
+* 9c65296 - kennhope13, 3 weeks ago : Update license page UI in demo mode to show unlimited users and default resource limit of 10
+* bb6e997 - kennhope13, 3 weeks ago : Change wording from 'tối đa 10' to 'mặc định là 10' in license page warning
+* 76cdf93 - kennhope13, 3 weeks ago : Enforce default limit of 10 for unlicensed mode on stations, devices, and boundaries with backend validation
+* cddd744 - kennhope13, 3 weeks ago : feat: add STATION-MONITOR-ENTERPRISE-UNLIMITED master key support and apply_license.py activator script
+* 81ac5d0 - kennhope13, 3 weeks ago : feat: integrate license resource limits validation, resolve session limits, and fix UI redirection to license page
+* 5f4def7 - kennhope13, 3 weeks ago : Add permanent delete user, fix province dropdown dark theme, fix Tay Ninh station province
+* cd07899 - kennhope13, 3 weeks ago : Fix province permission: restrict station CRUD to assigned provinces only
+* eed066c - kennhope13, 4 weeks ago : Add province and location validation to station creation
+* 34f37a9 - kennhope13, 4 weeks ago : docs: revert local station admin credentials back to stationadmin/Station@123
+* 615136f - kennhope13, 4 weeks ago : docs: standardize default substation admin credentials to admin/Admin@123 in doc files
+* d63139a - kennhope13, 4 weeks ago : fix: simplify LaTeX table headers to resolve alignment issues
+* a3594b3 - kennhope13, 4 weeks ago : fix: resolve vertical alignment issues in longtable by replacing itemize environment
+* 8e853ae - kennhope13, 4 weeks ago : fix: drop STT column and resolve header alignment issues in LaTeX table
+* 4d7ffea - kennhope13, 4 weeks ago : fix: resolve table horizontal overflow by reducing cell padding and column widths
+* b7d758d - kennhope13, 4 weeks ago : docs: expand LaTeX table with detailed descriptions and adjust page layout margins
+* c4cc309 - kennhope13, 4 weeks ago : fix: adjust LaTeX longtable column widths to fit layout page margins
+* ff05fe2 - kennhope13, 4 weeks ago : fix: escape underscores and fix tikz library name in LaTeX file
+* f205a81 - kennhope13, 4 weeks ago : docs: add T5 fontenc package to LaTeX document for correct Vietnamese rendering
+* de835e3 - kennhope13, 4 weeks ago : docs: create LaTeX version of system RBAC documentation with TikZ diagram
+* 99c5d00 - kennhope13, 4 weeks ago : docs: add Mermaid tree diagram representing the 4-tier hierarchy to PhanQuyenHeThong.md
+* 5cb8588 - kennhope13, 4 weeks ago : refactor: simplify default seed accounts to the core 4 admin levels
+* e15d46a - kennhope13, 4 weeks ago : refactor: update seed scopes for default accounts to match RBAC guidelines
+* d3fff06 - kennhope13, 4 weeks ago : security: delete 'admin' user from Central database for security
+* c5ddbfa - kennhope13, 4 weeks ago : docs: add passwords of default accounts to RBAC table
+* 74b8fbf - kennhope13, 4 weeks ago : docs: add RBAC system permissions documentation table
+* cd463f7 - kennhope13, 4 weeks ago : feat: implement real-time synchronization for users and teams using SignalR on 18-06-2026
+* e9517f3 - kennhope13, 4 weeks ago : feat: hệ thống phân quyền động checklist, admin tỉnh/trạm, form 2 cột rộng - 17/06/2026
+* c758d52 - kennhope13, 4 weeks ago : feat: multisite proxy fixes 2026-06-17
+* 42404dc - kennhope13, 4 weeks ago : chore: save current multisite back button adjustments
+* 59cb4e4 - kennhope13, 4 weeks ago : feat: fix analytics data loading, remote station token caching, plc simulation cache key format
+* 9e6a193 - kennhope13, 4 weeks ago : UI improvements: modernize industrial buttons, refine dashboard toolbar, enhance login page, and simplify map back button
+* 38fcd62 - kennhope13, 5 weeks ago : feat: redesign login page, add child station URL + connectivity check, remove fake station seed
+* b25307d - admin, 5 weeks ago : feat: integrate multi-station overview, optimize telemetry ingestion cache, and update station monitoring config
+* f8800c1 - admin, 5 weeks ago : revert: restore child station analytics layout to its original style
+* f8b31ff - admin, 5 weeks ago : feat: integrate central/multisite monitoring station configurations and layouts
+* bc42c00 - admin, 5 weeks ago : fix: make Tauri commands async to prevent thread blocks on navigation
+* 842c74e - admin, 5 weeks ago : fix: bypass connection health checks in connection manager to avoid hang
+* a3f11f5 - admin, 5 weeks ago : feat: simplify thin client login page, focus on local/localhost connections
+* 81b2eee - admin, 5 weeks ago : fix: resolve compilation errors in UserManagementPage and cleanup unused vars
+* 96ab300 - admin, 5 weeks ago : feat: optimize thin client UI, fix global Tauri API injection, and improve multi-site overview
+* 0c028a8 - admin, 5 weeks ago : fix(desktop): enable withGlobalTauri in config and add safety check to prevent JS crash on load
+* 3fca27f - admin, 5 weeks ago : fix(desktop): handle host unreachable error properly on connect screen
+* 241b13e - admin, 5 weeks ago : feat(desktop): bundle tailscale setup installer as resource and add quick install button
+* 4fe6c17 - admin, 5 weeks ago : feat: add Tailscale VPN helper and open_url command to Tauri desktop connection screen
+* f7a8360 - admin, 5 weeks ago : style: refine multi-station navigation back buttons and logos
+* f8d6024 - admin, 5 weeks ago : feat: integrate real-time PD telemetry indicator into region overlays and clean up UI build issues
+* ec9729d - admin, 5 weeks ago : đa trạm và fix ai nhiệt độ
+* 27c2a26 - admin, 5 weeks ago : feat: bypass license, optimize telemetry ingestion to memory cache, persist active station selection, and resolve scoping conflicts
+* 00e37a2 - admin, 6 weeks ago : fix(thermal-pred): fix thermal forecast loop indentation and dynamic frontend retrieval
+* 7a428c5 - admin, 6 weeks ago : feat: optimize PD boundaries detection logic and fix deletion constraint
+* 7c8a43b - Admin, 6 weeks ago : chore: persist db volume using name stationos-main in compose
+* 7ce6507 - Admin, 6 weeks ago : fix: override beforeBuildCommand to empty for thin client build
+* 3b6fb8a - Admin, 6 weeks ago : fix: remove invalid NSIS config fields (shortcutName not in Tauri 2 schema)
+* 2012ab0 - Admin, 6 weeks ago : chore: sync all latest changes before push to App-Station-Monitor
+* b9d2ab9 - Admin, 6 weeks ago : feat: add thin client Windows installer with GitHub Actions CI
+* 2890455 - Admin, 6 weeks ago : Update forecasting horizon from 5 steps to 1 step to show only the next 5-minute prediction
+* b045b0a - Admin, 6 weeks ago : Fix thermal history bucketing: include date in bucket key to ensure correct chronological sorting
+* b240dd5 - Admin, 6 weeks ago : Optimize AppShell header layout: apply square corners (borderRadius: 0) and remove unused imports
+* a8d71a9 - Admin, 6 weeks ago : Optimize dashboard alert panel: add squared edges and auto-trigger live camera view on alarm events
+* 797e7fe - Admin, 6 weeks ago : chore: remove redundant camera linkage configuration tab from SettingsPage
+* 571df39 - Admin, 6 weeks ago : chore: remove redundant theme configuration tab from SettingsPage
+* f782c4b - Admin, 6 weeks ago : style: implement collapsible inline theme selector in AppShell
+* 209ed00 - Admin, 6 weeks ago : style: replace native theme select with custom styled theme selector
+* b08855e - Admin, 6 weeks ago : chore: remove rule-engine from sidebar navigation
+* a8c158e - Admin, 6 weeks ago : feat: implement quick rule engine configuration, optimize storage monitor worker, and clean up thermal monitoring labels
+* 380ef91 - Admin, 6 weeks ago : feat(ui): optimize alert panel layout horizontal columns and vertical tight styling
+* 220455a - Admin, 6 weeks ago : feat(thermal): implement real-time dynamic sync and clashing-free point ID assignment on deletion
+* b0133b0 - Admin, 6 weeks ago : Fix compiler errors and unused imports in frontend
+* 963f51e - Admin, 6 weeks ago : Merge branch 'backup-xem-ai-detect-changes' to restore uncommitted local changes and resolve conflicts
+* 55b97cd - Admin, 6 weeks ago : Backup local uncommitted changes before merging thermal-forecast
+* ab84315 - kennhope13, 6 weeks ago : feat: implement 5-minute thermal forecasting data synchronization and partner Jetson push
+* 46cf91a - kennhope13, 7 weeks ago : feat: integrate Jetson Orin Nano AI Person Detection webhook and enable LAN connection binding on port 5000
+* 63eeadf - Admin, 7 weeks ago : feat: implement system-wide toast notification UI and update visual styles for page headers and user actions
+* 59ff9a9 - Admin, 7 weeks ago : feat: restore PD camera region drawing interface and realtime warning log panel
+* ebc9dc2 - Admin, 7 weeks ago : style: compact all page toolbar headers globally - remove scroll, reduce heights/gaps/fonts for single-row layout
+* a0a9c8c - Admin, 7 weeks ago : style: remove hardcoded 270px from KpiCards and CameraGrid, compact fonts/padding, fully fluid width
+* a47fc7a - Admin, 7 weeks ago : style: refactor CabinetAnalyticsTab layout from fixed 420px to fluid percentage-based scaling with bounds
+* 98335ed - Admin, 7 weeks ago : style: optimize DashboardPage layout with fluid percentage-based widths and add settings gear toggle to DashboardToolbar
+* f175e65 - Admin, 7 weeks ago : style: implement responsive compact Option 1 toolbar styling globally to prevent overflow
+* 7c22bc1 - Admin, 7 weeks ago : style: optimize DeviceManagementPage UI by using ActionDropdown for table rows and enabling flex-wrap for toolbar rows to prevent overflow
+* c4da78e - Admin, 7 weeks ago : fix: restrict PD alerts to within-region hotspots exceeding warning/alarm thresholds, and upgrade region alert to multipart snapshot uploads
+* faa8e33 - Admin, 7 weeks ago : feat: take annotated camera snapshot on PD alert and upload to backend webhook
+* 42e3511 - Admin, 7 weeks ago : feat: integrate global SignalR AlertNew toast and floating RichAlertModal for thermal hotspot, fire, intrusion, and PD
+* e88b482 - Admin, 7 weeks ago : fix: stage CameraHandlers changes to align with updated DeviceService
+* e9cdac6 - Admin, 7 weeks ago : fix: keep user in active camera config on save and render both thermal roi and pd boundaries on realtime overlays
+* ea9494f - Admin, 7 weeks ago : fix: restore missing backend service methods and correct vite local proxy configuration
+* 9cf6d2c - Admin, 7 weeks ago : fix: resolve frontend typescript compile and build errors for thermal ROI and PD integration
+* 4887909 - Admin, 7 weeks ago : merge: integrate thermal ROI polygon optimization and acoustic PD monitoring features
+* 0ec88df - Admin, 7 weeks ago : update-phongdien
+* 8d8e039 - kennhope13, 7 weeks ago : feat: thermal roi polygon optimization and repository cleanup
+* a1758a3 - Admin, 7 weeks ago : feat: optimize PD Monitor UI and silence engine error logs
+* bff1607 - kennhope13, 7 weeks ago : feat: optimize thermal monitoring region boundaries scaling and restore realtime point monitoring
+* d3ecd2d - metorkhai, 7 weeks ago : feat: Restore Dual-Lens picking logic and fix thermal camera DB seeding
+* 65ce22d - Admin, 7 weeks ago : feat(relay,backend,frontend): optimize thermal readings, skip PD prediction ingest, and seed rules P11-P20
+* f049819 - metorkhai, 7 weeks ago : Initial commit
+* 9380894 - Admin, 8 weeks ago : feat: restructure PD insights panel to 4-section 2x2 grid with AI frequency prediction
+* 02876f4 - Admin, 8 weeks ago : perf: optimize RuleEvaluationWorker query to avoid slow GroupBy and disable verbose EF SQL logs
+* 66934ca - Admin, 8 weeks ago : perf: optimize AI predictions and PD predictions retrieval using fast backward-seeking chunk parser
+* cc988ee - Admin, 8 weeks ago : feat(thermal-points): change default overlay opacity to 100%
+* f0c716e - Admin, 8 weeks ago : feat(thermal-points): hide overlay and zoom controls from the UI, setting default blend to 40%
+* 2113dd3 - Admin, 8 weeks ago : fix(thermal-points): preserve picker dot and coordinates during zoom and tab changes
+* 002ecef - Admin, 8 weeks ago : feat(thermal-points): implement real-time camera overlay and cursor-centered zoom; optimize DB queries for local mode
+* ee5c5ab - Admin, 8 weeks ago : feat: add scrollbar and sticky header to thermal points table
+* b074be4 - Admin, 8 weeks ago : feat: Add Thermal Points management and persistent Docker DB
+* 3261780 - Admin, 9 weeks ago : feat: optimize thermal overlay size and fix stream connectivity issues
+* 59d34b7 - Admin, 9 weeks ago : backup: thermal relay state with SDK and UI optimizations
+* d97c426 - Admin, 9 weeks ago : feat: stabilize 10-point thermal monitoring and high-contrast overlay
+* 2e9aa89 - Admin, 9 weeks ago : feat: stabilize thermal relay, optimize dashboard UI, and fix alert history limits
+* 58448a1 - Admin, 9 weeks ago : Fix syntax errors and optimize AI Analytics UI layout
+* 12f7ce2 - Admin, 9 weeks ago : feat: optimize AI thermal UI, fix flickering, and add background AI polling
+* 2414829 - Admin, 10 weeks ago : feat: complete AI thermal pipeline with detailed UI and forecast timestamps
+* 640cea8 - Admin, 10 weeks ago : feat: integrate AI thermal pipeline with 5-minute cycle and 8080/5056 dual push
+* b91fc7a - Admin, 10 weeks ago : docs: add license system test guide and troubleshooting
+* 4fc1063 - Admin, 10 weeks ago : feat: implement license key system + web deployment setup
+* 4e454f0 - Admin, 3 months ago : feature_update
+* 86fdf11 - metorkhai, 3 months ago : feat: tích hợp camera alerts vào dashboard + alertshistory (Phase 4)
+* d22cea9 - metorkhai, 3 months ago : feat: add video recording + image capture from camera stream
+* dcf7a51 - metorkhai, 3 months ago : test: fetch REAL images from camera stream (not fake)
+* d36cc7a - metorkhai, 3 months ago : test: add full test with realistic image + video capture
+* 71efa6c - metorkhai, 3 months ago : test: add live event test script - verify alert + image capture
+* 0351c97 - metorkhai, 3 months ago : feat: add comprehensive notification test suite for auto-configuration
+* 2e0ae04 - metorkhai, 3 months ago : feat: add notification test system for cameras 152 & 153
+* fe50fcc - metorkhai, 3 months ago : feat: add fire/smoke detection test script for camera 153
+* 7c6de38 - metorkhai, 3 months ago : docs: add quick-start guide for Ubuntu DL380 deployment
+* 8ecce3a - metorkhai, 3 months ago : chore: remove deploy-jetson.sh (not needed - using Ubuntu DL380 instead)
+* 3d2f076 - metorkhai, 3 months ago : docs: add SDK setup and thermal points fix documentation
+* c9307eb - metorkhai, 3 months ago : docs: add complete deployment scripts guide
+* 28cafb0 - metorkhai, 3 months ago : docs: complete deployment scripts for Ubuntu
+* bbc31af - metorkhai, 3 months ago : feat: cross-platform SDK loading (Windows DLL + Linux SO)
+* bcc5b72 - metorkhai, 3 months ago : docs: add comprehensive deployment guide for Ubuntu server
+* 0e57061 - metorkhai, 3 months ago : feat: ubuntu deployment, stream overlay fix, alerts UI cleanup
+* 9af5647 - metorkhai, 3 months ago : v11
+* 52dba66 - metorkhai, 3 months ago : version 1
+* 5f8647c - metorkhai, 3 months ago : deloy
+* 58abd51 - metorkhai, 3 months ago : feat: initialize project and exclude large binaries
+* d903d66 - metorkhai, 3 months ago : ad
+* 83206b3 - metorkhai, 3 months ago : thay doi co mobile app cloudlare
+* 55ff4cf - metorkhai, 3 months ago : deloy: cài docker cho jetson linux
+* c60a27b - metorkhai, 3 months ago : feat: cải tiến giao diện Nhật ký hệ thống và triển khai các Worker giao thức (Phase 11)
+* 3aa7702 - metorkhai, 3 months ago : làm xong phase 4
+* 13b41d1 - metorkhai, 3 months ago : docs: cập nhật README, setup-env và start.bat hoàn chỉnh
+* a75ed62 - metorkhai, 3 months ago : them các md
+* 350572c - metorkhai, 3 months ago : feat: hoàn thiện quy trình setup-env tự động và fix start.bat
+* d192551 - metorkhai, 3 months ago : them script de tu dong chay cai cài đặt
+* 478be04 - metorkhai, 3 months ago : feat: hoàn thiện giao diện Login, cập nhật docs và sửa lỗi start.bat
+* 96198bf - metorkhai, 3 months ago : chore: init monorepo - merge frontend + backend
 
 ### 2. Cấu trúc thư mục nguồn của dự án
 Tổ chức mã nguồn phân tách rõ ràng giữa Frontend Electron và Backend ASP.NET Core:
@@ -232,91 +416,6 @@ Master-Station/
 │   ├── package.json                     # Quản lý thư viện và scripts đóng gói
 │   └── electron-builder.yml             # Cấu hình tham số compiler đóng gói installer
 └── build-thick-client.sh                # Script tự động hóa dọn dẹp và compile
-```
-
-### 3. Đoạn mã nguồn mẫu tiêu biểu (Code Snippets)
-
-#### A. Cách ly tiến trình Postgres theo PID bằng việc đọc postmaster.pid (`main.cjs`):
-Mã nguồn này phân tích tệp tin `postmaster.pid` được sinh ra bởi PostgreSQL trong thư mục dữ liệu để lấy ra chính xác PID của tiến trình DB do Master Station khởi chạy. Khi tắt ứng dụng, hệ thống chỉ hạ đúng PID này, không gây ảnh hưởng đến Postgres của Trạm con chạy cổng khác trên cùng hệ điều hành:
-
-```javascript
-const DB_DATA_DIR = path.join(process.env.APPDATA, 'MasterStation', 'pg_data');
-
-function killOldPostgres() {
-  const pidFile = path.join(DB_DATA_DIR, 'postmaster.pid');
-  try {
-    if (fs.existsSync(pidFile)) {
-      const content = fs.readFileSync(pidFile, 'utf8');
-      const lines = content.split('\n');
-      const pid = parseInt(lines[0].trim(), 10);
-      if (pid && !isNaN(pid)) {
-        logOrchestrator(`Found old PostgreSQL PID: ${pid}. Terminating it...`);
-        killPid(pid);
-      }
-    }
-  } catch (e) {
-    logOrchestrator(`Failed to read/kill old postgres PID: ${e.message}`);
-  }
-}
-```
-
-#### B. Co giãn và cập nhật kích thước bản đồ GIS tránh lỗi khuyết màn hình xám (`MultisitePage.tsx`):
-Xử lý lỗi rendering của Leaflet Map khi chuyển đổi tab giao diện từ License quay trở lại Dashboard. Việc sử dụng resize listener kết hợp gọi `invalidateSize()` ở nhiều thời điểm trễ khác nhau (100ms, 500ms, 1000ms, 2000ms) kết hợp đăng ký lắng nghe sự kiện window resize:
-
-```typescript
-    // Invalidate size tại nhiều mốc thời gian để đảm bảo Leaflet vẽ lại đầy đủ khung hình
-    const timers = [
-      setTimeout(() => map.invalidateSize(), 100),
-      setTimeout(() => map.invalidateSize(), 500),
-      setTimeout(() => map.invalidateSize(), 1000),
-      setTimeout(() => map.invalidateSize(), 2000),
-    ];
-
-    const handleResize = () => {
-      map.invalidateSize();
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      timers.forEach(clearTimeout);
-      window.removeEventListener('resize', handleResize);
-      try {
-        map.closePopup?.();
-        map.eachLayer?.((layer: any) => {
-          try { layer.closePopup?.(); } catch {}
-        });
-        map.remove();
-      } catch {}
-```
-
-#### C. Dọn dẹp an toàn các dịch vụ chạy nền theo danh sách PID (`main.cjs`):
-Đảm bảo giải phóng hoàn toàn cổng mạng `6000` (API), `6173` (UI) và `6432` (PostgreSQL) khi người dùng thoát ứng dụng Master Station:
-
-```javascript
-async function cleanupOldServices() {
-  logOrchestrator('Cleaning up previously running Master Station services...');
-  
-  // 1. Tắt tiến trình PostgreSQL dựa trên postmaster.pid
-  killOldPostgres();
-
-  // 2. Đọc file pids.json để tắt chính xác Backend và go2rtc cũ
-  const saved = readSavedPids();
-  if (saved.backendPid) {
-    logOrchestrator(`Killing previous backend PID: ${saved.backendPid}`);
-    killPid(saved.backendPid);
-  }
-  if (saved.go2rtcPid) {
-    logOrchestrator(`Killing previous go2rtc PID: ${saved.go2rtcPid}`);
-    killPid(saved.go2rtcPid);
-  }
-
-  // 3. Xóa cache file pids.json sau khi dọn dẹp xong
-  try {
-    if (fs.existsSync(PIDS_FILE)) {
-      fs.unlinkSync(PIDS_FILE);
-    }
-  } catch {}
-}
 ```
 
 ---
@@ -344,13 +443,36 @@ async function cleanupOldServices() {
 | 9 | **TC-009** | Nhập hạn ngạch bản quyền | File license `.lic` chứa hạn ngạch (50 camera). | Bấm nút Nhập license và chọn tệp tin `.lic` hợp lệ. | Giải mã tệp tin thành công, cập nhật hạn ngạch giám sát camera tương ứng lên màn hình thông số bản quyền. | **ĐẠT (Passed)** |
 | 10| **TC-010** | Dọn dẹp tài nguyên khi thoát | Ứng dụng đang chạy bình thường. | Click nút Close (X) để tắt Master Station. | Các tiến trình `StationOS.Api.exe` và `postgres.exe` (cổng 6432) tắt hoàn toàn, các tiến trình của trạm con vẫn hoạt động bình thường. | **ĐẠT (Passed)** |
 
-### 3. Báo cáo sửa lỗi (Bug Report & Fix Log)
-* **Mã lỗi**: `BUG-MS-2026-001`
-  * *Mô tả lỗi*: Lỗi hiển thị bản đồ GIS bị xám một phần khung hình khi người dùng điều hướng nhanh từ trang Quản lý License trở về trang tổng quan. Do thư viện Leaflet tính toán kích thước container map khi CSS transition chưa hoàn tất.
-  * *Cách khắc phục*: Sửa đổi mã nguồn `MultisitePage.tsx`, bổ sung hàm co giãn động `map.invalidateSize()` ở nhiều thời điểm trễ khác nhau (100ms, 500ms, 1000ms, 2000ms) kết hợp đăng ký lắng nghe sự kiện window resize.
-* **Mã lỗi**: `BUG-MS-2026-002`
-  * *Mô tả lỗi*: Xung đột chéo tiến trình. Khi khởi chạy ứng dụng Master Station, lệnh tắt dịch vụ cũ toàn cục (`taskkill /F /IM postgres.exe`) đã dập tắt toàn bộ cơ sở dữ liệu của Trạm con đang chạy trên cùng máy chủ.
-  * *Cách khắc phục*: Thiết lập cơ chế ghi nhận PID của API backend, go2rtc và PostgreSQL của Master Station riêng biệt vào tệp tin `%APPDATA%/MasterStation/pids.json` và `postmaster.pid`. Chỉ cho phép tắt các tiến trình thuộc danh sách PID này.
+### 3. Báo cáo sửa lỗi chi tiết (Bug Report & Fix Log)
+Dưới đây là danh sách các lỗi lớn đã được phát hiện và khắc phục triệt để trong các chu kỳ nâng cấp phiên bản gần đây:
+
+1. **Lỗi `BUG-MS-001` (Leaflet Map Size Glitch / Grey Tiles - c2bc5c7):**
+   * *Mô tả lỗi*: Khi di chuyển từ màn hình quản lý license quay về trang chủ bản đồ GIS, bản đồ thường bị lỗi chỉ hiển thị một góc nhỏ 400x300 pixel, phần còn lại bị xám trắng do Leaflet tính toán kích thước container map khi CSS transition chưa kết thúc.
+   * *Khắc phục*: Tối ưu hóa hàm `MultisitePage.tsx`, bổ sung gọi invalidation size ở nhiều mốc trễ (100ms, 500ms, 1000ms, 2000ms) để ép bản đồ vẽ lại đầy đủ kích thước container sau khi DOM ổn định.
+
+2. **Lỗi `BUG-MS-002` (Xung đột tiến trình nền chạy Windows - 3316095):**
+   * *Mô tả lỗi*: Electron main process sử dụng lệnh `taskkill /F /IM postgres.exe` gây tắt chéo PostgreSQL của Trạm con đang vận hành song song trên cùng một hệ điều hành.
+   * *Khắc phục*: Cải tiến file `main.cjs` để theo dõi và chỉ tắt các PID được sinh ra bởi chính Master Station, lưu tại tệp tin `pids.json` và tệp tin `postmaster.pid`.
+
+3. **Lỗi `BUG-MS-003` (Trùng lặp Tracking Entity Framework Core - 3abe468):**
+   * *Mô tả lỗi*: Khi trạm con đẩy dữ liệu điểm đo và cảnh báo trùng lặp lên trong cùng một lô (Batch Ingest), Entity Framework Core báo lỗi conflict tracking do hai thực thể cùng ID được tải vào DbContext.
+   * *Khắc phục*: Chuyển đổi truy vấn đồng bộ sang sử dụng `AsNoTracking()` kết hợp kiểm tra thủ công sự tồn tại trong bộ nhớ cache trước khi lưu trữ vào CSDL.
+
+4. **Lỗi `BUG-MS-004` (Bị kẹt cache danh sách thiết bị khi Refresh - 601def2):**
+   * *Mô tả lỗi*: Người dùng nhấn F5 tải lại trang nhưng hệ thống vẫn hiển thị dữ liệu kết nối cũ do Client đọc từ cache `sessionStorage` mà không gọi trực tiếp API.
+   * *Khắc phục*: Điều chỉnh cơ chế fetch dữ liệu để bỏ qua cache (bypass cache) khi nhận sự kiện reload trang hoặc refresh thủ công.
+
+5. **Lỗi `BUG-MS-005` (Lỗi so khớp mã Tỉnh thành khi tạo trạm con - fbf951d):**
+   * *Mô tả lỗi*: Khi tạo trạm con mới, hệ thống báo lỗi không tìm thấy Tỉnh thành mặc dù đã tồn tại mã tỉnh. Nguyên nhân do phân biệt chữ hoa/chữ thường trong cơ chế tìm kiếm DB.
+   * *Khắc phục*: Chuyển đổi truy vấn so khớp mã tỉnh sang dạng `ToLower()` và bổ sung logic tự động tạo tỉnh mặc định nếu cơ sở dữ liệu trống.
+
+6. **Lỗi `BUG-MS-006` (Đơ màn hình Splash loadscreen lúc khởi động - e822ce7):**
+   * *Mô tả lỗi*: Ứng dụng Master Station bị treo không hiển thị màn hình chính sau khi đăng nhập do tiến trình API backend khởi chạy chậm hơn Electron client.
+   * *Khắc phục*: Bổ sung logic kiểm tra kết nối API cổng 6000 định kỳ (Healthcheck Loop) trong `main.cjs`, chỉ cho phép Electron mở cửa sổ chính khi API Backend phản hồi thành công `200 OK`.
+
+7. **Lỗi `BUG-MS-007` (Lỗi rò rỉ bộ nhớ luồng camera go2rtc - 9494e5c):**
+   * *Mô tả lỗi*: Thư viện go2rtc giải mã camera WebRTC liên tục chiếm dụng CPU do không giải phóng cổng khi tắt màn hình Live Wall.
+   * *Khắc phục*: Đăng ký hook huỷ luồng trong React components `useEffect` return và cập nhật lại cấu hình tự động ngắt luồng không có người xem (idle timeout = 30s) trong go2rtc.
 
 ---
 
