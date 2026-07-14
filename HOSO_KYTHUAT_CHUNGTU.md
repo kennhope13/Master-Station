@@ -45,6 +45,15 @@ Tài liệu này xác định chi tiết các chức năng hệ thống cung c�
 * **G5. Quản lý hạn ngạch bản quyền phần mềm (License Quota Management)**:
   * Mã hóa và giải mã file bản quyền chứa thông số hạn ngạch sử dụng thiết bị (Số lượng camera được phép giám sát, số lượng điểm đo cảm biến nhiệt độ tối đa).
   * Kiểm soát việc import/export license của trạm tổng và quản lý cấp quota xuống các trạm con trực thuộc.
+* **G6. Sơ đồ đơn tuyến động (Single Line Diagram - SLD View)**:
+  * Tải sơ đồ đơn tuyến kỹ thuật dạng vector (.svg), hiển thị trạng thái đóng/cắt thời gian thực của máy cắt, dao cách ly và vị trí đo lường trực quan.
+* **G7. Phân tích & Dự báo nhiệt độ chuyên sâu bằng AI (AI Analytics & Thermal Forecasting)**:
+  * Phân tích biểu đồ xu hướng nhiệt độ và đưa ra dự báo biến động nhiệt độ 5 phút tiếp theo bằng mô hình AI.
+  * Tích hợp sự kiện AI phát hiện người (Person Detection), phát hiện lửa và khói (Fire/Smoke Detection) từ luồng video camera.
+* **G8. Bộ cấu hình quy tắc giám sát động (Dynamic Rule Engine)**:
+  * Thiết lập ngưỡng nhiệt độ cảnh báo cho từng vùng ROI trên camera nhiệt hoặc cảm biến tiếp xúc.
+* **G9. Hệ thống cảnh báo đa kênh (Notification Hub)**:
+  * Cấu hình gửi mail báo cáo sự cố hoặc gửi thông báo cảnh báo tức thời qua Telegram Bot cho các tổ trưởng tổ vận hành.
 
 #### 2.2. Yêu cầu phi chức năng (Non-Functional Requirements)
 * **Hiệu năng & Khả năng xử lý song song**: Tối ưu hóa bộ nhớ và tài nguyên CPU. Khi chạy song song trên cùng một hệ điều hành với Trạm con, ứng dụng Master Station phải cách ly hoàn toàn tài nguyên cổng mạng và tiến trình dịch vụ.
@@ -92,21 +101,6 @@ Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục 
 
 ![Sơ đồ mối quan hệ cơ sở dữ liệu ERD](/home/admin-/Desktop/Master-Station/docs-project/diagrams/erd_diagram.png)
 
-#### Bảng `Users` (Thông tin tài khoản và phạm vi quản lý)
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-|---|---|---|---|
-| `user_id` | `uuid` | Primary Key | Khóa chính |
-| `username` | `varchar(100)` | Unique, Not Null | Tên đăng nhập hệ thống |
-| `fullname` | `varchar(200)` | Not Null | Họ và tên đầy đủ |
-| `email` | `varchar(150)` | Null | Địa chỉ thư điện tử |
-| `role` | `varchar(50)` | Not Null | Vai trò (`admin`, `admin_province`, `operator_province`, `team_leader`...) |
-| `active` | `boolean` | Not Null | Trạng thái kích hoạt tài khoản |
-| `created_at` | `timestamp` | Not Null | Thời gian tạo tài khoản |
-| `is_restricted`| `boolean` | Null | Bị giới hạn quyền truy cập |
-| `station_ids` | `text` | Null | Danh sách trạm con được quản lý (JSON Array) |
-| `province_ids` | `text` | Null | Danh sách tỉnh thành được quản lý (JSON Array) |
-| `team_id` | `uuid` | Foreign Key | Liên kết tới bảng `Teams` |
-
 #### Bảng `Provinces` (Danh mục Tỉnh thành quản lý)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
@@ -117,16 +111,6 @@ Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục 
 | `status` | `varchar(20)` | Not Null | Trạng thái (`active`/`inactive`) |
 | `createdAt` | `timestamp` | Not Null | Thời gian khởi tạo |
 
-#### Bảng `Teams` (Tổ thao tác lưu động hiện trường)
-| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
-|---|---|---|---|
-| `id` | `uuid` | Primary Key | Khóa chính |
-| `name` | `varchar(150)` | Not Null | Tên tổ thao tác |
-| `description` | `text` | Null | Mô tả nhiệm vụ |
-| `provinceId` | `uuid` | Foreign Key | Liên kết tới bảng `Provinces` |
-| `stationIds` | `text` | Null | Danh sách trạm phụ trách (JSON Array) |
-| `createdAt` | `timestamp` | Not Null | Thời điểm tạo tổ |
-
 #### Bảng `Stations` (Thông tin các Trạm con kết nối)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
@@ -134,7 +118,7 @@ Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục 
 | `name` | `varchar(200)` | Not Null | Tên trạm biến áp |
 | `code` | `varchar(50)` | Unique, Not Null | Mã trạm |
 | `status` | `varchar(20)` | Not Null | Trạng thái (`active`/`inactive`) |
-| `location` | `text` | Null | Tọa độ GIS và địa chỉ trạm (dạng JSON) |
+| `location` | `text (jsonb)` | Null | Tọa độ GIS và địa chỉ trạm |
 | `apiUrl` | `varchar(250)` | Not Null | Địa chỉ REST API của trạm con |
 | `apiUsername` | `varchar(100)` | Null | Tài khoản kết nối API |
 | `hasApiPassword`| `boolean` | Not Null | Cấu hình bảo mật mật khẩu API |
@@ -143,7 +127,7 @@ Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục 
 | `lastSeenAt` | `timestamp` | Null | Thời điểm phản hồi cuối cùng |
 | `cameraQuota` | `integer` | Null | Số lượng camera tối đa cấp cho trạm |
 | `sensorQuota` | `integer` | Null | Số lượng cảm biến tối đa cấp cho trạm |
-| `provinceId` | `uuid` | Foreign Key | Liên kết tới bảng `Provinces` |
+| `provinceId` | `uuid` | Foreign Key | Liên kết tới bảng `Provinces` (Set Null khi xóa) |
 
 #### Bảng `Devices` (Các thiết bị giám sát thuộc trạm con)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
@@ -152,42 +136,246 @@ Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục 
 | `name` | `varchar(150)` | Not Null | Tên thiết bị |
 | `type` | `varchar(50)` | Not Null | Loại thiết bị (`camera_thermal`, `plc_s7`...) |
 | `protocol` | `varchar(50)` | Not Null | Giao thức truyền thông (`rtsp`, `modbus_tcp`) |
-| `config` | `text` | Not Null | Tham số cấu hình chi tiết dạng JSON |
+| `config` | `text (jsonb)` | Not Null | Tham số cấu hình chi tiết dạng JSON |
 | `status` | `varchar(20)` | Not Null | Trạng thái kết nối (`online`/`offline`/`error`) |
 | `stationId` | `uuid` | Foreign Key | Liên kết tới bảng `Stations` |
 | `createdAt` | `timestamp` | Not Null | Thời điểm khai báo thiết bị |
 
-#### Bảng `AlertItems` (Lịch sử cảnh báo tập trung)
+#### Bảng `Users` (Thông tin tài khoản và phạm vi quản lý)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `user_id` | `uuid` | Primary Key | Khóa chính |
+| `username` | `varchar(100)` | Unique, Not Null | Tên đăng nhập hệ thống |
+| `fullname` | `varchar(200)` | Not Null | Họ và tên đầy đủ |
+| `email` | `varchar(150)` | Null | Địa chỉ thư điện tử |
+| `role` | `varchar(50)` | Not Null | Vai trò (`admin`, `admin_province`, `operator_province`...) |
+| `active` | `boolean` | Not Null | Trạng thái kích hoạt tài khoản |
+| `created_at` | `timestamp` | Not Null | Thời gian tạo tài khoản |
+| `province_ids` | `uuid[]` | Null | Danh sách tỉnh thành được phép quản lý |
+| `permissions` | `text[]` | Null | Danh sách quyền cụ thể |
+| `team_id` | `uuid` | Foreign Key | Liên kết tới bảng `Teams` |
+
+#### Bảng `SldFiles` (Tệp sơ đồ đơn tuyến SLD)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `id` | `uuid` | Primary Key | Khóa chính |
-| `source` | `varchar(50)` | Not Null | Nguồn cảnh báo (`rule_engine`, `ai_detection`...) |
-| `level` | `varchar(20)` | Not Null | Mức độ nghiêm trọng (`warning`, `alarm`) |
-| `status` | `varchar(20)` | Not Null | Trạng thái (`open`, `acked`, `closed`) |
+| `station_id` | `uuid` | Foreign Key | Liên kết tới bảng `Stations` |
+| `file_name` | `varchar(200)` | Not Null | Tên file sơ đồ đơn tuyến |
+| `file_path` | `varchar(500)` | Not Null | Đường dẫn vật lý của file trên đĩa |
+| `uploaded_at` | `timestamp` | Not Null | Thời điểm tải lên sơ đồ |
+
+#### Bảng `SldPoints` (Điểm liên kết trên sơ đồ đơn tuyến)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `sld_file_id` | `uuid` | Foreign Key | Liên kết tới bảng `SldFiles` |
+| `element_id` | `varchar(100)` | Not Null | ID phần tử SVG tương ứng |
+| `device_id` | `uuid` | Foreign Key | Liên kết tới bảng `Devices` |
+| `point_id` | `varchar(100)` | Not Null | Mã điểm đo đạc của thiết bị |
+
+#### Bảng `SensorReadings` (Dữ liệu đo đạc cảm biến - Hypertable)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `time` | `timestamp` | Composite Key | Thời gian ghi nhận giá trị đo |
+| `id` | `bigint` | Composite Key | Khóa phụ tăng tự động |
+| `station_id` | `uuid` | Not Null | ID trạm phát sinh dữ liệu |
+| `device_id` | `uuid` | Not Null | ID thiết bị đo |
+| `point_id` | `varchar(100)` | Not Null | Mã điểm đo cảm biến |
+| `val` | `double precision`| Not Null | Giá trị đo lường thực tế |
+
+#### Bảng `AiModelVersions` (Phiên bản mô hình AI dự báo/nhận diện)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `model_name` | `varchar(100)` | Not Null | Tên mô hình AI (`intrusion`, `thermal_forecasting`) |
+| `version` | `varchar(20)` | Not Null | Số phiên bản mô hình |
+| `file_path` | `varchar(500)` | Not Null | Đường dẫn lưu file trọng số mô hình |
+| `is_active` | `boolean` | Not Null | Trạng thái mô hình đang hoạt động |
+
+#### Bảng `DetectionEvents` (Sự kiện nhận diện AI)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `device_id` | `uuid` | Foreign Key | ID camera phát hiện sự kiện |
+| `event_type` | `varchar(50)` | Not Null | Loại sự kiện AI (`person`, `fire`, `smoke`) |
+| `confidence` | `double precision`| Not Null | Độ tin cậy của thuật toán AI |
+| `bounding_boxes`| `text (jsonb)` | Null | Tọa độ khung nhận diện dạng JSON |
+| `metadata` | `text (jsonb)` | Null | Thông tin bổ sung của sự kiện |
+| `triggered_at` | `timestamp` | Not Null | Thời điểm xảy ra sự kiện |
+
+#### Bảng `MediaFiles` (Tệp ghi hình ảnh/video sự kiện)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `event_id` | `uuid` | Null | ID liên kết sự kiện (nếu có) |
+| `file_type` | `varchar(10)` | Not Null | Định dạng tệp (`jpg`, `mp4`) |
+| `file_path` | `varchar(500)` | Not Null | Đường dẫn lưu trữ tệp trên đĩa |
+| `created_at` | `timestamp` | Not Null | Thời điểm tạo tệp media |
+
+#### Bảng `ThermalFrames` (Khung nhiệt độ đầy đủ từ camera nhiệt)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `device_id` | `uuid` | Foreign Key | ID camera nhiệt |
+| `temp_matrix` | `text (jsonb)` | Not Null | Ma trận điểm nhiệt độ phân giải cao |
+| `max_temp` | `double precision`| Not Null | Nhiệt độ cao nhất trong khung hình |
+| `min_temp` | `double precision`| Not Null | Nhiệt độ thấp nhất trong khung hình |
+| `captured_at` | `timestamp` | Not Null | Thời điểm chụp khung nhiệt |
+
+#### Bảng `Alerts` (Cảnh báo sự cố hiện hành)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `source` | `varchar(50)` | Not Null | Nguồn cảnh báo (`rule_engine`, `ai_detection`) |
+| `level` | `varchar(20)` | Not Null | Mức độ (`warning`, `alarm`) |
+| `status` | `varchar(20)` | Not Null | Trạng thái cảnh báo (`open`, `acked`) |
 | `message` | `text` | Not Null | Nội dung thông báo sự cố |
-| `value` | `double precision`| Null | Giá trị đo lường tại thời điểm kích hoạt |
-| `deviceId` | `uuid` | Foreign Key | Liên kết tới bảng `Devices` |
-| `pointId` | `varchar(100)` | Null | Tên điểm đo lường bị quá ngưỡng |
-| `stationId` | `uuid` | Foreign Key | Liên kết tới bảng `Stations` |
-| `triggeredAt` | `timestamp` | Not Null | Thời gian phát sinh cảnh báo |
-| `ackedAt` | `timestamp` | Null | Thời gian xác nhận cảnh báo |
-| `closedAt` | `timestamp` | Null | Thời gian đóng sự cố |
-| `ackNote` | `text` | Null | Ghi chú hướng xử lý của kỹ sư vận hành |
-| `imageUrl` | `text` | Null | Đường dẫn lưu ảnh chụp từ camera khi có sự cố |
+| `value` | `double precision`| Null | Giá trị quá ngưỡng đo được |
+| `device_id` | `uuid` | Foreign Key | ID thiết bị bị sự cố |
+| `station_id` | `uuid` | Foreign Key | ID trạm xảy ra sự cố |
+| `triggered_at` | `timestamp` | Not Null | Thời điểm bắt đầu sự cố |
+
+#### Bảng `AlertHistories` (Lịch sử cảnh báo đã được đóng)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `alert_id` | `uuid` | Not Null | ID của bản tin cảnh báo gốc |
+| `closed_at` | `timestamp` | Not Null | Thời điểm đóng sự cố |
+| `ack_by` | `varchar(100)` | Null | Tài khoản nhân viên xác nhận |
+| `ack_note` | `text` | Null | Ghi chú vận hành xử lý sự cố |
+
+#### Bảng `Rules` (Quy tắc giám sát sự cố)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `name` | `varchar(150)` | Not Null | Tên quy tắc giám sát |
+| `condition` | `text (jsonb)` | Not Null | Điều kiện kích hoạt logic phức hợp |
+| `actions` | `text (jsonb)` | Not Null | Hành động khi kích hoạt (Gửi Mail, Telegram) |
+| `is_enabled` | `boolean` | Not Null | Trạng thái quy tắc hoạt động |
+
+#### Bảng `RuleTriggerLogs` (Lịch sử kích hoạt quy tắc)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `rule_id` | `uuid` | Foreign Key | ID quy tắc bị kích hoạt |
+| `condition_snapshot`| `text (jsonb)`| Not Null | Ảnh chụp giá trị cảm biến khi kích hoạt |
+| `triggered_at` | `timestamp` | Not Null | Thời điểm kích hoạt quy tắc |
 
 #### Bảng `AuditLogs` (Nhật ký kiểm toán hệ thống)
 | Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
 |---|---|---|---|
 | `id` | `uuid` | Primary Key | Khóa chính |
-| `action` | `varchar(50)` | Not Null | Hành động thực thi (`CREATE`, `UPDATE`, `LOGIN`...) |
-| `entityType` | `varchar(50)` | Null | Tên đối tượng bị tác động |
-| `entityId` | `varchar(100)` | Null | Khóa của đối tượng bị tác động |
-| `ipAddress` | `varchar(50)` | Null | Địa chỉ IP máy trạm thao tác |
-| `ts` | `timestamp` | Not Null | Thời điểm thực hiện hành động |
+| `action` | `varchar(50)` | Not Null | Hành động thực thi (`CREATE`, `UPDATE`...) |
+| `entity_type` | `varchar(50)` | Null | Tên đối tượng bị tác động |
+| `entity_id` | `varchar(100)` | Null | Khóa của đối tượng bị tác động |
 | `username` | `varchar(100)` | Null | Tài khoản người thực thi |
-| `fullName` | `varchar(200)` | Null | Họ tên đầy đủ người thực thi |
-| `oldValue` | `text` | Null | Trạng thái dữ liệu cũ (JSON) |
-| `newValue` | `text` | Null | Trạng thái dữ liệu mới (JSON) |
+| `ip_address` | `varchar(50)` | Null | Địa chỉ IP máy trạm thao tác |
+| `old_value` | `text (jsonb)` | Null | Trạng thái dữ liệu cũ |
+| `new_value` | `text (jsonb)` | Null | Trạng thái dữ liệu mới |
+| `ts` | `timestamp` | Not Null | Thời điểm thao tác |
+
+#### Bảng `LoginLogs` (Nhật ký đăng nhập người dùng)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `username` | `varchar(100)` | Not Null | Tài khoản thực hiện đăng nhập |
+| `login_at` | `timestamp` | Not Null | Thời điểm đăng nhập |
+| `ip_address` | `varchar(50)` | Null | Địa chỉ IP của máy khách |
+| `user_agent` | `varchar(500)` | Null | Trình duyệt hoặc thiết bị đăng nhập |
+| `status` | `varchar(20)` | Not Null | Trạng thái (`success`/`failed`) |
+
+#### Bảng `NotifyLogs` (Nhật ký thông báo đa kênh)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `channel` | `varchar(20)` | Not Null | Kênh gửi (`email`, `telegram`, `sms`) |
+| `recipient` | `varchar(200)` | Not Null | Địa chỉ nhận (Email hoặc chat_id) |
+| `subject` | `varchar(200)` | Null | Tiêu đề thông báo |
+| `content` | `text` | Not Null | Nội dung thông báo chi tiết |
+| `status` | `varchar(20)` | Not Null | Trạng thái gửi (`sent`/`failed`) |
+| `sent_at` | `timestamp` | Not Null | Thời gian gửi đi |
+
+#### Bảng `SystemSettings` (Cài đặt hệ thống Master)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `station_id` | `uuid` | Not Null | ID trạm áp dụng cấu hình |
+| `key` | `varchar(100)` | Not Null | Tên cấu hình |
+| `value` | `text (jsonb)` | Not Null | Giá trị cấu hình dạng JSON |
+| `updated_at` | `timestamp` | Not Null | Thời điểm cập nhật cuối cùng |
+
+#### Bảng `Reports` (Danh mục báo cáo xuất bản)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `name` | `varchar(200)` | Not Null | Tên file báo cáo |
+| `type` | `varchar(20)` | Not Null | Loại báo cáo (`pdf`, `xlsx`) |
+| `created_by` | `varchar(100)` | Not Null | Người kết xuất báo cáo |
+| `file_path` | `varchar(500)` | Not Null | Đường dẫn lưu trữ tệp báo cáo |
+| `created_at` | `timestamp` | Not Null | Thời điểm xuất bản |
+
+#### Bảng `SyncQueues` (Hàng đợi đồng bộ dữ liệu trạm con)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `station_id` | `uuid` | Foreign Key | ID trạm phát sinh đồng bộ |
+| `payload` | `text (jsonb)` | Not Null | Nội dung dữ liệu cần đồng bộ |
+| `retry_count` | `integer` | Not Null | Số lần thử lại khi lỗi |
+| `status` | `varchar(20)` | Not Null | Trạng thái (`pending`, `processed`, `failed`) |
+
+#### Bảng `MaintenanceTasks` (Lịch bảo trì và phân công sửa chữa)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `title` | `varchar(200)` | Not Null | Tiêu đề công việc bảo trì |
+| `description` | `text` | Null | Chi tiết nhiệm vụ bảo trì |
+| `checklist` | `text (jsonb)` | Null | Danh sách hạng mục cần kiểm tra dạng JSON |
+| `assigned_team_id`| `uuid` | Foreign Key | Tổ thao tác được phân công |
+| `scheduled_date`| `date` | Not Null | Ngày thực hiện dự kiến |
+| `status` | `varchar(20)` | Not Null | Trạng thái (`pending`, `in_progress`, `done`) |
+
+#### Bảng `Licenses` (Khóa bản quyền hệ thống)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `license_key` | `text` | Not Null | Chuỗi khóa bản quyền đã được mã hóa |
+| `activated_at` | `timestamp` | Not Null | Thời gian kích hoạt bản quyền |
+| `expired_at` | `timestamp` | Null | Thời hạn hết hạn bản quyền |
+| `device_limits` | `text (jsonb)` | Not Null | Hạn ngạch thiết bị tối đa cho phép |
+
+#### Bảng `LicenseAddonRecords` (Bản ghi nạp addon bản quyền chống nạp trùng)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `addon_id` | `uuid` | Unique, Not Null | Mã định danh duy nhất của gói Addon |
+| `loaded_at` | `timestamp` | Not Null | Thời gian nạp Addon vào hệ thống |
+
+#### Bảng `Boundaries` (Vùng ranh giới ROI/AI)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `device_id` | `uuid` | Not Null | ID camera thiết lập vùng |
+| `type` | `varchar(20)` | Not Null | Loại vùng (`roi_thermal`, `intrusion_boundary`) |
+| `polygon_json` | `text (jsonb)` | Not Null | Tập hợp tọa độ các đỉnh của đa giác |
+| `thresholds_json`| `text (jsonb)`| Null | Ngưỡng cảnh báo nhiệt độ gán riêng cho vùng |
+
+#### Bảng `RoiPoints` (Điểm đo nhiệt độ cụ thể trên camera nhiệt)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `device_id` | `uuid` | Foreign Key | ID camera nhiệt |
+| `point_name` | `varchar(100)` | Not Null | Tên điểm đo (Ví dụ: `Đầu cáp pha A`) |
+| `x_coord` | `integer` | Not Null | Tọa độ X trên khung hình camera |
+| `y_coord` | `integer` | Not Null | Tọa độ Y trên khung hình camera |
+
+#### Bảng `Teams` (Thông tin Tổ thao tác lưu động)
+| Tên cột | Kiểu dữ liệu | Ràng buộc | Mô tả |
+|---|---|---|---|
+| `id` | `uuid` | Primary Key | Khóa chính |
+| `name` | `varchar(150)` | Not Null | Tên tổ thao tác lưu động |
+| `description` | `text` | Null | Mô tả địa bàn hoạt động |
+| `province_id` | `uuid` | Foreign Key | Liên kết tới bảng `Provinces` |
+| `station_ids` | `uuid[]` | Null | Danh sách các trạm phụ trách của tổ |
 
 ---
 
@@ -196,12 +384,15 @@ Các bảng dữ liệu được thiết kế tối ưu trên PostgreSQL phục 
 ### 1. Nhật ký lập trình đầy đủ (Git Commit Log)
 Dưới đây là toàn bộ nhật ký kiểm soát mã nguồn lịch sử phát triển của dự án Master Station:
 
+* 1e1f657 - kennhope13, 2 minutes ago : docs: resolve arrow label text collision in architecture and state diagrams with line masking
+* 595819c - kennhope13, 6 minutes ago : docs: resolve Vietnamese diacritics rendering issue in diagrams using DejaVu Sans font
+* f9f7ca7 - kennhope13, 13 minutes ago : docs: integrate 6 UML diagrams as visual figures, include full git history, expand bug reports, and remove code snippets
 * 08e4a06 - kennhope13, 18 hours ago : docs: generate and commit HOSO_KYTHUAT_CHUNGTU.docx
 * f0400a5 - kennhope13, 18 hours ago : docs: expand technical profile with exhaustive details, schemas, and test matrices
 * 16c7fc9 - kennhope13, 18 hours ago : docs: add software production technical profile (HOSO_KYTHUAT_CHUNGTU.md)
 * 7a72c18 - kennhope13, 19 hours ago : bump(version): 3.0.13
 * c2bc5c7 - kennhope13, 19 hours ago : fix(ui): resolve layout and styling leaks/glitches when returning from License page to Multisite dashboard
-* 95bccad - kennhope13, 24 hours ago : chore: clean up pg_portable and backend wwwroot to optimize installer size
+* 95bccad - kennhope13, 25 hours ago : chore: clean up pg_portable and backend wwwroot to optimize installer size
 * e822ce7 - kennhope13, 3 days ago : fix: resolve central monitor branding and startup freeze on loadscreen
 * c6a34f7 - kennhope13, 3 days ago : fix: relocate installer.nsh to non-ignored electron directory and bump version to 3.0.9
 * 5ad2b54 - kennhope13, 3 days ago : chore: bump version to 3.0.8
