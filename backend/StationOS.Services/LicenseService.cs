@@ -366,7 +366,18 @@ public class LicenseService
             .FirstOrDefaultAsync();
 
         if (license == null)
+        {
+            var managed = await GetManagedQuotaAsync(db);
+            if (managed != null)
+            {
+                CleanExpiredSessions();
+                return new LicenseStatusDto(
+                    "centrally-managed", 5, 1, managed.Value.Cameras, managed.Value.Sensors,
+                    0, 0, 0, DateTime.MaxValue, managed.Value.UpdatedAt,
+                    _activeSessions.Values.Count(s => !s.IsBypass), true);
+            }
             return null;
+        }
 
         CleanExpiredSessions();
 
@@ -403,15 +414,18 @@ public class LicenseService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var license = await GetActiveLicenseAsync(db);
+        var managed = !fileSnapshot.HasLicense && license == null
+            ? await GetManagedQuotaAsync(db)
+            : null;
         var maxUsers = fileSnapshot.HasLicense ? fileSnapshot.MaxUsers : license?.MaxUsers ?? 10;
         var maxStations = fileSnapshot.HasLicense ? fileSnapshot.MaxStations : license?.MaxStations ?? 10;
-        var maxCameras = fileSnapshot.HasLicense ? fileSnapshot.MaxCameras : license?.MaxCameras ?? 10;
-        var maxSensors = fileSnapshot.HasLicense ? fileSnapshot.MaxSensors : maxCameras;
+        var maxCameras = fileSnapshot.HasLicense ? fileSnapshot.MaxCameras : license?.MaxCameras ?? managed?.Cameras ?? 0;
+        var maxSensors = fileSnapshot.HasLicense ? fileSnapshot.MaxSensors : license?.MaxCameras ?? managed?.Sensors ?? 0;
         int current = 0;
         int max = 999;
 
         // Chưa có license → không cho hiển thị giới hạn sử dụng
-        if (!fileSnapshot.HasLicense && license == null)
+        if (!fileSnapshot.HasLicense && license == null && managed == null)
         {
             return new ResourceLimitInfo(resource, 0, 0, false);
         }
@@ -420,19 +434,19 @@ public class LicenseService
         {
             case "stations":
                 current = await db.Stations.CountAsync();
-                max = fileSnapshot.HasLicense ? maxStations : license!.MaxStations;
+                max = fileSnapshot.HasLicense ? maxStations : license?.MaxStations ?? 1;
                 break;
             case "cameras":
                 current = await db.Devices.CountAsync(d => d.Type.ToLower().StartsWith("camera"));
-                max = fileSnapshot.HasLicense ? maxCameras : license!.MaxCameras;
+                max = maxCameras;
                 break;
             case "sensors":
                 current = await db.Devices.CountAsync(d => !d.Type.ToLower().StartsWith("camera"));
-                max = fileSnapshot.HasLicense ? maxSensors : license!.MaxCameras;
+                max = maxSensors;
                 break;
             case "devices":
                 current = await db.Devices.CountAsync();
-                max = (fileSnapshot.HasLicense ? maxCameras : license!.MaxCameras) + (fileSnapshot.HasLicense ? maxSensors : license!.MaxCameras);
+                max = maxCameras + maxSensors;
                 break;
             case "roi_points":
                 current = await db.RoiPoints.CountAsync();
@@ -467,7 +481,10 @@ public class LicenseService
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         var license = await GetActiveLicenseAsync(db);
-        if (!fileSnapshot.HasLicense && license == null)
+        var managed = !fileSnapshot.HasLicense && license == null
+            ? await GetManagedQuotaAsync(db)
+            : null;
+        if (!fileSnapshot.HasLicense && license == null && managed == null)
         {
             return new List<ResourceLimitInfo>
             {
@@ -492,9 +509,9 @@ public class LicenseService
 
         return new List<ResourceLimitInfo>
         {
-            new("stations", stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? defaultMax), IsExceeded(stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? defaultMax))),
-            new("cameras", cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? defaultMax), IsExceeded(cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? defaultMax))),
-            new("sensors", sensorCount, useFileLicense ? fileSnapshot.MaxSensors : (license?.MaxCameras ?? defaultMax), IsExceeded(sensorCount, useFileLicense ? fileSnapshot.MaxSensors : (license?.MaxCameras ?? defaultMax))),
+            new("stations", stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? 1), IsExceeded(stationCount, useFileLicense ? fileSnapshot.MaxStations : (license?.MaxStations ?? 1))),
+            new("cameras", cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? managed?.Cameras ?? defaultMax), IsExceeded(cameraCount, useFileLicense ? fileSnapshot.MaxCameras : (license?.MaxCameras ?? managed?.Cameras ?? defaultMax))),
+            new("sensors", sensorCount, useFileLicense ? fileSnapshot.MaxSensors : (license?.MaxCameras ?? managed?.Sensors ?? defaultMax), IsExceeded(sensorCount, useFileLicense ? fileSnapshot.MaxSensors : (license?.MaxCameras ?? managed?.Sensors ?? defaultMax))),
             new("roi_points", roiPointCount, useFileLicense ? fileSnapshot.MaxRoiPoints : (license?.MaxRoiPoints ?? defaultMax), IsExceeded(roiPointCount, useFileLicense ? fileSnapshot.MaxRoiPoints : (license?.MaxRoiPoints ?? defaultMax))),
             new("roi_regions", roiRegionCount, useFileLicense ? fileSnapshot.MaxRoiRegions : (license?.MaxRoiRegions ?? defaultMax), IsExceeded(roiRegionCount, useFileLicense ? fileSnapshot.MaxRoiRegions : (license?.MaxRoiRegions ?? defaultMax))),
             new("pd_regions", pdRegionCount, useFileLicense ? fileSnapshot.MaxPdRegions : (license?.MaxPdRegions ?? defaultMax), IsExceeded(pdRegionCount, useFileLicense ? fileSnapshot.MaxPdRegions : (license?.MaxPdRegions ?? defaultMax))),
@@ -509,6 +526,50 @@ public class LicenseService
             .Where(l => l.IsActive)
             .OrderByDescending(l => l.ActivatedAt)
             .FirstOrDefaultAsync();
+
+    public async Task SetManagedQuotaAsync(int cameras, int sensors, string? sourceStationId, string? sourceStationName)
+    {
+        if (cameras < 0 || sensors < 0)
+            throw new ArgumentOutOfRangeException(nameof(cameras), "Quota phải là số nguyên không âm");
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var localStationId = await db.Stations.OrderBy(s => s.CreatedAt).Select(s => s.Id).FirstOrDefaultAsync();
+        if (localStationId == Guid.Empty)
+            throw new InvalidOperationException("Trạm cục bộ chưa có bản ghi Station để lưu quota");
+
+        const string key = "central_managed_quota";
+        var row = await db.SystemSettings.FirstOrDefaultAsync(s => s.StationId == localStationId && s.Key == key);
+        var now = DateTime.UtcNow;
+        var value = JsonSerializer.Serialize(new { cameras, sensors, sourceStationId, sourceStationName, updatedAt = now });
+        if (row == null)
+        {
+            db.SystemSettings.Add(new SystemSettings { StationId = localStationId, Key = key, Value = value, UpdatedAt = now });
+        }
+        else
+        {
+            row.Value = value;
+            row.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync();
+    }
+
+    private static async Task<(int Cameras, int Sensors, DateTime UpdatedAt)?> GetManagedQuotaAsync(AppDbContext db)
+    {
+        var row = await db.SystemSettings.AsNoTracking()
+            .Where(s => s.Key == "central_managed_quota")
+            .OrderByDescending(s => s.UpdatedAt)
+            .FirstOrDefaultAsync();
+        if (row == null) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(row.Value);
+            var cameras = doc.RootElement.TryGetProperty("cameras", out var c) ? c.GetInt32() : 0;
+            var sensors = doc.RootElement.TryGetProperty("sensors", out var s) ? s.GetInt32() : 0;
+            return (Math.Max(0, cameras), Math.Max(0, sensors), row.UpdatedAt);
+        }
+        catch { return null; }
+    }
 
     // ── Session tracking ───────────────────────────────────────
 

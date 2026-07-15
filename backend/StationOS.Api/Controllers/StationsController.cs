@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -1721,7 +1722,7 @@ public class StationsController : ControllerBase
         return await ProxyLicenseImportToStationAsync(id, file);
     }
 
-    /// <summary>Tạo license theo quota đã cấp và đẩy trực tiếp vào trạm cục bộ.</summary>
+    /// <summary>Phân bổ quota quản lý tập trung xuống trạm cục bộ (không tạo/nhập license).</summary>
     [HttpPost("{id}/remote-license-provision")]
     [HasPermission("license:manage")]
     public async Task<IActionResult> ProvisionRemoteLicense(Guid id)
@@ -1735,26 +1736,7 @@ public class StationsController : ControllerBase
     public async Task<IActionResult> ClearRemoteLicense(Guid id)
     {
         var result = await ProxyDeleteToStationAsync(id, "/api/v1/license/clear");
-        var statusCode = result switch
-        {
-            ObjectResult objectResult => objectResult.StatusCode,
-            ContentResult contentResult => contentResult.StatusCode,
-            StatusCodeResult statusCodeResult => statusCodeResult.StatusCode,
-            _ => null
-        };
-
-        if (statusCode is >= 200 and < 300)
-        {
-            var station = await _db.Stations.FindAsync(id);
-            if (station != null)
-            {
-                station.CameraQuota = 0;
-                station.SensorQuota = 0;
-                await _db.SaveChangesAsync();
-                _ = _notifier.SendStationListChangedAsync("updated", station.Id);
-            }
-        }
-
+        // Xóa license riêng của trạm con không làm thay đổi quota do trạm tổng phân bổ.
         return result;
     }
 
@@ -1769,15 +1751,20 @@ public class StationsController : ControllerBase
         var url = req.Url.TrimEnd('/');
         var healthUrl = $"{url}/health";
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _logger.LogInformation("[StationConnectionTest] Starting GET {HealthUrl}", healthUrl);
+        // Production đang lọc log dưới mức Warning; dùng Warning để lần kiểm tra thủ công
+        // luôn được ghi vào backend.log của ứng dụng Electron.
+        _logger.LogWarning("[StationConnectionTest] Starting GET {HealthUrl}", healthUrl);
         try
         {
             var client = _httpClientFactory.CreateClient("station-ping");
+            // Kiểm tra thủ công cần rộng hơn timeout 2 giây của worker giám sát định kỳ.
+            // Một trạm vừa khởi động hoặc ổ đĩa chậm vẫn có thể phản hồi health hợp lệ.
+            client.Timeout = TimeSpan.FromSeconds(10);
             var res = await client.GetAsync(healthUrl);
             sw.Stop();
             if (res.IsSuccessStatusCode)
             {
-                _logger.LogInformation("[StationConnectionTest] Success GET {HealthUrl}: HTTP {StatusCode} in {ElapsedMs}ms", healthUrl, (int)res.StatusCode, sw.ElapsedMilliseconds);
+                _logger.LogWarning("[StationConnectionTest] Success GET {HealthUrl}: HTTP {StatusCode} in {ElapsedMs}ms", healthUrl, (int)res.StatusCode, sw.ElapsedMilliseconds);
                 return Ok(new { reachable = true, responseMs = sw.ElapsedMilliseconds, testedUrl = healthUrl });
             }
 
@@ -1976,85 +1963,57 @@ public class StationsController : ControllerBase
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-            var reqResp = await client.GetAsync($"{apiBase}/api/v1/license/request");
-            if (reqResp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            var quotaPayload = JsonContent.Create(new
+            {
+                cameras = cameraQuota,
+                sensors = sensorQuota,
+                sourceStationId = station.Id.ToString(),
+                sourceStationName = "Master Station"
+            });
+            _logger.LogWarning(
+                "[ManagedQuota] Sending quota to station {StationName} at {ApiBase}: {Cameras} cameras, {Sensors} sensors",
+                station.Name, apiBase, cameraQuota, sensorQuota);
+            var quotaResp = await client.PostAsync($"{apiBase}/api/v1/license/managed-quota", quotaPayload);
+            if (quotaResp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
                 token = await GetOrFetchTokenAsync(station, apiBase, forceRefresh: true);
                 if (string.IsNullOrEmpty(token))
                     return StatusCode(502, new { error = "auth_failed" });
-
                 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                reqResp = await client.GetAsync($"{apiBase}/api/v1/license/request");
-            }
-
-            var reqBody = await reqResp.Content.ReadAsStringAsync();
-            if (!reqResp.IsSuccessStatusCode)
-                return StatusCode((int)reqResp.StatusCode, reqBody);
-
-            string? licenseRequest;
-            var legacyLicenseRequest = false;
-            try
-            {
-                using var doc = JsonDocument.Parse(reqBody);
-                if (doc.RootElement.TryGetProperty("request", out var requestProp))
+                quotaPayload = JsonContent.Create(new
                 {
-                    licenseRequest = requestProp.GetString();
-                }
-                else
-                {
-                    licenseRequest = reqBody;
-                    legacyLicenseRequest = true;
-                }
+                    cameras = cameraQuota,
+                    sensors = sensorQuota,
+                    sourceStationId = station.Id.ToString(),
+                    sourceStationName = "Master Station"
+                });
+                quotaResp = await client.PostAsync($"{apiBase}/api/v1/license/managed-quota", quotaPayload);
             }
-            catch
+
+            var quotaBody = await quotaResp.Content.ReadAsStringAsync();
+            if (!quotaResp.IsSuccessStatusCode)
             {
-                licenseRequest = null;
+                _logger.LogWarning(
+                    "[ManagedQuota] Station {StationName} rejected quota: HTTP {StatusCode}, response: {ResponseBody}",
+                    station.Name, (int)quotaResp.StatusCode, quotaBody);
+                return StatusCode((int)quotaResp.StatusCode, quotaBody);
             }
 
-            if (string.IsNullOrWhiteSpace(licenseRequest))
-                return StatusCode(502, new { message = "Trạm cục bộ không trả về .licreq hợp lệ" });
-
-            var generated = await _license.CreateChildBaseLicenseAsync(licenseRequest, cameraQuota, sensorQuota);
-            if (!generated.success || string.IsNullOrWhiteSpace(generated.licenseJson))
-                return BadRequest(new { message = generated.error });
-
-            if (legacyLicenseRequest)
-            {
-                using var validateContent = new MultipartFormDataContent();
-                using var validateFileContent = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(generated.licenseJson));
-                validateFileContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-                validateContent.Add(validateFileContent, "file", $"{(station.Code ?? station.Name).Replace(' ', '_')}_child.lic");
-
-                var validateResp = await client.PostAsync($"{apiBase}/api/v1/license/validate", validateContent);
-                var validateBody = await validateResp.Content.ReadAsStringAsync();
-                if (!validateResp.IsSuccessStatusCode)
-                    return StatusCode((int)validateResp.StatusCode, validateBody);
-
-                var clearResp = await client.DeleteAsync($"{apiBase}/api/v1/license/clear");
-                var clearBody = await clearResp.Content.ReadAsStringAsync();
-                if (!clearResp.IsSuccessStatusCode)
-                    return StatusCode((int)clearResp.StatusCode, clearBody);
-            }
-
-            using var content = new MultipartFormDataContent();
-            using var fileContent = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(generated.licenseJson));
-            fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-            content.Add(fileContent, "file", $"{(station.Code ?? station.Name).Replace(' ', '_')}_child.lic");
-
-            var importResp = await client.PostAsync($"{apiBase}/api/v1/license/import", content);
-            var importBody = await importResp.Content.ReadAsStringAsync();
-            if (!importResp.IsSuccessStatusCode)
-                return StatusCode((int)importResp.StatusCode, importBody);
+            _logger.LogWarning(
+                "[ManagedQuota] Station {StationName} accepted quota: {Cameras} cameras, {Sensors} sensors",
+                station.Name, cameraQuota, sensorQuota);
 
             return Ok(new
             {
-                message = $"Đã cấp và nhập license cho trạm {station.Name}: {cameraQuota} cam, {sensorQuota} sensor",
+                message = $"Đã phân bổ quota cho trạm {station.Name}: {cameraQuota} camera, {sensorQuota} sensor",
                 cameraQuota,
-                sensorQuota
+                sensorQuota,
+                managed = true
             });
         }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "[ManagedQuota] Failed to synchronize quota to station {StationId}", id);
             return StatusCode(502, new { error = "station_unreachable", detail = ex.Message });
         }
     }

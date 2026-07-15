@@ -619,9 +619,9 @@ export default function LicensePage() {
       if (station.apiUrl) {
         try {
           const provision = await stationApi.provisionRemoteLicense(station.id);
-          setImportMsg(provision?.message ?? `Đã cấp và nhập license cho trạm ${station.name}: ${cameraQuota ?? 0} cam, ${sensorQuota ?? 0} sensor`);
+          setImportMsg(provision?.message ?? `Đã phân bổ quota cho trạm ${station.name}: ${cameraQuota ?? 0} camera, ${sensorQuota ?? 0} sensor`);
         } catch (provisionErr: any) {
-          setImportMsg(`Đã lưu quota cho trạm ${station.name}, nhưng chưa đẩy được license vào trạm cục bộ: ${provisionErr?.message ?? provisionErr}`);
+          setImportMsg(`Đã lưu quota cho trạm ${station.name}, nhưng chưa đồng bộ được quota xuống trạm cục bộ: ${provisionErr?.message ?? provisionErr}`);
         }
       } else {
         setImportMsg(`Đã cấp quota cho trạm ${station.name}: ${cameraQuota ?? 0} cam, ${sensorQuota ?? 0} sensor`);

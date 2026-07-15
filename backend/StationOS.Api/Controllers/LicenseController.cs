@@ -25,8 +25,13 @@ namespace StationOS.Api.Controllers;
 public class LicenseController : ControllerBase
 {
     private readonly LicenseService _license;
+    private readonly ILogger<LicenseController> _logger;
 
-    public LicenseController(LicenseService license) => _license = license;
+    public LicenseController(LicenseService license, ILogger<LicenseController> logger)
+    {
+        _license = license;
+        _logger = logger;
+    }
 
     /// <summary>Lấy trạng thái license hiện tại: tier, giới hạn tài nguyên, ngày hết hạn, số phiên đang hoạt động.</summary>
     /// <returns>Thông tin license đang kích hoạt hoặc activated = false nếu chưa kích hoạt.</returns>
@@ -158,6 +163,30 @@ public class LicenseController : ControllerBase
         });
     }
 
+    /// <summary>Nhận quota quản lý tập trung từ trạm tổng; đây không phải file license.</summary>
+    [HttpPost("managed-quota")]
+    [HasPermission("license:manage")]
+    public async Task<IActionResult> SetManagedQuota([FromBody] ManagedQuotaRequest req)
+    {
+        if (req.Cameras < 0 || req.Sensors < 0)
+            return BadRequest(new { message = "Quota camera/sensor phải là số nguyên không âm" });
+
+        _logger.LogWarning(
+            "[ManagedQuota] Receiving quota from master {SourceStationName} ({SourceStationId}): {Cameras} cameras, {Sensors} sensors",
+            req.SourceStationName, req.SourceStationId, req.Cameras, req.Sensors);
+        await _license.SetManagedQuotaAsync(req.Cameras, req.Sensors, req.SourceStationId, req.SourceStationName);
+        _logger.LogWarning(
+            "[ManagedQuota] Saved quota successfully: {Cameras} cameras, {Sensors} sensors",
+            req.Cameras, req.Sensors);
+        return Ok(new
+        {
+            message = $"Đã nhận quota từ trạm tổng: {req.Cameras} camera, {req.Sensors} sensor",
+            cameraQuota = req.Cameras,
+            sensorQuota = req.Sensors,
+            managed = true
+        });
+    }
+
     /// <summary>
     /// Nhập file .lic, ưu tiên lấy license key từ text/plain hoặc JSON đơn giản.
     /// </summary>
@@ -178,3 +207,4 @@ public class LicenseController : ControllerBase
 }
 
 public record LicenseKeyRequest(string? Key);
+public record ManagedQuotaRequest(int Cameras, int Sensors, string? SourceStationId, string? SourceStationName);
