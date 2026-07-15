@@ -1767,21 +1767,29 @@ public class StationsController : ControllerBase
             return BadRequest(new { reachable = false, error = "URL không được để trống" });
 
         var url = req.Url.TrimEnd('/');
+        var healthUrl = $"{url}/health";
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        _logger.LogInformation("[StationConnectionTest] Starting GET {HealthUrl}", healthUrl);
         try
         {
             var client = _httpClientFactory.CreateClient("station-ping");
-            var res = await client.GetAsync($"{url}/health");
+            var res = await client.GetAsync(healthUrl);
             sw.Stop();
             if (res.IsSuccessStatusCode)
-                return Ok(new { reachable = true, responseMs = sw.ElapsedMilliseconds });
+            {
+                _logger.LogInformation("[StationConnectionTest] Success GET {HealthUrl}: HTTP {StatusCode} in {ElapsedMs}ms", healthUrl, (int)res.StatusCode, sw.ElapsedMilliseconds);
+                return Ok(new { reachable = true, responseMs = sw.ElapsedMilliseconds, testedUrl = healthUrl });
+            }
 
-            return Ok(new { reachable = false, responseMs = sw.ElapsedMilliseconds, error = $"HTTP {(int)res.StatusCode}" });
+            var error = $"HTTP {(int)res.StatusCode} {res.ReasonPhrase}".Trim();
+            _logger.LogWarning("[StationConnectionTest] Failed GET {HealthUrl}: {Error} in {ElapsedMs}ms", healthUrl, error, sw.ElapsedMilliseconds);
+            return Ok(new { reachable = false, responseMs = sw.ElapsedMilliseconds, testedUrl = healthUrl, error });
         }
         catch (Exception ex)
         {
             sw.Stop();
-            return Ok(new { reachable = false, responseMs = sw.ElapsedMilliseconds, error = ex.Message });
+            _logger.LogError(ex, "[StationConnectionTest] Exception GET {HealthUrl} after {ElapsedMs}ms", healthUrl, sw.ElapsedMilliseconds);
+            return Ok(new { reachable = false, responseMs = sw.ElapsedMilliseconds, testedUrl = healthUrl, error = $"{ex.GetType().Name}: {ex.Message}" });
         }
     }
 
