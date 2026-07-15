@@ -832,6 +832,8 @@ export default function DeviceManagementPage({
                 )}
               </tbody>
             </table>
+            {/* Spacer giúp cuộn danh sách thiết bị lên cao hơn để tránh bị che bởi cạnh dưới màn hình */}
+            <div style={{ height: 160, flexShrink: 0 }}></div>
           </div>
         </div>
       </div>

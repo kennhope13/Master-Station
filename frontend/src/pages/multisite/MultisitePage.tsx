@@ -750,7 +750,8 @@ export default function MultisitePage() {
     setConnStatus('checking');
     setConnMs(null);
     try {
-      const res = await stationApi.testStationConnection(`${url}/health`);
+      // Backend test-connection tự nối endpoint /health vào URL gốc.
+      const res = await stationApi.testStationConnection(url);
       setConnMs(res.responseMs);
       setConnStatus(res.reachable ? 'ok' : 'fail');
     } catch {

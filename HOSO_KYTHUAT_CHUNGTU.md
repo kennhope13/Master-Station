@@ -32,6 +32,8 @@ Tài liệu này xác định chi tiết các chức năng hệ thống cung c�
   * Tiếp nhận luồng RTSP camera (quang học thông thường, camera nhiệt đo nhiệt độ đầu cáp, camera phóng điện) từ các trạm con.
   * Giải mã và chuyển đổi luồng trung gian thông qua bộ chuyển mã `go2rtc` tích hợp sẵn trong bộ cài, truyền tải luồng WebRTC/MSE độ trễ cực thấp (dưới 500ms) để xem mượt mà trên trình duyệt/Electron client.
   * Thiết lập bảng lưới camera động (Live Wall) hỗ trợ xem đồng thời nhiều luồng camera từ nhiều trạm khác nhau trên cùng một màn hình điều khiển.
+
+  ![Giao diện giám sát luồng camera trực tiếp đa trạm (Live Wall)](/home/admin-/Desktop/Master-Station/docs-project/diagrams/live_wall_screenshot.png)
 * **G3. Đồng bộ cảnh báo & Sự kiện thời gian thực (Centralized Alert Hub)**:
   * Tiếp nhận tự động các bản tin cảnh báo sự cố gửi lên từ trạm con thông qua API REST.
   * Đẩy thông báo cảnh báo tức thời lên giao diện Client bằng giao thức WebSocket (SignalR).
