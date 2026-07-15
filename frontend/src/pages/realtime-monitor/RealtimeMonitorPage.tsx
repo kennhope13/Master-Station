@@ -6,7 +6,7 @@
 // ============================================================
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Map as MapIcon, AlertTriangle, Activity, Server, CheckCircle, Video, Radio, ShieldCheck, Clock, Search, LayoutGrid, ChevronDown, ChevronLeft } from 'lucide-react';
+import { Map as MapIcon, AlertTriangle, Activity, Server, CheckCircle, Video, Radio, ShieldCheck, Clock, Search, LayoutGrid, ChevronDown, ChevronLeft, ExternalLink, Trash2 } from 'lucide-react';
 import ToolbarSelect from '@/components/ui/ToolbarSelect';
 import { stationApi, CameraDevice, RoiPoint, Boundary } from '@/services/StationApiService';
 import { GO2RTC_URL, AI_ENGINE_URL, API_BASE_URL } from '@/utils/env';
@@ -54,11 +54,9 @@ export default function RealtimeMonitorPage() {
   const [showGridDropdown, setShowGridDropdown] = useState(false);
   const [hoveredCol, setHoveredCol] = useState<number | null>(null);
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
-  const [showPresetsDropdown, setShowPresetsDropdown] = useState(false);
   const [customCols, setCustomCols] = useState<string>('2');
   const [customRows, setCustomRows] = useState<string>('2');
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const presetsDropdownRef = useRef<HTMLDivElement>(null);
   
   const [expandedCamId, setExpandedCamId] = useState<string | null>(null);
   
@@ -235,14 +233,29 @@ export default function RealtimeMonitorPage() {
     }
   }, []);
 
+  // Check for preset query parameter to auto-load preset
+  useEffect(() => {
+    if (presets.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const presetId = params.get('preset');
+    if (presetId) {
+      const found = presets.find(p => p.id === presetId);
+      if (found) {
+        const cols = found.gridCols || found.gridSize || 2;
+        const rows = found.gridRows || found.gridSize || 2;
+        setGridCols(cols);
+        setGridRows(rows);
+        setGridAssignments(found.assignments);
+        setSelectedCellIdx(0);
+      }
+    }
+  }, [presets]);
+
   // Click outside to close dropdown hook
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setShowGridDropdown(false);
-      }
-      if (presetsDropdownRef.current && !presetsDropdownRef.current.contains(e.target as Node)) {
-        setShowPresetsDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
@@ -913,93 +926,50 @@ export default function RealtimeMonitorPage() {
     }
   };
 
-  const openPopoutWindow = () => {
+
+
+  const openPresetInPopout = (e: React.MouseEvent, presetId: string) => {
+    e.stopPropagation();
     window.open(
-      window.location.pathname + '?popout=true',
+      window.location.pathname + `?popout=true&preset=${presetId}`,
       '_blank',
       'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no,titlebar=no'
     );
+    setShowGridDropdown(false);
   };
 
-  const renderPresets = () => {
-    const handleSavePreset = () => {
-      const name = presetInput.trim();
-      if (!name) return;
-      const newPreset = {
-        id: `preset-${Date.now()}`,
-        name,
-        gridCols,
-        gridRows,
-        assignments: { ...gridAssignments }
-      };
-      const updated = [...presets, newPreset];
-      setPresets(updated);
-      localStorage.setItem('rtm_presets', JSON.stringify(updated));
-      setPresetInput('');
+  const handleSavePreset = () => {
+    const name = presetInput.trim();
+    if (!name) return;
+    const newPreset = {
+      id: `preset-${Date.now()}`,
+      name,
+      gridCols,
+      gridRows,
+      assignments: { ...gridAssignments }
     };
+    const updated = [...presets, newPreset];
+    setPresets(updated);
+    localStorage.setItem('rtm_presets', JSON.stringify(updated));
+    setPresetInput('');
+  };
 
-    const handleLoadPreset = (preset: typeof presets[0]) => {
-      const cols = preset.gridCols || preset.gridSize || 2;
-      const rows = preset.gridRows || preset.gridSize || 2;
-      setGridCols(cols);
-      setGridRows(rows);
-      localStorage.setItem('rtm_grid_cols', String(cols));
-      localStorage.setItem('rtm_grid_rows', String(rows));
-      setGridAssignments(preset.assignments);
-      setSelectedCellIdx(0);
-    };
+  const handleLoadPreset = (preset: typeof presets[0]) => {
+    const cols = preset.gridCols || preset.gridSize || 2;
+    const rows = preset.gridRows || preset.gridSize || 2;
+    setGridCols(cols);
+    setGridRows(rows);
+    localStorage.setItem('rtm_grid_cols', String(cols));
+    localStorage.setItem('rtm_grid_rows', String(rows));
+    setGridAssignments(preset.assignments);
+    setSelectedCellIdx(0);
+  };
 
-    const handleDeletePreset = (e: React.MouseEvent, id: string) => {
-      e.stopPropagation();
-      const updated = presets.filter(p => p.id !== id);
-      setPresets(updated);
-      localStorage.setItem('rtm_presets', JSON.stringify(updated));
-    };
-
-    return (
-      <div style={{ position: 'relative' }} ref={presetsDropdownRef}>
-        <button
-          className={`nvr-lb ${showPresetsDropdown ? 'active' : ''}`}
-          onClick={() => setShowPresetsDropdown(prev => !prev)}
-          title="Mẫu bố cục (Presets)"
-          style={{ display: 'flex', alignItems: 'center', gap: 6, width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700 }}
-        >
-          <span>Mẫu bố cục</span>
-          <ChevronDown size={12} style={{ transform: showPresetsDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
-        </button>
-
-        {showPresetsDropdown && (
-          <div className="rtm-grid-dropdown" style={{ minWidth: 260, right: 0 }}>
-            <div className="rtm-presets-save" style={{ marginTop: 0 }}>
-              <input
-                type="text"
-                className="rtm-preset-input"
-                placeholder="Tên mẫu..."
-                value={presetInput}
-                onChange={(e) => setPresetInput(e.target.value)}
-              />
-              <button className="rtm-preset-btn" onClick={handleSavePreset}>
-                Lưu
-              </button>
-            </div>
-            {presets.length > 0 && (
-              <div className="rtm-presets-list" style={{ marginTop: 10, maxHeight: 300, overflowY: 'auto' }}>
-                {presets.map(p => (
-                  <div key={p.id} className="rtm-preset-item" onClick={() => { handleLoadPreset(p); setShowPresetsDropdown(false); }}>
-                    <span className="rtm-preset-name" title={p.name}>
-                      {p.name} ({p.gridCols || p.gridSize}x{p.gridRows || p.gridSize})
-                    </span>
-                    <span className="rtm-preset-delete" onClick={(e) => handleDeletePreset(e, p.id)} title="Xóa mẫu">
-                      🗑️
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
+  const handleDeletePreset = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const updated = presets.filter(p => p.id !== id);
+    setPresets(updated);
+    localStorage.setItem('rtm_presets', JSON.stringify(updated));
   };
 
   const renderSidebar = () => {
@@ -1025,7 +995,7 @@ export default function RealtimeMonitorPage() {
 
     return (
       <div className="rtm-sidebar">
-        <div className="rtm-sidebar-content" style={{ paddingTop: 20 }}>
+        <div className="rtm-sidebar-content" style={{ paddingTop: 10 }}>
           {filteredCameras.length === 0 ? (
             <div style={{ padding: 12, textAlign: 'center', color: 'var(--admin-text-muted)', fontSize: 11 }}>
               Không tìm thấy kết quả
@@ -1339,27 +1309,7 @@ export default function RealtimeMonitorPage() {
           )}
         </div>
 
-        {/* Permanent Glassmorphic Info Card Overlay */}
-        <div className="nvr-overlay-card">
-          <span className="overlay-station">{ (cam as any).stationName || 'Không rõ trạm' }</span>
-          <div className="overlay-cam-row">
-            <span className="overlay-cname">{ cam.name }</span>
-          </div>
-          <div className="overlay-status-row">
-            <span className="overlay-status-badge">
-              <span className={`overlay-status-dot ${status}`} />
-              <span style={{ color: status === 'online' ? 'var(--admin-success)' : 'var(--admin-danger)' }}>
-                {status.toUpperCase()}
-              </span>
-            </span>
-            {overlayStats && (
-              <>
-                <span style={{ opacity: 0.3 }}>|</span>
-                <span className="overlay-stats">{overlayStats}</span>
-              </>
-            )}
-          </div>
-        </div>
+
         
         <div className="nvr-hud-t">
           <div className="nvr-cam-info">
@@ -1461,28 +1411,24 @@ export default function RealtimeMonitorPage() {
         <div className="page-toolbar-group">
           {!isCentralFleetView && (
             <>
-              {renderPresets()}
-              
-              <div className="rtm-sep" />
-
-              {/* Grid Dropdown Selector */}
+              {/* Single Unified Grid & Presets Dropdown */}
               <div style={{ position: 'relative' }} ref={dropdownRef}>
                 <button
                   className={`nvr-lb ${showGridDropdown ? 'active' : ''}`}
                   onClick={() => setShowGridDropdown(prev => !prev)}
-                  title="Chọn bố cục ô lưới"
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700 }}
+                  title="Cấu hình bố cục & mẫu giám sát"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, width: 'auto', padding: '0 12px', fontSize: 11, fontWeight: 700 }}
                 >
                   <LayoutGrid size={14} />
-                  <span>{gridCols}×{gridRows}</span>
+                  <span>BỐ CỤC ({gridCols}×{gridRows})</span>
                   <ChevronDown size={12} style={{ transform: showGridDropdown ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
                 </button>
 
                 {showGridDropdown && (
-                  <div className="rtm-grid-dropdown">
+                  <div className="rtm-grid-dropdown" style={{ width: 310 }}>
                     {/* Quick Section */}
                     <div className="rtm-dropdown-section">
-                      <div className="rtm-dropdown-section-title">NHANH</div>
+                      <div className="rtm-dropdown-section-title">BỐ CỤC NHANH</div>
                       <div className="rtm-quick-grid">
                         {([
                           [1, 1], [2, 1], [2, 2], [3, 2],
@@ -1547,7 +1493,7 @@ export default function RealtimeMonitorPage() {
                     </div>
 
                     {/* Custom Input Section */}
-                    <div className="rtm-dropdown-section" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+                    <div className="rtm-dropdown-section">
                       <div className="rtm-dropdown-section-title" style={{ marginBottom: 8 }}>NHẬP TÙY CHỈNH</div>
                       <div className="rtm-custom-inputs">
                         <input
@@ -1582,22 +1528,73 @@ export default function RealtimeMonitorPage() {
                         </button>
                       </div>
                     </div>
+
+                    {/* Presets Section */}
+                    <div className="rtm-dropdown-section" style={{ borderBottom: 'none', paddingBottom: 0 }}>
+                      <div className="rtm-dropdown-section-title" style={{ marginBottom: 8 }}>MẪU BỐ CỤC (PRESETS)</div>
+                      <div className="rtm-presets-save" style={{ marginTop: 0, display: 'flex', gap: 6 }}>
+                        <input
+                          type="text"
+                          className="rtm-preset-input"
+                          placeholder="Tên mẫu..."
+                          value={presetInput}
+                          onChange={(e) => setPresetInput(e.target.value)}
+                          style={{ flex: 1, background: 'rgba(0,0,0,0.25)', border: '1px solid var(--admin-border)', borderRadius: 0, color: '#fff', padding: '0 8px', fontSize: 11, height: 28 }}
+                        />
+                        <button 
+                          className="rtm-preset-btn" 
+                          onClick={handleSavePreset}
+                          style={{ height: 28, borderRadius: 0, background: 'var(--admin-accent)', border: 'none', color: 'var(--admin-text-on-accent)', fontSize: 11, fontWeight: 'bold', padding: '0 12px', cursor: 'pointer' }}
+                        >
+                          Lưu
+                        </button>
+                      </div>
+                      {presets.length > 0 && (
+                        <div className="rtm-presets-list" style={{ marginTop: 10, maxHeight: 150, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {presets.map(p => (
+                            <div 
+                              key={p.id} 
+                              className="rtm-preset-item"
+                              onClick={() => {
+                                handleLoadPreset(p);
+                                setShowGridDropdown(false);
+                              }}
+                              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 0, cursor: 'pointer', transition: 'all 0.15s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'var(--admin-hover)'; e.currentTarget.style.borderColor = 'var(--admin-accent)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; }}
+                            >
+                              <span style={{ fontSize: 11, color: 'var(--admin-text)', fontWeight: 600 }}>{p.name} ({p.gridCols || p.gridSize}×{p.gridRows || p.gridSize})</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <button
+                                  className="rtm-preset-popout"
+                                  onClick={(e) => openPresetInPopout(e, p.id)}
+                                  title="Mở mẫu này trong cửa sổ mới"
+                                  style={{ background: 'none', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px 6px' }}
+                                  onMouseEnter={e => e.currentTarget.style.color = 'var(--admin-accent)'}
+                                  onMouseLeave={e => e.currentTarget.style.color = 'var(--admin-text-muted)'}
+                                >
+                                  <ExternalLink size={12} />
+                                </button>
+                                <button 
+                                  className="rtm-preset-del" 
+                                  onClick={(e) => handleDeletePreset(e, p.id)}
+                                  title="Xóa mẫu"
+                                  style={{ background: 'none', border: 'none', color: 'var(--admin-text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2px 6px' }}
+                                  onMouseEnter={e => e.currentTarget.style.color = 'var(--admin-danger)'}
+                                  onMouseLeave={e => e.currentTarget.style.color = 'var(--admin-text-muted)'}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 )}
               </div>
-
-              <div className="rtm-sep" />
-
-              {/* New Popout Window Action */}
-              <button 
-                className="nvr-lb" 
-                onClick={openPopoutWindow} 
-                title="Mở lưới giám sát ra cửa sổ độc lập (Dual Monitor)"
-                style={{ display: 'flex', alignItems: 'center', gap: 4, width: 'auto', padding: '0 8px', fontSize: 10, fontWeight: 700 }}
-              >
-                <span>⛶</span>
-                <span>Cửa sổ mới</span>
-              </button>
 
               {expandedCamId && (
                 <div className="nvr-back-btn visible" onClick={() => toggleExpand(expandedCamId)}>

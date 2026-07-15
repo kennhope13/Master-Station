@@ -15,7 +15,7 @@
   color: var(--admin-btn-secondary-text);
   width: 32px;
   height: 32px;
-  border-radius: 6px;
+  border-radius: 0;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -37,6 +37,49 @@
   border-color: var(--admin-accent);
   color: var(--admin-accent);
   background: var(--admin-hover);
+}
+
+.rtm-btn-group {
+  display: flex;
+  align-items: stretch;
+  background: var(--admin-btn-secondary-bg);
+  border: 1px solid var(--admin-btn-secondary-border);
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  height: 32px;
+  overflow: visible;
+}
+.rtm-btn-group > div {
+  display: flex;
+  align-items: stretch;
+}
+.rtm-btn-group .nvr-lb {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  height: 100% !important;
+  background: transparent !important;
+}
+.rtm-btn-group .nvr-lb.active {
+  background: var(--admin-accent) !important;
+  color: var(--admin-text-on-accent) !important;
+}
+.rtm-btn-group .nvr-lb:hover:not(.active) {
+  background: var(--admin-hover) !important;
+  color: var(--admin-accent) !important;
+}
+.rtm-btn-group > *:not(:last-child) {
+  border-right: 1px solid var(--admin-btn-secondary-border);
+}
+.rtm-btn-group > *:first-child,
+.rtm-btn-group > *:first-child .nvr-lb {
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+}
+.rtm-btn-group > *:last-child,
+.rtm-btn-group > *:last-child .nvr-lb {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
 }
 
 .nvr-sel {
@@ -355,7 +398,7 @@
   border-left: 2px solid transparent;
 }
 
-.rtm-tree-node:hover {
+.rtm-tree-node:not(.rtm-camera-node):hover {
   background: var(--admin-hover);
   border-left-color: var(--admin-border);
   padding-left: 12px;
@@ -393,12 +436,6 @@
   margin-top: 2px;
   border: 1px solid rgba(255, 255, 255, 0.02);
   padding: 5px 8px;
-}
-
-.rtm-camera-node:hover {
-  border-left-color: var(--admin-accent);
-  background: rgba(251, 191, 36, 0.04);
-  color: #fff;
 }
 
 .rtm-camera-node:active {
@@ -686,7 +723,7 @@
   width: 290px;
   background: #0f131a;
   border: 1px solid var(--admin-border);
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
   padding: 16px;
   display: flex;
@@ -731,7 +768,7 @@
 .rtm-quick-btn {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 4px;
+  border-radius: 0;
   color: var(--admin-text);
   font-size: 11px;
   font-weight: 700;
@@ -760,7 +797,7 @@
   gap: 3px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 6px;
+  border-radius: 0;
   padding: 8px;
   align-items: center;
 }
@@ -775,7 +812,7 @@
   height: 16px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 2px;
+  border-radius: 0;
   cursor: pointer;
   transition: all 0.1s ease;
 }
@@ -803,7 +840,7 @@
   height: 28px;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid var(--admin-border);
-  border-radius: 6px;
+  border-radius: 0;
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -829,7 +866,7 @@
   height: 28px;
   background: var(--admin-accent);
   border: none;
-  border-radius: 6px;
+  border-radius: 0;
   color: var(--admin-text-on-accent);
   font-size: 11px;
   font-weight: bold;
@@ -848,5 +885,4 @@
   position: relative;
   z-index: 200;
   overflow: visible !important;
-  height: 68px;
 }
