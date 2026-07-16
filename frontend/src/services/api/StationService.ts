@@ -39,7 +39,7 @@ export class StationService {
   }
 
   /** Kiểm tra kết nối tới trạm cục bộ. */
-  async testConnection(url: string): Promise<{ reachable: boolean; responseMs: number; error?: string }> {
+  async testConnection(url: string): Promise<{ reachable: boolean; responseMs: number; error?: string; testedUrl?: string }> {
     return apiMutate('POST', '/stations/test-connection', { url });
   }
 

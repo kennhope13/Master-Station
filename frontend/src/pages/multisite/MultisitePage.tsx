@@ -448,6 +448,8 @@ export default function MultisitePage() {
   const [newStationSensorQuota, setNewStationSensorQuota] = useState('');
   const [connStatus, setConnStatus] = useState<'idle' | 'checking' | 'ok' | 'fail'>('idle');
   const [connMs, setConnMs] = useState<number | null>(null);
+  const [connError, setConnError] = useState('');
+  const [connTestUrl, setConnTestUrl] = useState('');
   const [geoStatus, setGeoStatus] = useState<'idle' | 'searching' | 'found' | 'notfound'>('idle');
   const [isSaving, setIsSaving] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -749,12 +751,21 @@ export default function MultisitePage() {
     const url = resolveApiUrl(newStationApiUrl);
     setConnStatus('checking');
     setConnMs(null);
+    setConnError('');
+    setConnTestUrl(`${url}/health`);
+    console.info('[StationConnectionTest] Frontend request', { apiBaseUrl: url, healthUrl: `${url}/health` });
     try {
       // Backend test-connection tự nối endpoint /health vào URL gốc.
       const res = await stationApi.testStationConnection(url);
+      console.info('[StationConnectionTest] Backend response', res);
       setConnMs(res.responseMs);
+      setConnTestUrl(res.testedUrl || `${url}/health`);
+      setConnError(res.error || '');
       setConnStatus(res.reachable ? 'ok' : 'fail');
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[StationConnectionTest] Frontend/API failure', error);
+      setConnError(message);
       setConnStatus('fail');
     }
   };
@@ -2986,7 +2997,7 @@ export default function MultisitePage() {
                     type="text"
                     placeholder="192.168.10.102"
                     value={newStationApiUrl}
-                    onChange={e => { setNewStationApiUrl(e.target.value); setConnStatus('idle'); setConnMs(null); }}
+                    onChange={e => { setNewStationApiUrl(e.target.value); setConnStatus('idle'); setConnMs(null); setConnError(''); setConnTestUrl(''); }}
                     style={{
                       flex: 1, background: 'var(--admin-layer-2)',
                       border: `1px solid ${connStatus === 'ok' ? 'var(--admin-success)' : connStatus === 'fail' ? 'var(--admin-danger)' : 'var(--admin-border)'}`,
@@ -3009,9 +3020,11 @@ export default function MultisitePage() {
                   </span>
                 )}
                 {connStatus === 'fail' && (
-                  <span style={{ fontSize: '0.68rem', color: 'var(--admin-danger)' }}>
-                    ● Không thể kết nối tới trạm cục bộ (Vẫn có thể lưu trạm, hệ thống sẽ tự kết nối sau)
-                  </span>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--admin-danger)', lineHeight: 1.5 }}>
+                    <div>● Không thể kết nối tới trạm cục bộ (Vẫn có thể lưu trạm, hệ thống sẽ tự kết nối sau)</div>
+                    <div>URL kiểm tra: <code>{connTestUrl || '—'}</code></div>
+                    <div>Chi tiết: <code>{connError || 'Backend trả về reachable=false nhưng không có mô tả'}</code>{connMs !== null ? ` (${connMs}ms)` : ''}</div>
+                  </div>
                 )}
                 <span style={{ fontSize: '0.62rem', color: 'var(--admin-text-muted)' }}>
                   Gợi ý: `4173/5173/6173` là cổng giao diện web, còn backend API thường chạy ở `5000`.
