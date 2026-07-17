@@ -37,7 +37,7 @@ class AuthService {
     }
 
     /**
-     * Đăng nhập bằng tên đăng nhập và mật khẩu, lưu JWT token vào store và localStorage.
+     * Đăng nhập bằng tên đăng nhập và mật khẩu, lưu JWT/refresh token vào store bền vững.
      */
     public async login(username: string, password: string): Promise<{ success: boolean; error?: string; licenseReason?: string }> {
         try {
@@ -60,8 +60,9 @@ class AuthService {
             // Cập nhật Zustand Store
             useAuthStore.getState().setSession(user, token, refreshToken);
             
-            // Mirror token to localStorage for backward compatibility with other tabs/components
-            localStorage.setItem('station_token', token);
+            // Mirror token to sessionStorage for backward compatibility with other tabs/components.
+            // Auth store itself persists the complete session in localStorage.
+            sessionStorage.setItem('station_token', token);
             
             return { success: true, licenseReason: data.licenseReason ?? '' };
 
@@ -72,9 +73,10 @@ class AuthService {
         }
     }
 
-    /** Đăng xuất — xóa phiên khỏi store và localStorage. */
+    /** Đăng xuất chủ động — xóa cả phiên bền vững và token tương thích. */
     public logout(): void {
         useAuthStore.getState().clearSession();
+        sessionStorage.removeItem('station_token');
         localStorage.removeItem('station_token');
     }
 
@@ -83,7 +85,7 @@ class AuthService {
         try {
             const user = this.buildUserFromToken(token);
             useAuthStore.getState().setSession(user, token, refreshToken);
-            localStorage.setItem('station_token', token);
+            sessionStorage.setItem('station_token', token);
             return true;
         } catch (err) {
             console.error('[AuthService] acceptExternalToken error:', err);
@@ -147,8 +149,8 @@ class AuthService {
             // Cập nhật Zustand Store
             useAuthStore.getState().setSession(user, token, newRefreshToken);
             
-            // Mirror token to localStorage for backward compatibility
-            localStorage.setItem('station_token', token);
+            // Mirror token to sessionStorage for backward compatibility
+            sessionStorage.setItem('station_token', token);
             
             return true;
         } catch (err) {

@@ -8,6 +8,7 @@ import { systemService } from '@/services/api/SystemService';
 
 type FormData = {
   name: string; type: string; ip: string;
+  protocol: string; registers: any[];
   rack: number; slot: number; db: number; length: number; pollIntervalS: number;
   username: string; password: string;
   rtspPath: string; go2rtcId: string;
@@ -22,6 +23,7 @@ type FormData = {
 
 const DEFAULT_FORM: FormData = {
   name: '', type: 'camera_cctv', ip: '',
+  protocol: 'snap7', registers: [],
   rack: 0, slot: 1, db: 32, length: 10, pollIntervalS: 5,
   username: '', password: '',
   rtspPath: '', go2rtcId: '',
@@ -70,15 +72,16 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
       setHadPassword(wasPasswordSet);
       setShowPassword(false);
       setFormData({
-        name: editingDevice.name, type: editingDevice.type, ip: cfg.ip || '',
+        name: editingDevice.name, type: editingDevice.type === 'plc_s7' || editingDevice.type === 'cabinet' || editingDevice.type === 'modbus_tcp' ? 'plc' : editingDevice.type, ip: cfg.ip || '',
+        protocol: editingDevice.protocol || 'snap7', registers: cfg.registers || [],
         rack: cfg.rack ?? 0, slot: cfg.slot ?? 1, db: cfg.db ?? 32, length: cfg.length ?? 10,
-        pollIntervalS: cfg.poll_interval_s ?? 5,
+        pollIntervalS: cfg.poll_interval_s ?? (cfg.poll_interval_ms ? cfg.poll_interval_ms / 1000 : 5),
         username: cfg.username || 'admin', password: wasPasswordSet ? '***' : '',
         rtspPath: cfg.rtsp_path || '', go2rtcId: cfg.go2rtc_id || '',
         rtspOptical: cfg.rtsp_optical || '', go2rtcOptical: cfg.go2rtc_optical || '',
         rtspThermal: cfg.rtsp_thermal || '', go2rtcThermal: cfg.go2rtc_thermal || '',
         cabinetId: cfg.cabinetId || '', zone: cfg.zone || '', mountType: cfg.mountType || 'outdoor',
-        port: cfg.port ?? 502, unitId: cfg.unit_id ?? 1, enableHealthScore: cfg.enableHealthScore ?? false,
+        port: cfg.port ?? 502, unitId: cfg.unit_id ?? (cfg.unitId ?? 1), enableHealthScore: cfg.enableHealthScore ?? false,
         focalLengthOptical: cfg.focal_length_optical != null ? parseFloat(cfg.focal_length_optical) : undefined,
         focalLengthThermal: cfg.focal_length_thermal != null ? parseFloat(cfg.focal_length_thermal) : undefined,
         jetsonIp: cfg.jetson_ip || '',
@@ -100,9 +103,13 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
       let protocol = 'modbus';
       const effectivePassword = (editingId && !formData.password.trim()) ? '***' : formData.password;
 
-      if (formData.type === 'plc_s7' || formData.type === 'cabinet') {
-        protocol = 'snap7';
-        Object.assign(configObj, { rack: formData.rack, slot: formData.slot, db: formData.db, offset: 0, length: formData.length, poll_interval_s: formData.pollIntervalS, enableHealthScore: formData.enableHealthScore });
+      if (formData.type === 'plc' || formData.type === 'plc_s7' || formData.type === 'cabinet' || formData.type === 'modbus_tcp') {
+        protocol = formData.protocol;
+        if (protocol === 'snap7') {
+          Object.assign(configObj, { rack: formData.rack, slot: formData.slot, db: formData.db, offset: 0, length: formData.length, poll_interval_s: formData.pollIntervalS, enableHealthScore: formData.enableHealthScore, registers: formData.registers });
+        } else {
+          Object.assign(configObj, { port: formData.port, unit_id: formData.unitId, username: formData.username, password: effectivePassword, poll_interval_ms: formData.pollIntervalS * 1000, registers: formData.registers });
+        }
       } else if (formData.type === 'camera_dual') {
         protocol = 'rtsp';
         const gOptical = formData.go2rtcOptical.trim() || `cam_${ipTag || 'camera'}_optical`;
@@ -135,8 +142,6 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
         if (rp && !rp.startsWith('/')) rp = '/' + rp;
         const gid = formData.go2rtcId.trim() || `camera_${formData.ip.replace(/\./g, '_')}_${formData.type.replace('camera_', '')}`;
         Object.assign(configObj, { rtsp_path: rp, go2rtc_id: gid, username: formData.username, password: effectivePassword });
-      } else if (formData.type === 'modbus_tcp') {
-        Object.assign(configObj, { port: formData.port, unit_id: formData.unitId, username: formData.username, password: effectivePassword });
       }
 
       const configStr = JSON.stringify(configObj);
@@ -172,6 +177,40 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const XLSX = await import('xlsx');
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        if (!wsname) return;
+        const ws = wb.Sheets[wsname];
+        if (!ws) return;
+        const data = XLSX.utils.sheet_to_json(ws);
+        
+        const parsedRegisters = data.map((row: any) => ({
+          address: Number(row.address ?? row.offset ?? 0),
+          point_id: row.point_id ?? row.pointId ?? '',
+          unit: row.unit ?? '',
+          scale: Number(row.scale ?? 1.0),
+          count: Number(row.count ?? 1)
+        })).filter(r => r.point_id);
+        
+        setFormData(prev => ({ ...prev, registers: parsedRegisters }));
+        alert(`Đã import thành công ${parsedRegisters.length} thanh ghi.`);
+      };
+      reader.readAsBinaryString(file);
+    } catch (err: any) {
+      alert(`Lỗi đọc file: ${err.message}`);
+    }
+    // reset input
+    e.target.value = '';
+  };
+
   if (!open) return null;
 
   return (
@@ -190,13 +229,11 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
             <div className="form-group">
               <label>Loại thiết bị *</label>
               <select className="form-select" value={formData.type} onChange={e => set({ type: e.target.value })}>
-                <option value="plc_s7">PLC S7-1200/1500</option>
-                <option value="cabinet">Tủ điện (3 Nhiệt, 1 PD)</option>
+                <option value="plc">Bộ điều khiển / Cảm biến (PLC/Sensor)</option>
                 <option value="camera_cctv">Camera Thường (RTSP)</option>
                 <option value="camera_thermal">Camera Nhiệt (RTSP) — chỉ luồng nhiệt</option>
                 <option value="camera_dual">Camera Dual-Stream (quang học + nhiệt)</option>
                 <option value="camera_pd">Camera Phóng điện (RTSP)</option>
-                <option value="modbus_tcp">Cảm biến Modbus TCP</option>
               </select>
             </div>
             <div className="form-group">
@@ -219,23 +256,59 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
               </select>
             </div>
 
-            {(formData.type === 'plc_s7' || formData.type === 'cabinet') && (
+            {formData.type === 'plc' && (
               <>
-                <div className="form-group" style={{ gridColumn: '1/-1', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 8 }}>
-                  <div><label>Rack</label><input type="number" className="form-input" value={formData.rack} onChange={e => set({ rack: Number(e.target.value) })} /></div>
-                  <div><label>Slot</label><input type="number" className="form-input" value={formData.slot} onChange={e => set({ slot: Number(e.target.value) })} /></div>
-                  <div><label>DB Number</label><input type="number" className="form-input" value={formData.db} onChange={e => set({ db: Number(e.target.value) })} /></div>
-                  <div><label>Length</label><input type="number" className="form-input" value={formData.length} onChange={e => set({ length: Number(e.target.value) })} /></div>
-                  <div><label>Lấy mẫu (s)</label><input type="number" className="form-input" min={1} value={formData.pollIntervalS} onChange={e => set({ pollIntervalS: Number(e.target.value) })} /></div>
+                <div className="form-group" style={{ gridColumn: '1/-1', display: 'flex', gap: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label>Giao thức *</label>
+                    <select className="form-select" value={formData.protocol} onChange={e => set({ protocol: e.target.value })}>
+                      <option value="snap7">Siemens S7 (Snap7)</option>
+                      <option value="modbus_tcp">Modbus TCP</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label>Lấy mẫu (s)</label>
+                    <input type="number" className="form-input" min={1} value={formData.pollIntervalS} onChange={e => set({ pollIntervalS: Number(e.target.value) })} />
+                  </div>
                 </div>
-                <div className="form-group" style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                  <input type="checkbox" id="enableHealthScore" checked={formData.enableHealthScore} onChange={e => set({ enableHealthScore: e.target.checked })} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                  <label htmlFor="enableHealthScore" style={{ margin: 0, fontWeight: 600, cursor: 'pointer', fontSize: '.82rem', color: 'var(--admin-text)' }}>Đánh giá sức khỏe thiết bị (Tính điểm sức khỏe 0-100)</label>
+
+                {formData.protocol === 'snap7' ? (
+                  <div className="form-group" style={{ gridColumn: '1/-1', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                    <div><label>Rack</label><input type="number" className="form-input" value={formData.rack} onChange={e => set({ rack: Number(e.target.value) })} /></div>
+                    <div><label>Slot</label><input type="number" className="form-input" value={formData.slot} onChange={e => set({ slot: Number(e.target.value) })} /></div>
+                    <div><label>DB Number</label><input type="number" className="form-input" value={formData.db} onChange={e => set({ db: Number(e.target.value) })} /></div>
+                    <div><label>Length (Bytes)</label><input type="number" className="form-input" value={formData.length} onChange={e => set({ length: Number(e.target.value) })} /></div>
+                  </div>
+                ) : (
+                  <div className="form-group" style={{ gridColumn: '1/-1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div><label>Port</label><input type="number" className="form-input" value={formData.port} onChange={e => set({ port: Number(e.target.value) })} /></div>
+                    <div><label>Unit ID</label><input type="number" className="form-input" value={formData.unitId} onChange={e => set({ unitId: Number(e.target.value) })} /></div>
+                  </div>
+                )}
+                
+                <div className="form-group" style={{ gridColumn: '1/-1', background: 'var(--admin-layer-2)', padding: 12, borderRadius: 6, border: '1px solid var(--admin-border)' }}>
+                  <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Cấu hình Thanh ghi (Registers)</span>
+                    <span style={{ fontSize: '.75rem', color: formData.registers.length > 0 ? 'var(--admin-success)' : 'var(--admin-text-muted)' }}>
+                      Đã nạp {formData.registers.length} thanh ghi
+                    </span>
+                  </label>
+                  <input type="file" accept=".csv, .xlsx" onChange={handleFileUpload} className="form-input" style={{ fontSize: '.8rem', padding: '4px' }} />
+                  <div style={{ fontSize: '.7rem', color: 'var(--admin-text-muted)', marginTop: 6 }}>
+                    File Excel/CSV cần có các cột: <b>address, point_id, unit, scale</b> (Tùy chọn: count).
+                  </div>
                 </div>
+
+                {formData.protocol === 'snap7' && (
+                  <div className="form-group" style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                    <input type="checkbox" id="enableHealthScore" checked={formData.enableHealthScore} onChange={e => set({ enableHealthScore: e.target.checked })} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                    <label htmlFor="enableHealthScore" style={{ margin: 0, fontWeight: 600, cursor: 'pointer', fontSize: '.82rem', color: 'var(--admin-text)' }}>Đánh giá sức khỏe thiết bị (Tính điểm sức khỏe 0-100)</label>
+                  </div>
+                )}
               </>
             )}
 
-            {(formData.type.startsWith('camera') || formData.type === 'modbus_tcp') && (
+            {(formData.type.startsWith('camera') || formData.type === 'plc' && formData.protocol === 'modbus_tcp') && (
               <>
                 <div className="form-group">
                   <label>Username</label>
@@ -335,12 +408,7 @@ export default function DeviceModal({ open, editingDevice, stationId, onClose, o
               </div>
             )}
 
-            {formData.type === 'modbus_tcp' && (
-              <div style={{ gridColumn: '1/-1', display: 'flex', gap: 8 }}>
-                <div style={{ flex: 1 }}><label>Port</label><input type="number" className="form-input" value={formData.port} onChange={e => set({ port: Number(e.target.value) })} /></div>
-                <div style={{ flex: 1 }}><label>Unit ID</label><input type="number" className="form-input" value={formData.unitId} onChange={e => set({ unitId: Number(e.target.value) })} /></div>
-              </div>
-            )}
+
           </div>
 
           {testConnResult.show && (

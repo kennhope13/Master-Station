@@ -4,13 +4,8 @@
 //
 // Cấu hình PLC trong DB (Device.Config JSONB):
 // { "ip": "192.168.10.100", "rack": 0, "slot": 1,
-//   "db": 32, "offset": 0, "length": 10 }
-//
-// Mapping DB32 hiện tại:
-//   Offset 0 → Nhiệt độ Pha 1 (Int16, °C)
-//   Offset 2 → Nhiệt độ Pha 3 (Int16, °C)
-//   Offset 4 → Nhiệt độ Pha 2 (Int16, °C)
-//   Offset 8 → Phóng điện PD  (Int16, dB)
+//   "db": 32, "offset": 0, "length": 10,
+//   "registers": [ { "address": 0, "point_id": "nhiet_do", "scale": 1, "unit": "°C" } ] }
 // ============================================================
 
 using System.Text.Json;
@@ -126,7 +121,7 @@ public class PlcPollingWorker : BackgroundService
 
         // Lấy tất cả PLC S7 hoặc Cabinet chạy giao thức snap7 trong DB để kiểm tra định kỳ
         var plcDevices = await db.Devices
-            .Where(d => d.Type == "plc_s7" || (d.Type == "cabinet" && d.Protocol == "snap7"))
+            .Where(d => d.Type == "plc" || d.Type == "plc_s7" || (d.Type == "cabinet" && d.Protocol == "snap7"))
             .ToListAsync(ct);
 
         foreach (var device in plcDevices)
@@ -138,7 +133,6 @@ public class PlcPollingWorker : BackgroundService
     /// <summary>Đọc dữ liệu từ 1 PLC S7: kết nối, đọc DB block, giải mã byte thành SensorReading.</summary>
     private async Task PollSinglePlcAsync(AppDbContext db, Device device, int dbSaveIntervalS, CancellationToken ct)
     {
-        // Parse config từ JSONB
         var config = ParseConfig(device.Config);
         if (config == null)
         {
@@ -147,7 +141,7 @@ public class PlcPollingWorker : BackgroundService
         }
 
         // Kiểm tra chu kỳ lấy mẫu tùy biến của thiết bị
-        var pollIntervalS = GetInt(config, "poll_interval_s");
+        var pollIntervalS = config.PollIntervalS;
         if (pollIntervalS <= 0) pollIntervalS = 5; // Mặc định 5 giây
 
         var nowTime = DateTime.UtcNow;
@@ -165,12 +159,12 @@ public class PlcPollingWorker : BackgroundService
             _lastDbSaveTimes[device.Id] = nowTime;
         }
 
-        var ip = GetString(config, "ip");
-        var rack   = (short)GetInt(config, "rack");
-        var slot   = (short)GetInt(config, "slot");
-        var dbNumber = GetInt(config, "db");
-        var offset   = GetInt(config, "offset");
-        var length   = GetInt(config, "length");
+        var ip = config.Ip;
+        var rack   = (short)config.Rack;
+        var slot   = (short)config.Slot;
+        var dbNumber = config.Db;
+        var offset   = config.Offset;
+        var length   = config.Length;
 
         // Đã TẮT HOÀN TOÀN chế độ demo/giả lập theo yêu cầu để chạy hệ thống giám sát dữ liệu thật 100%
         bool isSimMode = false;
@@ -239,32 +233,19 @@ public class PlcPollingWorker : BackgroundService
 
                 if (isFallbackEnabled)
                 {
-                    // Sinh dữ liệu mô phỏng dự phòng để giao diện không bị đóng băng
                     var rand = new Random();
-                    short pha1 = (short)(38 + rand.Next(-3, 3));
-                    bytes[0] = (byte)(pha1 >> 8);
-                    bytes[1] = (byte)(pha1 & 0xFF);
-
-                    short pha3 = (short)(39 + rand.Next(-3, 3));
-                    bytes[2] = (byte)(pha3 >> 8);
-                    bytes[3] = (byte)(pha3 & 0xFF);
-
-                    short pha2 = (short)(41 + rand.Next(-3, 3));
-                    bytes[4] = (byte)(pha2 >> 8);
-                    bytes[5] = (byte)(pha2 & 0xFF);
-
-                    short pd = (short)(-60 + rand.Next(-5, 5));
-                    bytes[8] = (byte)(pd >> 8);
-                    bytes[9] = (byte)(pd & 0xFF);
-
                     var nowTime2 = DateTime.UtcNow;
-                    var fbRawReadings = new[]
+                    var fbRawReadings = new List<(string id, double val, string unit)>();
+                    foreach (var reg in config.Registers)
                     {
-                        (id: "nhiet_do_pha_1", val: (double)ReadInt16(bytes, 0), unit: "°C"),
-                        (id: "nhiet_do_pha_3", val: (double)ReadInt16(bytes, 2), unit: "°C"),
-                        (id: "nhiet_do_pha_2", val: (double)ReadInt16(bytes, 4), unit: "°C"),
-                        (id: "phong_dien",     val: (double)ReadInt16(bytes, 8), unit: "dB"),
-                    };
+                        double val = 0;
+                        if (reg.Address + 1 < bytes.Length) {
+                            if (reg.PointId.Contains("nhiet")) val = 39 + rand.Next(-3, 3);
+                            else if (reg.PointId.Contains("phong") || reg.PointId.Contains("pd")) val = -60 + rand.Next(-5, 5);
+                            else val = 0; // default for unknown points
+                        }
+                        fbRawReadings.Add((reg.PointId, val, reg.Unit));
+                    }
 
                     var fbReadings = fbRawReadings
                         .Select(r => new SensorReading
@@ -302,28 +283,21 @@ public class PlcPollingWorker : BackgroundService
                 else
                 {
                     // Nếu tắt hoàn toàn giả lập dự phòng, chỉ gửi gói tin thông báo offline (Quality = 2 - Mất tín hiệu hoàn toàn)
-                    var offlinePayload = new[]
-                    {
-                        new { deviceId = device.Id, pointId = "nhiet_do_pha_1", value = 0.0, unit = "°C", time = DateTime.UtcNow, quality = 2 },
-                        new { deviceId = device.Id, pointId = "nhiet_do_pha_2", value = 0.0, unit = "°C", time = DateTime.UtcNow, quality = 2 },
-                        new { deviceId = device.Id, pointId = "nhiet_do_pha_3", value = 0.0, unit = "°C", time = DateTime.UtcNow, quality = 2 },
-                        new { deviceId = device.Id, pointId = "phong_dien",     value = 0.0, unit = "dB", time = DateTime.UtcNow, quality = 2 }
-                    };
+                    var offlinePayload = config.Registers.Select(r => new {
+                        deviceId = device.Id, pointId = r.PointId, value = 0.0, unit = r.Unit, time = DateTime.UtcNow, quality = 2
+                    }).ToList();
                     await _notifier.SendSensorUpdateAsync(offlinePayload);
                     return;
                 }
             }
 
             var now = DateTime.UtcNow;
-
-            // Parse 4 điểm đo theo mapping DB32
-            var rawReadings = new[]
+            var rawReadings = new List<(string id, double val, string unit)>();
+            foreach (var reg in config.Registers)
             {
-                (id: "nhiet_do_pha_1", val: (double)ReadInt16(bytes, 0), unit: "°C"),
-                (id: "nhiet_do_pha_3", val: (double)ReadInt16(bytes, 2), unit: "°C"),
-                (id: "nhiet_do_pha_2", val: (double)ReadInt16(bytes, 4), unit: "°C"),
-                (id: "phong_dien",     val: (double)ReadInt16(bytes, 8), unit: "dB"),
-            };
+                double val = ReadInt16(bytes, reg.Address) * reg.Scale;
+                rawReadings.Add((reg.PointId, val, reg.Unit));
+            }
 
             var readings = rawReadings
                 .Select(r => MakeReading(device, r.id, r.val, r.unit, now))
@@ -414,25 +388,10 @@ public class PlcPollingWorker : BackgroundService
         return (short)((data[offset] << 8) | data[offset + 1]);
     }
 
-    // JsonElement → string
-    private static string GetString(Dictionary<string, object> config, string key)
-    {
-        if (!config.TryGetValue(key, out var val)) return "";
-        return val is System.Text.Json.JsonElement je ? je.GetString() ?? "" : val.ToString()!;
-    }
-
-    // JsonElement → int
-    private static int GetInt(Dictionary<string, object> config, string key)
-    {
-        if (!config.TryGetValue(key, out var val)) return 0;
-        if (val is System.Text.Json.JsonElement je) return je.GetInt32();
-        return Convert.ToInt32(val);
-    }
-
-    private static Dictionary<string, object>? ParseConfig(string? json)
+    private static PlcConfig? ParseConfig(string? json)
     {
         if (string.IsNullOrEmpty(json)) return null;
-        try { return JsonSerializer.Deserialize<Dictionary<string, object>>(json); }
+        try { return JsonSerializer.Deserialize<PlcConfig>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
         catch { return null; }
     }
 
@@ -487,4 +446,27 @@ public class PlcPollingWorker : BackgroundService
             }
         }
     }
+}
+
+// ── Config DTOs ────────────────────────────────────────────
+
+internal sealed class PlcConfig
+{
+    public string Ip { get; set; } = "127.0.0.1";
+    public int Rack { get; set; } = 0;
+    public int Slot { get; set; } = 1;
+    public int Db { get; set; } = 32;
+    public int Offset { get; set; } = 0;
+    public int Length { get; set; } = 10;
+    public int PollIntervalS { get; set; } = 5;
+    public List<PlcRegisterCfg> Registers { get; set; } = new();
+}
+
+internal sealed class PlcRegisterCfg
+{
+    public short Address { get; set; }
+    public ushort Count { get; set; } = 1;
+    public string PointId { get; set; } = "value";
+    public double Scale { get; set; } = 1.0;
+    public string Unit { get; set; } = "";
 }

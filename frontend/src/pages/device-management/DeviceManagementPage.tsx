@@ -80,6 +80,7 @@ export default function DeviceManagementPage({
   // Dữ liệu form — dùng chung cho mọi loại thiết bị, field nào không dùng thì bỏ qua
   const [formData, setFormData] = useState({
     name: '', type: 'camera_cctv', ip: '',
+    protocol: 'snap7', registers: [] as any[], pollIntervalS: 5,
     rack: 0, slot: 1, db: 32, length: 10,
     username: 'admin', password: '',
     // Legacy single stream
@@ -421,19 +422,21 @@ export default function DeviceManagementPage({
     if (d) {
       const cfg = d.config || {};
       setFormData({
-        name: d.name, type: d.type, ip: cfg.ip || '',
+        name: d.name, type: d.type === 'plc_s7' || d.type === 'cabinet' || d.type === 'modbus_tcp' ? 'plc' : d.type, ip: cfg.ip || '',
+        protocol: d.protocol || 'snap7', registers: cfg.registers || [], pollIntervalS: cfg.poll_interval_s ?? (cfg.poll_interval_ms ? cfg.poll_interval_ms / 1000 : 5),
         rack: cfg.rack ?? 0, slot: cfg.slot ?? 1, db: cfg.db ?? 32, length: cfg.length ?? 10,
         username: cfg.username || 'admin', password: cfg.password || '',
         rtspPath: cfg.rtsp_path || '', go2rtcId: cfg.go2rtc_id || '',
         rtspOptical: cfg.rtsp_optical || '', go2rtcOptical: cfg.go2rtc_optical || '',
         rtspThermal: cfg.rtsp_thermal || '', go2rtcThermal: cfg.go2rtc_thermal || '',
         cabinetId: cfg.cabinetId || '',
-        port: cfg.port ?? 502, unitId: cfg.unit_id ?? 1,
+        port: cfg.port ?? 502, unitId: cfg.unit_id ?? (cfg.unitId ?? 1),
         enableHealthScore: cfg.enableHealthScore ?? false
       });
     } else {
       setFormData({
         name: '', type: 'camera_cctv', ip: '',
+        protocol: 'snap7', registers: [] as any[], pollIntervalS: 5,
         rack: 0, slot: 1, db: 32, length: 10,
         username: 'admin', password: '',
         rtspPath: '', go2rtcId: '',
@@ -455,12 +458,13 @@ export default function DeviceManagementPage({
       const configObj: any = { ip: formData.ip };
       let protocol = 'modbus';
       
-      if (formData.type === 'plc_s7') {
-        protocol = 'snap7';
-        Object.assign(configObj, { rack: formData.rack, slot: formData.slot, db: formData.db, offset: 0, length: formData.length, enableHealthScore: formData.enableHealthScore });
-      } else if (formData.type === 'cabinet') {
-        protocol = 'json';
-        // Only IP is needed for cabinet configuration
+      if (formData.type === 'plc' || formData.type === 'plc_s7' || formData.type === 'cabinet' || formData.type === 'modbus_tcp') {
+        protocol = formData.protocol;
+        if (protocol === 'snap7') {
+          Object.assign(configObj, { rack: formData.rack, slot: formData.slot, db: formData.db, offset: 0, length: formData.length, poll_interval_s: formData.pollIntervalS, enableHealthScore: formData.enableHealthScore, registers: formData.registers });
+        } else {
+          Object.assign(configObj, { port: formData.port, unit_id: formData.unitId, username: formData.username, password: formData.password, poll_interval_ms: formData.pollIntervalS * 1000, registers: formData.registers });
+        }
       } else if (formData.type === 'camera_dual') {
         protocol = 'rtsp';
         const gOptical = formData.go2rtcOptical.trim() || `cam_${formData.ip.replace(/\./g, '_')}_optical`;
@@ -483,8 +487,6 @@ export default function DeviceManagementPage({
         if (rp && !rp.startsWith('/')) rp = '/' + rp;
         const gid = formData.go2rtcId.trim() || `camera_${formData.ip.replace(/\./g, '_')}_${formData.type.replace('camera_', '')}`;
         Object.assign(configObj, { rtsp_path: rp, go2rtc_id: gid, username: formData.username, password: formData.password });
-      } else if (formData.type === 'modbus_tcp') {
-        Object.assign(configObj, { port: formData.port, unit_id: formData.unitId, username: formData.username, password: formData.password });
       }
 
       const configStr = JSON.stringify(configObj);
@@ -520,9 +522,13 @@ export default function DeviceManagementPage({
       const configObj: any = { ip: formData.ip };
       let protocol = 'rtsp';
       
-      if (formData.type === 'plc_s7') {
-        protocol = 'snap7';
-        Object.assign(configObj, { rack: formData.rack, slot: formData.slot, db: formData.db, length: formData.length });
+      if (formData.type === 'plc' || formData.type === 'plc_s7' || formData.type === 'cabinet' || formData.type === 'modbus_tcp') {
+        protocol = formData.protocol;
+        if (protocol === 'snap7') {
+          Object.assign(configObj, { rack: formData.rack, slot: formData.slot, db: formData.db, length: formData.length, registers: formData.registers });
+        } else {
+          Object.assign(configObj, { port: formData.port, unit_id: formData.unitId, username: formData.username, password: formData.password, registers: formData.registers });
+        }
       } else if (formData.type === 'camera_dual' || formData.type === 'camera_thermal' || formData.type.startsWith('camera')) {
         protocol = 'rtsp';
         let pwd = formData.password;
@@ -531,9 +537,6 @@ export default function DeviceManagementPage({
           pwd = creds.password;
         }
         Object.assign(configObj, { username: formData.username, password: pwd });
-      } else if (formData.type === 'modbus_tcp') {
-        protocol = 'modbus';
-        Object.assign(configObj, { port: formData.port, unit_id: formData.unitId, username: formData.username, password: formData.password });
       }
 
       const res = await stationApi.testProtocolConnection(formData.ip, formData.port || 102, protocol, JSON.stringify(configObj));
@@ -541,6 +544,39 @@ export default function DeviceManagementPage({
     } catch (err: any) {
       setTestConnResult({ show: true, success: false, msg: `Lỗi: ${err.message || 'Lỗi kết nối'}` });
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const XLSX = await import('xlsx');
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        if (!wsname) return;
+        const ws = wb.Sheets[wsname];
+        if (!ws) return;
+        const data = XLSX.utils.sheet_to_json(ws);
+        
+        const parsedRegisters = data.map((row: any) => ({
+          address: Number(row.address ?? row.offset ?? 0),
+          point_id: row.point_id ?? row.pointId ?? '',
+          unit: row.unit ?? '',
+          scale: Number(row.scale ?? 1.0),
+          count: Number(row.count ?? 1)
+        })).filter(r => r.point_id);
+        
+        setFormData(prev => ({ ...prev, registers: parsedRegisters }));
+        alert(`Đã import thành công ${parsedRegisters.length} thanh ghi.`);
+      };
+      reader.readAsBinaryString(file);
+    } catch (err: any) {
+      alert(`Lỗi đọc file: ${err.message}`);
+    }
+    e.target.value = '';
   };
 
   // Discovery functions
@@ -589,8 +625,13 @@ export default function DeviceManagementPage({
 
   const renderDeviceConfig = (device: Device) => {
     const cfg = device.config || {};
-    if (device.type === 'plc_s7')
-      return `S7 • Rack ${cfg.rack ?? 0} / Slot ${cfg.slot ?? 1} / DB ${cfg.db ?? 32}`;
+    if (device.type === 'plc' || device.type === 'plc_s7') {
+      if (cfg.protocol === 'modbus_tcp' || device.protocol === 'modbus') {
+        return `Modbus TCP • Port ${cfg.port ?? 502} / Unit ${cfg.unit_id ?? 1}`;
+      } else {
+        return `S7 • Rack ${cfg.rack ?? 0} / Slot ${cfg.slot ?? 1} / DB ${cfg.db ?? 32}`;
+      }
+    }
     if (device.type === 'modbus_tcp')
       return `Modbus TCP • Port ${cfg.port ?? 502} / Unit ${cfg.unit_id ?? 1}`;
     if (device.type === 'camera_dual')
@@ -734,14 +775,34 @@ export default function DeviceManagementPage({
       <div style={{ padding: '0 20px 20px 20px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {embeddedMode !== 'central' && (
-          <div className="page-toolbar-row" style={{ marginBottom: 16 }}>
+          <div
+            className="page-toolbar-row"
+            style={{
+              marginBottom: 16,
+              height: 'auto',
+              minHeight: 54,
+              overflow: 'visible',
+              flexWrap: 'wrap',
+              position: 'relative',
+              zIndex: 20,
+            }}
+          >
             <div className="page-title-cell">
               <h2 style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <LayoutList size={22} /> Thiết bị giám sát
               </h2>
             </div>
-            <div className="page-toolbar-group">
-              <button className="btn-industrial" style={{ height: 32, padding: '0 16px', fontSize: '.72rem', fontWeight: 700 }} onClick={() => setIsScanModalOpen(true)}>Dò tìm thiết bị</button>
+            <div
+              className="page-toolbar-group"
+              style={{
+                flex: '1 1 420px',
+                flexShrink: 0,
+                flexWrap: 'wrap',
+                justifyContent: 'flex-end',
+                padding: '8px 0 8px 12px',
+              }}
+            >
+              <button className="btn-industrial" style={{ height: 32, padding: '0 16px', fontSize: '.72rem', fontWeight: 700, flexShrink: 0, whiteSpace: 'nowrap' }} onClick={() => setIsScanModalOpen(true)}>Dò tìm thiết bị</button>
               {cameraLimit && (
                 <span style={{ fontSize: '.72rem', color: cameraLimit.exceeded ? 'var(--admin-danger)' : 'var(--admin-text-muted)', alignSelf: 'center', marginRight: 12 }}>
                   Camera: {cameraLimit.current}/{cameraLimit.max}
@@ -752,7 +813,7 @@ export default function DeviceManagementPage({
                   Sensor: {sensorLimit.current}/{sensorLimit.max}
                 </span>
               )}
-              <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800 }} onClick={() => openDeviceModal()}>+ Thêm thiết bị</button>
+              <button className="btn-industrial btn-primary" style={{ height: 32, padding: '0 16px', fontSize: '.75rem', fontWeight: 800, flexShrink: 0, whiteSpace: 'nowrap' }} onClick={() => openDeviceModal()}>+ Thêm thiết bị</button>
             </div>
           </div>
         )}
@@ -902,13 +963,11 @@ export default function DeviceManagementPage({
                   <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', alignItems: 'center', gap: 15 }}>
                     <label style={{ fontSize: '.68rem', fontWeight: 800, color: 'var(--admin-text-muted)', textAlign: 'right' }}>PHÂN LOẠI</label>
                     <select className="form-select" style={{ borderRadius: 0 }} value={formData.type} onChange={e => setFormData({ ...formData, type: e.target.value })}>
-                      <option value="camera_dual">Camera Dual-Stream (Nhiệt + Quang)</option>
-                      <option value="camera_thermal">Camera Nhiệt (RTSP)</option>
+                      <option value="plc">Bộ điều khiển / Cảm biến (PLC/Sensor)</option>
                       <option value="camera_cctv">Camera CCTV thường (RTSP)</option>
+                      <option value="camera_thermal">Camera Nhiệt (RTSP)</option>
+                      <option value="camera_dual">Camera Dual-Stream (Nhiệt + Quang)</option>
                       <option value="camera_pd">Camera Phóng điện (RTSP)</option>
-                      <option value="plc_s7">Siemens S7-1200/1500</option>
-                      <option value="cabinet">Cabinet Unit (3 Temp + 1 PD)</option>
-                      <option value="modbus_tcp">Modbus TCP Device</option>
                     </select>
                   </div>
                 </div>
@@ -936,12 +995,55 @@ export default function DeviceManagementPage({
                     </div>
                   </div>
 
-                  {formData.type === 'plc_s7' && (
-                    <div style={{ gridColumn: 'span 2', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, border: '1px solid var(--admin-border)', padding: 10, background: 'rgba(0,0,0,0.1)' }}>
-                      <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>RACK</label><input type="number" className="form-input" value={formData.rack} onChange={e => setFormData({ ...formData, rack: Number(e.target.value) })} /></div>
-                      <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>SLOT</label><input type="number" className="form-input" value={formData.slot} onChange={e => setFormData({ ...formData, slot: Number(e.target.value) })} /></div>
-                      <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>DB NO.</label><input type="number" className="form-input" value={formData.db} onChange={e => setFormData({ ...formData, db: Number(e.target.value) })} /></div>
-                      <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>LEN</label><input type="number" className="form-input" value={formData.length} onChange={e => setFormData({ ...formData, length: Number(e.target.value) })} /></div>
+                  {formData.type === 'plc' && (
+                    <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <label style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)' }}>GIAO THỨC (PROTOCOL)</label>
+                          <select className="form-select" style={{ borderRadius: 0 }} value={formData.protocol} onChange={e => setFormData({ ...formData, protocol: e.target.value })}>
+                            <option value="snap7">Siemens S7 (Snap7)</option>
+                            <option value="modbus_tcp">Modbus TCP</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <label style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)' }}>LẤY MẪU (GIÂY)</label>
+                          <input type="number" className="form-input" style={{ borderRadius: 0 }} min={1} value={formData.pollIntervalS} onChange={e => setFormData({ ...formData, pollIntervalS: Number(e.target.value) })} />
+                        </div>
+                      </div>
+
+                      {formData.protocol === 'snap7' ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, border: '1px solid var(--admin-border)', padding: 10, background: 'rgba(0,0,0,0.1)' }}>
+                          <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>RACK</label><input type="number" className="form-input" value={formData.rack} onChange={e => setFormData({ ...formData, rack: Number(e.target.value) })} /></div>
+                          <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>SLOT</label><input type="number" className="form-input" value={formData.slot} onChange={e => setFormData({ ...formData, slot: Number(e.target.value) })} /></div>
+                          <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>DB NO.</label><input type="number" className="form-input" value={formData.db} onChange={e => setFormData({ ...formData, db: Number(e.target.value) })} /></div>
+                          <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>LEN</label><input type="number" className="form-input" value={formData.length} onChange={e => setFormData({ ...formData, length: Number(e.target.value) })} /></div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, border: '1px solid var(--admin-border)', padding: 10, background: 'rgba(0,0,0,0.1)' }}>
+                          <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>PORT</label><input type="number" className="form-input" value={formData.port} onChange={e => setFormData({ ...formData, port: Number(e.target.value) })} /></div>
+                          <div><label style={{ fontSize: '.55rem', display: 'block', marginBottom: 2 }}>UNIT ID</label><input type="number" className="form-input" value={formData.unitId} onChange={e => setFormData({ ...formData, unitId: Number(e.target.value) })} /></div>
+                        </div>
+                      )}
+                      
+                      <div style={{ background: 'var(--admin-layer-2)', padding: 12, borderRadius: 6, border: '1px solid var(--admin-border)' }}>
+                        <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '.6rem', fontWeight: 800, color: 'var(--admin-text-muted)' }}>CẤU HÌNH THANH GHI (REGISTERS)</span>
+                          <span style={{ fontSize: '.65rem', color: formData.registers.length > 0 ? 'var(--admin-success)' : 'var(--admin-text-muted)' }}>
+                            Đã nạp {formData.registers.length} thanh ghi
+                          </span>
+                        </label>
+                        <input type="file" accept=".csv, .xlsx" onChange={handleFileUpload} className="form-input" style={{ fontSize: '.75rem', padding: '4px', marginTop: 4, width: '100%' }} />
+                        <div style={{ fontSize: '.65rem', color: 'var(--admin-text-muted)', marginTop: 6 }}>
+                          File Excel/CSV cần có các cột: <b>address, point_id, unit, scale</b> (Tùy chọn: count).
+                        </div>
+                      </div>
+
+                      {formData.protocol === 'snap7' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+                          <input type="checkbox" id="enableHealthScore2" checked={formData.enableHealthScore} onChange={e => setFormData({ ...formData, enableHealthScore: e.target.checked })} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                          <label htmlFor="enableHealthScore2" style={{ margin: 0, fontWeight: 600, cursor: 'pointer', fontSize: '.75rem', color: 'var(--admin-text)' }}>Đánh giá sức khỏe thiết bị (0-100)</label>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1015,12 +1117,7 @@ export default function DeviceManagementPage({
                   </>
                 )}
 
-                {formData.type === 'modbus_tcp' && (
-                  <div style={{ padding: '15px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 15, background: 'rgba(0,0,0,0.1)', borderTop: '1px solid var(--admin-border)' }}>
-                    <div><label style={{ fontSize: '.6rem' }}>PORT</label><input type="number" className="form-input" value={formData.port} onChange={e => setFormData({ ...formData, port: Number(e.target.value) })} /></div>
-                    <div><label style={{ fontSize: '.6rem' }}>UNIT ID</label><input type="number" className="form-input" value={formData.unitId} onChange={e => setFormData({ ...formData, unitId: Number(e.target.value) })} /></div>
-                  </div>
-                )}
+
               </div>
 
               {testConnResult.show && (

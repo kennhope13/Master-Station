@@ -83,7 +83,7 @@ export class StationService {
   async importRemoteLicense(id: string, file: File): Promise<any> {
     const formData = new FormData();
     formData.append('file', file);
-    const token = authService.getToken() || localStorage.getItem('station_token');
+    const token = authService.getToken() || sessionStorage.getItem('station_token');
     const baseUrl = (window as any).__API_BASE__ || '';
     const res = await fetch(`${baseUrl}/api/v1/stations/${id}/remote-license-import`, {
       method: 'POST',

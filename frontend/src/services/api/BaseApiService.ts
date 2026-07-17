@@ -79,7 +79,9 @@ async function performRefresh(): Promise<string | null> {
     });
 
     if (!res.ok) {
-      store.clearSession();
+      if (res.status >= 400 && res.status < 500) {
+        store.clearSession();
+      }
       return null;
     }
 
@@ -109,7 +111,7 @@ async function performRefresh(): Promise<string | null> {
     store.setSession(user, token, newRefreshToken);
     return token;
   } catch (err) {
-    store.clearSession();
+    // Network error (backend restarting), don't clear session
     return null;
   }
 }

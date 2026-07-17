@@ -200,6 +200,18 @@ function isSensorDevice(device: Device) {
 
 export default function LicensePage() {
   const navigate = useNavigate();
+// Add mounted guard
+  const isMounted = useRef(true);
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+  const safeSet = <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: React.SetStateAction<T>) => {
+    if (isMounted.current) setter(value);
+  };
+  const statusAbortCtrlRef = useRef<AbortController | null>(null);
+  const limitsAbortCtrlRef = useRef<AbortController | null>(null);
   const handleBack = () => {
     const returnUrl = sessionStorage.getItem('license_return_url');
     if (returnUrl) {
@@ -335,31 +347,37 @@ export default function LicensePage() {
   };
 
   const loadStatus = async (showLoading = false) => {
-    if (showLoading || status === null) {
-      setStatusLoading(true);
-    }
+    statusAbortCtrlRef.current?.abort();
+    const ctrl = new AbortController();
+    statusAbortCtrlRef.current = ctrl;
+    if (showLoading || status === null) { setStatusLoading(true); }
     try {
       const data = await stationApi.getLicenseStatus();
-      setStatus(data);
+      if (ctrl.signal.aborted) return;
+      safeSet(setStatus, data);
       sessionStorage.setItem(LICENSE_STATUS_CACHE_KEY, JSON.stringify(data));
-    } catch {
+    } catch (e) {
+      if (ctrl.signal.aborted) return;
       const fallback = { activated: false };
-      setStatus(fallback);
+      safeSet(setStatus, fallback as any);
       sessionStorage.setItem(LICENSE_STATUS_CACHE_KEY, JSON.stringify(fallback));
     } finally {
-      setStatusLoading(false);
+      if (!ctrl.signal.aborted) {
+        safeSet(setStatusLoading, false as boolean);
+      }
     }
   };
-
   const loadLimits = async (showLoading = false) => {
-    if (showLoading || limits.length === 0) {
-      setLimitsLoading(true);
-    }
+    limitsAbortCtrlRef.current?.abort();
+    const ctrl = new AbortController();
+    limitsAbortCtrlRef.current = ctrl;
+    if (showLoading || limits.length === 0) { setLimitsLoading(true); }
     try {
       const [data, actualCounts] = await Promise.all([
         stationApi.getLicenseLimits().catch(() => []),
         getActualResourceCounts(),
       ]);
+      if (ctrl.signal.aborted) return;
       const mergedLimits = data.length > 0 ? mergeActualCounts(data, actualCounts) : [
         { resource: 'stations', current: actualCounts.stations, max: status?.maxStations && status.maxStations >= 999 ? -1 : (status?.maxStations ?? 10), exceeded: false },
         { resource: 'cameras', current: actualCounts.cameras, max: status?.maxCameras && status.maxCameras >= 999 ? -1 : (status?.maxCameras ?? 10), exceeded: false },
@@ -367,21 +385,19 @@ export default function LicensePage() {
         { resource: 'roi_points', current: actualCounts.roi_points, max: status?.maxRoiPoints && status.maxRoiPoints >= 999 ? -1 : (status?.maxRoiPoints ?? 10), exceeded: false },
         { resource: 'roi_regions', current: actualCounts.roi_regions, max: status?.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status?.maxRoiRegions ?? 10), exceeded: false },
         { resource: 'pd_regions', current: actualCounts.pd_regions, max: status?.maxPdRegions && status.maxPdRegions >= 999 ? -1 : (status?.maxPdRegions ?? 10), exceeded: false },
-      ].map(item => ({
-        ...item,
-        exceeded: item.max !== -1 && item.max < 999 && item.current >= item.max,
-      }));
-
-      setLimits(mergedLimits);
+      ].map(item => ({ ...item, exceeded: item.max !== -1 && item.max < 999 && item.current >= item.max }));
+      safeSet(setLimits, mergedLimits);
       sessionStorage.setItem(LICENSE_LIMITS_CACHE_KEY, JSON.stringify(mergedLimits));
     } catch {
-      setLimits([]);
+      if (ctrl.signal.aborted) return;
+      safeSet(setLimits, [] as ResourceLimit[]);
       sessionStorage.removeItem(LICENSE_LIMITS_CACHE_KEY);
     } finally {
-      setLimitsLoading(false);
+      if (!ctrl.signal.aborted) {
+        safeSet(setLimitsLoading, false as boolean);
+      }
     }
   };
-
   const refreshLicenseData = async (showLoading = false) => {
     if (refreshInFlightRef.current) {
       refreshQueuedRef.current = true;
@@ -415,15 +431,15 @@ export default function LicensePage() {
   };
 
   const scheduleRefresh = () => {
+    if (document.visibilityState !== 'visible') return;
     if (refreshTimerRef.current !== null) {
       window.clearTimeout(refreshTimerRef.current);
     }
     refreshTimerRef.current = window.setTimeout(() => {
       refreshTimerRef.current = null;
       void refreshLicenseData(false);
-    }, 250);
+    }, 300); // debounce 300ms
   };
-
   useEffect(() => {
     void refreshLicenseData(true);
     void loadManagedStations();

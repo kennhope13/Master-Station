@@ -42,6 +42,8 @@ const ADD_FORM_INIT = {
   rtspOptical: '', go2rtcOptical: '',
   rtspThermal: '', go2rtcThermal: '',
   rack: '0', slot: '1', db: '32',
+  protocol: 'snap7', registers: [] as any[], pollIntervalS: 5,
+  port: 502, unitId: 1,
 };
 
 interface StationSummary {
@@ -612,11 +614,13 @@ export default function CentralDeviceView({
       const configObj: Record<string, any> = { ip };
       let protocol = 'modbus';
 
-      if (addForm.type === 'plc_s7') {
-        protocol = 'snap7';
-        Object.assign(configObj, { rack: addForm.rack, slot: addForm.slot, db: addForm.db, offset: 0, length: 10 });
-      } else if (addForm.type === 'cabinet') {
-        protocol = 'json';
+      if (addForm.type === 'plc' || addForm.type === 'plc_s7' || addForm.type === 'cabinet' || addForm.type === 'modbus_tcp') {
+        protocol = addForm.protocol;
+        if (addForm.protocol === 'snap7') {
+          Object.assign(configObj, { rack: addForm.rack, slot: addForm.slot, db: addForm.db, length: 10, poll_interval_s: addForm.pollIntervalS, registers: addForm.registers });
+        } else {
+          Object.assign(configObj, { port: addForm.port, unit_id: addForm.unitId, poll_interval_ms: addForm.pollIntervalS * 1000, registers: addForm.registers });
+        }
       } else if (addForm.type === 'camera_dual') {
         protocol = 'rtsp';
         const ipTag = ip.replace(/\./g, '_');
@@ -637,8 +641,6 @@ export default function CentralDeviceView({
         if (rp && !rp.startsWith('/')) rp = '/' + rp;
         const gid = addForm.go2rtcId.trim() || `camera_${ip.replace(/\./g, '_')}_${addForm.type.replace('camera_', '')}`;
         Object.assign(configObj, { rtsp_path: rp, go2rtc_id: gid, username: addForm.username, password: addForm.password });
-      } else if (addForm.type === 'modbus_tcp') {
-        Object.assign(configObj, { port: 502, unit_id: 1 });
       }
 
       await stationApi.createDevice({ stationId: selectedStationId, name: addForm.name.trim(), type: addForm.type, protocol, config: JSON.stringify(configObj) });
@@ -1528,7 +1530,7 @@ export default function CentralDeviceView({
       {/* ═══ ADD DEVICE MODAL ═══ */}
       {addModalOpen && (
         <div className="cdv-modal-backdrop" onClick={e => { if (e.target === e.currentTarget && !addSaving) setAddModalOpen(false); }}>
-          <div className="cdv-modal" style={{ minWidth: 360, maxWidth: 480 }}>
+          <div className="cdv-modal" style={{ minWidth: 420, maxWidth: 540, width: '90vw' }}>
             <div className="cdv-modal-header">
               <Plus size={14} style={{ color: 'var(--admin-accent)' }} />
               <b>Thêm thiết bị mới</b>
@@ -1539,7 +1541,6 @@ export default function CentralDeviceView({
               <select
                 value={addForm.type}
                 onChange={e => setAddForm(f => ({ ...f, type: e.target.value }))}
-                style={{ background: 'var(--admin-layer-2)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', padding: '6px 8px', borderRadius: 2, fontSize: '.75rem' }}
               >
                 {Object.entries(DEVICE_TYPE_LABELS).map(([val, label]) => (
                   <option key={val} value={val}>{label}</option>
@@ -1622,20 +1623,101 @@ export default function CentralDeviceView({
               </>
             )}
 
-            {addForm.type === 'plc_s7' && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <label className="cdv-modal-field">
-                  Rack
-                  <input value={addForm.rack} onChange={e => setAddForm(f => ({ ...f, rack: e.target.value }))} placeholder="0" />
-                </label>
-                <label className="cdv-modal-field">
-                  Slot
-                  <input value={addForm.slot} onChange={e => setAddForm(f => ({ ...f, slot: e.target.value }))} placeholder="1" />
-                </label>
-                <label className="cdv-modal-field">
-                  DB
-                  <input value={addForm.db} onChange={e => setAddForm(f => ({ ...f, db: e.target.value }))} placeholder="32" />
-                </label>
+            {(addForm.type === 'plc' || addForm.type === 'plc_s7') && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {/* Protocol + Poll interval */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <label className="cdv-modal-field">
+                    Giao thức
+                    <select
+                      value={addForm.protocol}
+                      onChange={e => setAddForm(f => ({ ...f, protocol: e.target.value }))}
+                    >
+                      <option value="snap7">Siemens S7 (Snap7)</option>
+                      <option value="modbus_tcp">Modbus TCP</option>
+                    </select>
+                  </label>
+                  <label className="cdv-modal-field">
+                    Lấy mẫu (giây)
+                    <input type="number" min={1} value={addForm.pollIntervalS} onChange={e => setAddForm(f => ({ ...f, pollIntervalS: Number(e.target.value) }))} />
+                  </label>
+                </div>
+
+                {/* S7 params */}
+                {addForm.protocol === 'snap7' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <label className="cdv-modal-field">
+                      Rack
+                      <input value={addForm.rack} onChange={e => setAddForm(f => ({ ...f, rack: e.target.value }))} placeholder="0" />
+                    </label>
+                    <label className="cdv-modal-field">
+                      Slot
+                      <input value={addForm.slot} onChange={e => setAddForm(f => ({ ...f, slot: e.target.value }))} placeholder="1" />
+                    </label>
+                    <label className="cdv-modal-field">
+                      DB
+                      <input value={addForm.db} onChange={e => setAddForm(f => ({ ...f, db: e.target.value }))} placeholder="32" />
+                    </label>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <label className="cdv-modal-field">
+                      Port
+                      <input type="number" value={addForm.port} onChange={e => setAddForm(f => ({ ...f, port: Number(e.target.value) }))} placeholder="502" />
+                    </label>
+                    <label className="cdv-modal-field">
+                      Unit ID
+                      <input type="number" value={addForm.unitId} onChange={e => setAddForm(f => ({ ...f, unitId: Number(e.target.value) }))} placeholder="1" />
+                    </label>
+                  </div>
+                )}
+
+                {/* File import for registers */}
+                <div style={{ background: 'var(--admin-layer-2)', padding: 10, borderRadius: 0, border: '1px solid var(--admin-border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontSize: '.7rem', fontWeight: 700 }}>Cấu hình thanh ghi (Registers)</span>
+                    <span style={{ fontSize: '.65rem', color: addForm.registers.length > 0 ? 'var(--admin-success)' : 'var(--admin-text-muted)' }}>
+                      Đã nạp {addForm.registers.length} thanh ghi
+                    </span>
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        const reader = new FileReader();
+                        reader.onload = (evt) => {
+                          const bstr = evt.target?.result;
+                          const wb = XLSX.read(bstr, { type: 'binary' });
+                          const wsname = wb.SheetNames[0];
+                          if (!wsname) return;
+                          const ws = wb.Sheets[wsname];
+                          if (!ws) return;
+                          const data = XLSX.utils.sheet_to_json(ws);
+                          const parsed = data.map((row: any) => ({
+                            address: Number(row.address ?? row.offset ?? 0),
+                            point_id: row.point_id ?? row.pointId ?? '',
+                            unit: row.unit ?? '',
+                            scale: Number(row.scale ?? 1.0),
+                            count: Number(row.count ?? 1)
+                          })).filter((r: any) => r.point_id);
+                          setAddForm(f => ({ ...f, registers: parsed }));
+                          alert(`Đã import thành công ${parsed.length} thanh ghi.`);
+                        };
+                        reader.readAsBinaryString(file);
+                      } catch (err: any) {
+                        alert(`Lỗi đọc file: ${err.message}`);
+                      }
+                      e.target.value = '';
+                    }}
+                    style={{ width: '100%', fontSize: '.72rem', padding: 4, background: 'var(--admin-bg)', border: '1px solid var(--admin-border)', color: 'var(--admin-text)', borderRadius: 0 }}
+                  />
+                  <div style={{ fontSize: '.62rem', color: 'var(--admin-text-muted)', marginTop: 4 }}>
+                    File Excel/CSV cần có các cột: <b>address, point_id, unit, scale</b> (Tùy chọn: count).
+                  </div>
+                </div>
               </div>
             )}
 

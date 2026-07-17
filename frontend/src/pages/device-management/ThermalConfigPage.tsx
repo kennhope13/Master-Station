@@ -62,7 +62,7 @@ export default function ThermalConfigPage() {
       if (d) setDevice(d);
 
       const res = await fetch(`/api/v1/devices/${deviceId}/roi-points`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('station_token')}` }
+        headers: { 'Authorization': `Bearer ${sessionStorage.getItem('station_token')}` }
       });
       if (res.ok) {
         const data = await res.json();
@@ -176,7 +176,7 @@ export default function ThermalConfigPage() {
         method: editingId ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('station_token')}`
+          'Authorization': `Bearer ${sessionStorage.getItem('station_token')}`
         },
         body: JSON.stringify(body)
       });
@@ -197,7 +197,7 @@ export default function ThermalConfigPage() {
     try {
       const res = await fetch(`/api/v1/devices/${deviceId}/roi-points/${id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('station_token')}` }
+        headers: { 'Authorization': `Bearer ${sessionStorage.getItem('station_token')}` }
       });
       if (res.ok) {
         await loadData();

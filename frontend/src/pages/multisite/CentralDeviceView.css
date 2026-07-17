@@ -1193,18 +1193,20 @@
   border-radius: 0;
   padding: 20px;
   box-shadow: var(--admin-shadow, 0 20px 50px rgba(0,0,0,0.5));
+  font-family: var(--admin-font, 'Inter', 'Segoe UI', 'Arial', sans-serif);
 }
 
 .cdv-modal-header {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   margin-bottom: 18px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--admin-border);
 }
 .cdv-modal-header b {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1222,7 +1224,8 @@
   letter-spacing: 0.06em;
   color: var(--admin-text-muted);
 }
-.cdv-modal-field input {
+.cdv-modal-field input,
+.cdv-modal-field select {
   height: 34px;
   padding: 0 10px;
   border-radius: 0;
@@ -1235,10 +1238,71 @@
   outline: none;
   text-transform: none;
   letter-spacing: normal;
-  font-family: var(--admin-font-mono, monospace);
+  font-family: inherit;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
 }
-.cdv-modal-field input:focus {
+.cdv-modal-field select {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+.cdv-modal-field select option {
+  background: var(--admin-bg, #0b0f14);
+  color: var(--admin-text, #e2e8f0);
+}
+.cdv-modal-field input:focus,
+.cdv-modal-field select:focus {
   border-color: var(--admin-accent);
+}
+
+/* Number input spinners — match dark theme */
+.cdv-modal-field input[type="number"] {
+  -moz-appearance: textfield;
+}
+.cdv-modal-field input[type="number"]::-webkit-inner-spin-button,
+.cdv-modal-field input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* File input — custom dark styling */
+.cdv-modal-field input[type="file"],
+.cdv-modal input[type="file"] {
+  padding: 6px 8px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--admin-bg);
+  border: 1px solid var(--admin-border);
+  border-radius: 0;
+  color: var(--admin-text-muted);
+  cursor: pointer;
+  height: auto;
+}
+.cdv-modal-field input[type="file"]::file-selector-button,
+.cdv-modal input[type="file"]::file-selector-button {
+  background: var(--admin-layer-2);
+  border: 1px solid var(--admin-border);
+  border-radius: 0;
+  color: var(--admin-text);
+  padding: 4px 12px;
+  margin-right: 10px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.cdv-modal-field input[type="file"]::file-selector-button:hover,
+.cdv-modal input[type="file"]::file-selector-button:hover {
+  background: var(--admin-hover);
+  border-color: var(--admin-accent);
+  color: var(--admin-accent);
 }
 
 .cdv-modal-error {

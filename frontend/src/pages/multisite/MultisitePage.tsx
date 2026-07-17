@@ -2701,8 +2701,8 @@ export default function MultisitePage() {
                           } catch { return selectedView.station.apiUrl!; }
                         })();
 
-                        // Nếu trạm cục bộ cùng máy với trạm trung tâm → Electron chỉ bind localhost
-                        // thay IP bằng localhost để browser kết nối được
+                        // Trên web, chuẩn hóa khi hostname đã trùng. Trong Electron,
+                        // main process còn nhận diện mọi IP LAN của chính máy.
                         let baseUrl = raw.replace(/\/$/, '');
                         try {
                           const u = new URL(baseUrl);
@@ -2714,6 +2714,11 @@ export default function MultisitePage() {
 
                         setIsOpeningStation(true);
                         try {
+                          const desktopInvoke = (window as any).__TAURI__?.core?.invoke;
+                          if (typeof desktopInvoke === 'function') {
+                            baseUrl = await desktopInvoke('normalize_station_url', { url: baseUrl });
+                          }
+
                           let url = baseUrl;
                           const stationCode = selectedView.station.code || '';
                           try {

@@ -21,6 +21,7 @@ export const DEVICE_TYPE_LABELS: Record<string, string> = {
   [DEV_CAM_THERMAL]:   'Camera Nhiệt',
   [DEV_CAM_PD]:        'Camera Phóng điện',
   [DEV_CAM_DUAL]:      'Camera Dual (Nhiệt & Quang)',
+  'plc':                'Bộ điều khiển / Cảm biến (PLC/Sensor)',
   'modbus_tcp':         'Modbus TCP',
   'sensor_temp':        'Cảm biến nhiệt độ',
 };

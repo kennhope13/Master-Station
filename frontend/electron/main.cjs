@@ -722,16 +722,25 @@ async function createWindow() {
     console.error("Failed to load UI:", err);
   }
   
-  // Live wall popup logic
+  // Popup windows opened from the desktop shell.
   mainWindow.webContents.setWindowOpenHandler(({ url, frameName }) => {
-    // Station and live-monitor windows already provide their own navigation/title
-    // controls. Open them as desktop windows without Chromium's surrounding UI.
-    if (url.includes('/live-wall') || url.includes('/live-camera') || frameName?.startsWith('station_') || frameName?.startsWith('wall_')) {
+    // Live monitoring windows provide their own chrome and intentionally stay frameless.
+    if (url.includes('/live-wall') || url.includes('/live-camera') || frameName?.startsWith('wall_')) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: { frame: false, titleBarStyle: 'hidden', autoHideMenuBar: true, backgroundColor: '#070c14' },
       };
     }
+
+    // A child-station window does not have custom window controls, so retain the
+    // native Windows frame (minimize, maximize/restore and close buttons).
+    if (frameName?.startsWith('station_')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: { frame: true, autoHideMenuBar: true, backgroundColor: '#070c14' },
+      };
+    }
+
     return { action: 'allow' };
   });
 
@@ -752,6 +761,35 @@ ipcMain.handle('maximize_app', () => {
     if (mainWindow.isMaximized()) mainWindow.unmaximize();
     else mainWindow.maximize();
   }
+});
+
+// Khi trạm tổng và trạm con chạy trên cùng PC, URL trạm con có thể được lưu
+// bằng IP LAN. Chuẩn hóa IP của chính máy về loopback để dùng đúng service
+// chỉ bind localhost và không tạo thêm một localStorage origin theo IP LAN.
+ipcMain.handle('normalize_station_url', (_event, payload) => {
+  const rawUrl = typeof payload === 'string' ? payload : payload?.url;
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return rawUrl;
+
+  try {
+    const url = new URL(rawUrl);
+    const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
+    const interfaces = os.networkInterfaces();
+
+    for (const addresses of Object.values(interfaces)) {
+      for (const address of addresses || []) {
+        if (address && !address.internal) localHosts.add(address.address);
+      }
+    }
+
+    if (localHosts.has(url.hostname)) {
+      url.hostname = 'localhost';
+      return url.toString().replace(/\/$/, '');
+    }
+  } catch (err) {
+    logOrchestrator(`Cannot normalize station URL '${rawUrl}': ${err.message}`, 'WARNING');
+  }
+
+  return rawUrl;
 });
 
 // For backward compatibility with the frontend that might call these
