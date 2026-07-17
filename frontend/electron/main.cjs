@@ -21,18 +21,18 @@ const RESOURCES_PATH = IS_PACKAGED ? process.resourcesPath : path.join(app.getAp
 const DEV_ROOT = path.join(app.getAppPath(), '..');
 
 const BIN_PATHS = {
-  backend: IS_PACKAGED ? path.join(RESOURCES_PATH, 'backend_published', 'StationOS.Api.exe') : path.join(DEV_ROOT, 'backend_published', 'win-x64', 'StationOS.Api.exe'),
+  backend: IS_PACKAGED ? path.join(RESOURCES_PATH, 'backend_published', 'MasterStation.Api.exe') : path.join(DEV_ROOT, 'backend_published', 'win-x64', 'MasterStation.Api.exe'),
   postgres: IS_PACKAGED ? path.join(RESOURCES_PATH, 'pg_portable') : path.join(DEV_ROOT, 'pg_portable'),
   go2rtc: IS_PACKAGED ? path.join(RESOURCES_PATH, 'go2rtc', 'go2rtc.exe') : path.join(DEV_ROOT, 'go2rtc', 'go2rtc.exe'),
 };
 
 const DATA_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'MasterStation');
-const PG_DATA_DIR = path.join(DATA_DIR, 'pg_data');
-const LOG_DIR = path.join(DATA_DIR, 'logs');
+const PG_DATA_DIR = path.join(DATA_DIR, 'master_pg_data');
+const LOG_DIR = path.join(DATA_DIR, 'master_logs');
 const BACKEND_PORT = 6000;
 const PG_PORT = 6432;
 const LOCAL_UI_PORT = 6173;
-const PIDS_FILE = path.join(DATA_DIR, 'pids.json');
+const PIDS_FILE = path.join(DATA_DIR, 'master_pids.json');
 
 if (!fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -50,7 +50,7 @@ function writeLog(file, data) {
 
 function logOrchestrator(msg, type = 'INFO') {
   console.log(`[Orchestrator][${type}]: ${msg}`);
-  writeLog('orchestrator.log', `[${type}] ${msg}`);
+  writeLog('master_orchestrator.log', `[${type}] ${msg}`);
 }
 
 function readSavedPids() {
@@ -161,10 +161,10 @@ async function initializeDatabase() {
       });
 
       initdb.stdout.on('data', data => {
-        writeLog('postgres.log', `[initdb stdout] ${data}`);
+        writeLog('master_postgres.log', `[initdb stdout] ${data}`);
       });
       initdb.stderr.on('data', data => {
-        writeLog('postgres.log', `[initdb stderr] ${data}`);
+        writeLog('master_postgres.log', `[initdb stderr] ${data}`);
       });
       
       initdb.on('close', code => {
@@ -193,10 +193,10 @@ async function startPostgres() {
     });
 
     pg.stdout.on('data', data => {
-      writeLog('postgres.log', `[pg_ctl stdout] ${data}`);
+      writeLog('master_postgres.log', `[pg_ctl stdout] ${data}`);
     });
     pg.stderr.on('data', data => {
-      writeLog('postgres.log', `[pg_ctl stderr] ${data}`);
+      writeLog('master_postgres.log', `[pg_ctl stderr] ${data}`);
     });
 
     pg.on('close', code => {
@@ -215,8 +215,8 @@ async function stopPostgres() {
     const pg = spawn(pgCtlExe, ['stop', '-D', PG_DATA_DIR, '-m', 'fast'], {
       windowsHide: true
     });
-    pg.stdout.on('data', data => writeLog('postgres.log', `[pg_ctl stop stdout] ${data}`));
-    pg.stderr.on('data', data => writeLog('postgres.log', `[pg_ctl stop stderr] ${data}`));
+    pg.stdout.on('data', data => writeLog('master_postgres.log', `[pg_ctl stop stdout] ${data}`));
+    pg.stderr.on('data', data => writeLog('master_postgres.log', `[pg_ctl stop stderr] ${data}`));
     pg.on('close', () => {
       logOrchestrator('PostgreSQL stopped.');
       resolve();
@@ -242,10 +242,10 @@ function startBackend() {
   savePid('backend', processes.backend.pid);
 
   processes.backend.stdout.on('data', data => {
-    writeLog('backend.log', data);
+    writeLog('master_backend.log', data);
   });
   processes.backend.stderr.on('data', data => {
-    writeLog('backend.log', `[ERR] ${data}`);
+    writeLog('master_backend.log', `[ERR] ${data}`);
   });
   
   processes.backend.on('close', code => {
@@ -271,10 +271,10 @@ function startGo2RTC() {
   savePid('go2rtc', processes.go2rtc.pid);
 
   processes.go2rtc.stdout.on('data', data => {
-    writeLog('go2rtc.log', data);
+    writeLog('master_go2rtc.log', data);
   });
   processes.go2rtc.stderr.on('data', data => {
-    writeLog('go2rtc.log', `[ERR] ${data}`);
+    writeLog('master_go2rtc.log', `[ERR] ${data}`);
   });
   
   processes.go2rtc.on('close', code => {

@@ -19,6 +19,9 @@ cd "$ROOT_DIR"
 echo "[1/5] Building Backend (.NET 8)..."
 dotnet publish backend/StationOS.Api/StationOS.Api.csproj -c Release -r win-x64 --self-contained true -o backend_published/win-x64
 
+echo "Renaming backend executable to MasterStation.Api.exe..."
+mv backend_published/win-x64/StationOS.Api.exe backend_published/win-x64/MasterStation.Api.exe
+
 echo "Cleaning up unnecessary backend published files..."
 rm -rf backend_published/win-x64/wwwroot/media
 rm -rf backend_published/win-x64/wwwroot/detections

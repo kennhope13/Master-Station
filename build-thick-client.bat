@@ -21,6 +21,9 @@ if %ERRORLEVEL% NEQ 0 (
     pause & exit /b 1
 )
 
+echo Renaming backend executable to MasterStation.Api.exe...
+ren "backend_published\win-x64\StationOS.Api.exe" "MasterStation.Api.exe"
+
 echo Cleaning up unnecessary backend published files...
 if exist "backend_published\win-x64\wwwroot\media" rd /s /q "backend_published\win-x64\wwwroot\media"
 if exist "backend_published\win-x64\wwwroot\detections" rd /s /q "backend_published\win-x64\wwwroot\detections"
