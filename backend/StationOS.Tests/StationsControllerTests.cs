@@ -85,6 +85,54 @@ public class StationsControllerTests
     }
 
     [Fact]
+    public async Task Create_WhenStationNameAlreadyExists_IgnoresCaseAndWhitespace()
+    {
+        using var db = CreateInMemoryDb();
+        var admin = new User { Id = Guid.NewGuid(), Username = "admin", Role = "admin", IsActive = true };
+        var province = new Province { Id = Guid.NewGuid(), Name = "Tỉnh Vĩnh Long", Code = "VL", Status = "active" };
+        db.AddRange(admin, province, new Station
+        {
+            Name = "Trạm Vĩnh Long 01",
+            Code = "VL01",
+            ProvinceId = province.Id,
+            Location = """{"lat":10.253,"lng":105.972}"""
+        });
+        await db.SaveChangesAsync();
+
+        var result = await CreateController(db, admin).Create(new StationRequest(
+            "  TRẠM VĨNH LONG 01  ", "VL02", """{"lat":10.254,"lng":105.973}""",
+            null, null, null, null, null, province.Id));
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal(409, conflict.StatusCode);
+        Assert.Equal(1, await db.Stations.CountAsync());
+    }
+
+    [Fact]
+    public async Task Create_WhenStationCodeAlreadyExists_IgnoresCaseAndWhitespace()
+    {
+        using var db = CreateInMemoryDb();
+        var admin = new User { Id = Guid.NewGuid(), Username = "admin", Role = "admin", IsActive = true };
+        var province = new Province { Id = Guid.NewGuid(), Name = "Tỉnh Vĩnh Long", Code = "VL", Status = "active" };
+        db.AddRange(admin, province, new Station
+        {
+            Name = "Trạm Vĩnh Long 01",
+            Code = "VL01",
+            ProvinceId = province.Id,
+            Location = """{"lat":10.253,"lng":105.972}"""
+        });
+        await db.SaveChangesAsync();
+
+        var result = await CreateController(db, admin).Create(new StationRequest(
+            "Trạm Vĩnh Long 02", "  vl01  ", """{"lat":10.254,"lng":105.973}""",
+            null, null, null, null, null, province.Id));
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result);
+        Assert.Equal(409, conflict.StatusCode);
+        Assert.Equal(1, await db.Stations.CountAsync());
+    }
+
+    [Fact]
     public async Task Create_WhenProvinceHasNoAdminProvince_ShouldAutoCreateProvinceAdmin()
     {
         using var db = CreateInMemoryDb();

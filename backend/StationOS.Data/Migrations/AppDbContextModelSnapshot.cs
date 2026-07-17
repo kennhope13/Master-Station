@@ -969,6 +969,12 @@ namespace StationOS.Data.Migrations
 
                     b.HasIndex("ProvinceId1");
 
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
                     b.ToTable("Stations");
                 });
 

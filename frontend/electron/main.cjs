@@ -563,6 +563,7 @@ async function createWindow() {
     backgroundColor: '#0f172a',
     title: 'Hệ Thống Giám Sát Trung Tâm — Master Station (Thick Client)',
     darkTheme: true,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -722,8 +723,10 @@ async function createWindow() {
   }
   
   // Live wall popup logic
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.includes('/live-wall')) {
+  mainWindow.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    // Station and live-monitor windows already provide their own navigation/title
+    // controls. Open them as desktop windows without Chromium's surrounding UI.
+    if (url.includes('/live-wall') || url.includes('/live-camera') || frameName?.startsWith('station_') || frameName?.startsWith('wall_')) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: { frame: false, titleBarStyle: 'hidden', autoHideMenuBar: true, backgroundColor: '#070c14' },

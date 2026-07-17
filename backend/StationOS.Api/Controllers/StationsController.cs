@@ -345,6 +345,22 @@ public class StationsController : ControllerBase
     [HasPermission("station:manage")]
     public async Task<IActionResult> Create([FromBody] StationRequest req)
     {
+        var normalizedName = req.Name?.Trim();
+        var normalizedCode = string.IsNullOrWhiteSpace(req.Code) ? null : req.Code.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedName))
+            return BadRequest(new { message = "Tên trạm không được để trống." });
+
+        var normalizedNameKey = normalizedName.ToUpper();
+        if (await _db.Stations.AnyAsync(s => s.Name.ToUpper() == normalizedNameKey))
+            return Conflict(new { message = $"Tên trạm '{normalizedName}' đã tồn tại." });
+
+        if (normalizedCode != null)
+        {
+            var normalizedCodeKey = normalizedCode.ToUpper();
+            if (await _db.Stations.AnyAsync(s => s.Code != null && s.Code.ToUpper() == normalizedCodeKey))
+                return Conflict(new { message = $"Mã trạm '{normalizedCode}' đã tồn tại." });
+        }
+
         var licenseStatus = await _license.GetStatusAsync();
         var isLicensed = licenseStatus != null && licenseStatus.IsValid;
         if (!_allowStationCreation && !isLicensed)
@@ -381,7 +397,7 @@ public class StationsController : ControllerBase
             return BadRequest(new { message = "Bạn phải chỉ định tỉnh cho trạm." });
         }
 
-        if (!await StationBelongsToProvinceAsync(provinceId.Value, req.Name, req.Location))
+        if (!await StationBelongsToProvinceAsync(provinceId.Value, normalizedName, req.Location))
             return StatusCode(403, new { message = "Bạn không có quyền thêm trạm ở ngoài tỉnh được phân công." });
 
         // Validate location JSON contains lat and lng
@@ -405,8 +421,8 @@ public class StationsController : ControllerBase
 
         var station = new Station
         {
-            Name        = req.Name,
-            Code        = req.Code,
+            Name        = normalizedName,
+            Code        = normalizedCode,
             Location    = req.Location,
             ApiUrl      = req.ApiUrl,
             ApiUsername = NormalizeApiUsername(req.ApiUsername),
@@ -418,7 +434,16 @@ public class StationsController : ControllerBase
             Status      = "active"
         };
         _db.Stations.Add(station);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // The unique indexes also protect against two create requests arriving together.
+            _db.Entry(station).State = EntityState.Detached;
+            return Conflict(new { message = "Tên trạm hoặc mã trạm đã tồn tại." });
+        }
         await EnsureProvinceAdminAccountAsync(provinceId.Value);
         await EnsureStationAdminAccountAsync(station);
         _ = _notifier.SendStationListChangedAsync("created", station.Id);
@@ -450,6 +475,18 @@ public class StationsController : ControllerBase
         }
 
         var targetName = string.IsNullOrWhiteSpace(req.Name) ? station.Name : req.Name.Trim();
+        var targetCode = req.Code == null
+            ? station.Code
+            : (string.IsNullOrWhiteSpace(req.Code) ? null : req.Code.Trim());
+        var targetNameKey = targetName.ToUpper();
+        if (await _db.Stations.AnyAsync(s => s.Id != id && s.Name.ToUpper() == targetNameKey))
+            return Conflict(new { message = $"Tên trạm '{targetName}' đã tồn tại." });
+        if (targetCode != null)
+        {
+            var targetCodeKey = targetCode.ToUpper();
+            if (await _db.Stations.AnyAsync(s => s.Id != id && s.Code != null && s.Code.ToUpper() == targetCodeKey))
+                return Conflict(new { message = $"Mã trạm '{targetCode}' đã tồn tại." });
+        }
         var targetLocation = req.Location ?? station.Location;
         var targetProvinceId = req.ProvinceId ?? station.ProvinceId;
         if (targetProvinceId != null && !await StationBelongsToProvinceAsync(targetProvinceId.Value, targetName, targetLocation))
@@ -459,7 +496,7 @@ public class StationsController : ControllerBase
         if (quotaError != null) return quotaError;
 
         station.Name       = targetName;
-        station.Code       = req.Code ?? station.Code;
+        station.Code       = targetCode;
         station.Location   = targetLocation;
         station.ApiUrl     = req.ApiUrl ?? station.ApiUrl;
         station.ApiUsername = NormalizeApiUsername(req.ApiUsername ?? station.ApiUsername);

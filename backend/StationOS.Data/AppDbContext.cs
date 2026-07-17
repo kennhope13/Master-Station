@@ -61,6 +61,10 @@ public class AppDbContext : DbContext
 
         // JSON columns (PostgreSQL JSONB)
         modelBuilder.Entity<Station>().Property(x => x.Location).HasColumnType("jsonb");
+        // Name/Code are trimmed by the API before persistence. These constraints are the
+        // final guard against two concurrent requests creating the same station.
+        modelBuilder.Entity<Station>().HasIndex(x => x.Name).IsUnique();
+        modelBuilder.Entity<Station>().HasIndex(x => x.Code).IsUnique();
         // Station.ProvinceId FK
         modelBuilder.Entity<Station>()
             .HasOne<Province>()
