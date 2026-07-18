@@ -48,7 +48,19 @@ class AuthService {
             });
 
             if (!res.ok) {
-                return { success: false, error: 'Sai tên đăng nhập hoặc mật khẩu' };
+                let error = res.status === 401
+                    ? 'Sai tên đăng nhập hoặc mật khẩu'
+                    : `Đăng nhập thất bại (HTTP ${res.status})`;
+                try {
+                    const body = await res.json();
+                    const backendMessage = body?.message ?? body?.error ?? body?.title;
+                    if (typeof backendMessage === 'string' && backendMessage.trim()) {
+                        error = backendMessage;
+                    }
+                } catch {
+                    // Backend có thể trả response rỗng hoặc không phải JSON.
+                }
+                return { success: false, error };
             }
 
             const data = await res.json();

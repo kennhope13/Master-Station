@@ -30,11 +30,10 @@ export const API_BASE_URL: string = (() => {
     // nhầm /api trên cổng frontend :4173.
     if (typeof window !== 'undefined' && window.location) {
       const { protocol, hostname, port } = window.location;
-      const apiPort = port === '4173' || port === '5173'
-        ? '5000'
-        : port === '6173'
-          ? '6000'
-          : '';
+      // Trạm con được Master mở trực tiếp qua LAN nên phải gọi backend cùng
+      // hostname ở cổng 5000. Riêng Master (:6173) luôn dùng URL tương đối để
+      // đi qua proxy nội bộ của Electron sang backend :6000.
+      const apiPort = port === '4173' || port === '5173' ? '5000' : '';
 
       if (apiPort && hostname) {
         return `${protocol}//${hostname}:${apiPort}`;
