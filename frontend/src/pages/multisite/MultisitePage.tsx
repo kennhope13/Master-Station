@@ -2707,7 +2707,7 @@ export default function MultisitePage() {
                         try {
                           const u = new URL(baseUrl);
                           if (u.hostname === window.location.hostname) {
-                            u.hostname = 'localhost';
+                            u.hostname = '127.0.0.1';
                             baseUrl = u.toString().replace(/\/$/, '');
                           }
                         } catch { /* giữ nguyên */ }

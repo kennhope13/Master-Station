@@ -764,8 +764,8 @@ ipcMain.handle('maximize_app', () => {
 });
 
 // Khi trạm tổng và trạm con chạy trên cùng PC, URL trạm con có thể được lưu
-// bằng IP LAN. Chuẩn hóa IP của chính máy về loopback để dùng đúng service
-// chỉ bind localhost và không tạo thêm một localStorage origin theo IP LAN.
+// bằng IP LAN. Chuẩn hóa IP của chính máy về đúng loopback mà desktop shell
+// sử dụng, tránh tạo localStorage origin khác với cửa sổ trạm con chính.
 ipcMain.handle('normalize_station_url', (_event, payload) => {
   const rawUrl = typeof payload === 'string' ? payload : payload?.url;
   if (typeof rawUrl !== 'string' || !rawUrl.trim()) return rawUrl;
@@ -782,7 +782,7 @@ ipcMain.handle('normalize_station_url', (_event, payload) => {
     }
 
     if (localHosts.has(url.hostname)) {
-      url.hostname = 'localhost';
+      url.hostname = '127.0.0.1';
       return url.toString().replace(/\/$/, '');
     }
   } catch (err) {

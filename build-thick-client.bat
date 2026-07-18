@@ -14,6 +14,13 @@ echo.
 set ROOT_DIR=%~dp0
 cd /d "%ROOT_DIR%"
 
+echo [0/5] Cleaning previous build outputs...
+REM Chi xoa artifact build; khong xoa pg_portable hay database trong APPDATA.
+if exist "backend_published\win-x64" rd /s /q "backend_published\win-x64"
+if exist "frontend\dist" rd /s /q "frontend\dist"
+if exist "frontend\dist-electron" rd /s /q "frontend\dist-electron"
+mkdir "backend_published\win-x64"
+
 echo [1/5] Building Backend (.NET 8)...
 dotnet publish backend/StationOS.Api/StationOS.Api.csproj -c Release -r win-x64 --self-contained true -o backend_published/win-x64
 if %ERRORLEVEL% NEQ 0 (

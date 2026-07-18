@@ -16,6 +16,14 @@ echo ""
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+echo "[0/5] Cleaning previous build outputs..."
+# Chỉ xóa artifact sinh ra khi build. Không xóa pg_portable và không đụng tới
+# database runtime trên Windows (%APPDATA%/MasterStation/master_pg_data).
+rm -rf backend_published/win-x64
+rm -rf frontend/dist
+rm -rf frontend/dist-electron
+mkdir -p backend_published/win-x64
+
 echo "[1/5] Building Backend (.NET 8)..."
 dotnet publish backend/StationOS.Api/StationOS.Api.csproj -c Release -r win-x64 --self-contained true -o backend_published/win-x64
 
