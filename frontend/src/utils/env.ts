@@ -23,7 +23,27 @@ export const GO2RTC_URL: string = (() => {
 const rawApi = (import.meta.env.VITE_API_URL as string | undefined) || '';
 /** URL gốc của backend REST API và SignalR — tự thay localhost bằng hostname thực. */
 export const API_BASE_URL: string = (() => {
-  if (!rawApi) return ''; // Dùng relative path qua Vite proxy
+  if (!rawApi) {
+    // Bản desktop phục vụ frontend và backend trên hai cổng khác nhau.
+    // Dùng host của chính trang để khi Master mở UI của trạm con qua LAN
+    // (vd. 192.168.0.140:4173), API sẽ đi thẳng tới :5000 thay vì gọi
+    // nhầm /api trên cổng frontend :4173.
+    if (typeof window !== 'undefined' && window.location) {
+      const { protocol, hostname, port } = window.location;
+      const apiPort = port === '4173' || port === '5173'
+        ? '5000'
+        : port === '6173'
+          ? '6000'
+          : '';
+
+      if (apiPort && hostname) {
+        return `${protocol}//${hostname}:${apiPort}`;
+      }
+    }
+
+    // Giữ relative URL cho các môi trường web/proxy không dùng cổng desktop.
+    return '';
+  }
   if (typeof window !== 'undefined' && window.location) {
     const hostname = window.location.hostname;
     if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {

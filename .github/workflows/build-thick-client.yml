@@ -8,7 +8,7 @@ on:
       version:
         description: 'Phiên bản (VD: 3.0.2)'
         required: false
-        default: '3.0.21'
+        default: '3.0.22'
 
   # Tự động build khi push tag v*
   push:
