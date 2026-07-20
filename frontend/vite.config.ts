@@ -41,6 +41,12 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
+  build: {
+    // Merge all CSS into a single file to prevent
+    // "Unable to preload CSS for /assets/XYZ.css" warnings
+    // caused by lazy-loaded components having separate CSS chunks.
+    cssCodeSplit: false,
+  },
   server: {
     port: 6173,
     strictPort: true,

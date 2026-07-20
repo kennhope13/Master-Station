@@ -842,7 +842,7 @@ export default function MultisitePage() {
       const locationObj = { lat, lng, address: newStationAddress.trim() };
       const cameraQuota = newStationCameraQuota.trim() ? Number(newStationCameraQuota) : null;
       const sensorQuota = newStationSensorQuota.trim() ? Number(newStationSensorQuota) : null;
-      await stationApi.createStation(
+      const createdStation = await stationApi.createStation(
         newStationName.trim(),
         newStationCode.trim(),
         JSON.stringify(locationObj),
@@ -863,12 +863,24 @@ export default function MultisitePage() {
       setConnStatus('idle'); setConnMs(null); setGeoStatus('idle');
       setIsAddModalOpen(false);
       setSelectedProvince(null);
-      setSelectedStationId(null);
       overviewFittedRef.current = false;
       setMapHostKey(k => k + 1);
 
       await fetchStations(true);
-      alert('Đã thêm trạm mới thành công!');
+
+      // Tự động chọn trạm vừa tạo để "Vào trạm" hoạt động ngay
+      if (createdStation?.id) {
+        setSelectedStationId(createdStation.id);
+        setShowRightPanel(true);
+        // Kích hoạt fetch KPI ngay lập tức nếu có apiUrl
+        if (createdStation.apiUrl) {
+          stationApi.getRemoteKpi(createdStation.id, true)
+            .then(kpi => setRemoteKpis(prev => ({ ...prev, [createdStation.id]: kpi })))
+            .catch(() => {});
+        }
+      }
+
+      showToast('Đã thêm trạm mới thành công!', 'success');
     } catch (err: any) {
       alert('Không thể thêm trạm: ' + (err.message || err));
     } finally {
