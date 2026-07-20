@@ -834,6 +834,12 @@ public class StationsController : ControllerBase
 
     private async Task<string?> GetOrFetchTokenAsync(Station station, string apiBase, bool forceRefresh = false)
     {
+        if (string.Equals(station.ConnectionStatus, "offline", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("[StationsController] Station {StationName} ({StationId}) is offline. Skipping authentication proxy.", station.Name, station.Id);
+            return null;
+        }
+
         var authKey = $"{ResolveApiUsername(station)}|{station.ApiPassword ?? ""}";
         if (!forceRefresh &&
             _tokenCache.TryGetValue(station.Id, out var cached) &&

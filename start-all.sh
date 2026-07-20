@@ -87,6 +87,18 @@ echo "[1/5] Dừng tiến trình cũ của trạm tổng..."
 stop_managed_process "backend"
 stop_managed_process "frontend"
 stop_managed_process "ai_engine"
+
+# Tìm và dọn dẹp các tiến trình trùng lặp/mồ côi chạy từ thư mục $ROOT
+echo "  Dọn dẹp triệt để các tiến trình StationOS.Api chạy từ $ROOT..."
+pids=$(pgrep -f "StationOS.Api" 2>/dev/null || true)
+for pid in $pids; do
+    cmdline=$(cat /proc/"$pid"/cmdline 2>/dev/null | tr '\0' ' ' || true)
+    if [[ "$cmdline" == *"$ROOT"* ]]; then
+        echo "  Buộc dừng tiến trình backend mồ côi: PID $pid"
+        kill -9 "$pid" 2>/dev/null || true
+    fi
+done
+
 # Giải phóng port dù PID file không tồn tại hoặc không khớp
 kill_port_process 6000
 kill_port_process 6173

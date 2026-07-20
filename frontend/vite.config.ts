@@ -50,6 +50,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/sld': {
+        target: 'http://127.0.0.1:6000',
+        changeOrigin: true,
+        secure: false,
+      },
       '/ws': {
         target: 'http://127.0.0.1:6000',
         ws: true,

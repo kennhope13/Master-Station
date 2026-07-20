@@ -438,7 +438,7 @@ function startLocalUiServer() {
     const server = http.createServer((req, res) => {
       const reqUrl = req.url || '/';
 
-      if (reqUrl.startsWith('/api/') || reqUrl.startsWith('/media/') || reqUrl.startsWith('/ws/')) {
+      if (reqUrl.startsWith('/api/') || reqUrl.startsWith('/media/') || reqUrl.startsWith('/ws/') || reqUrl.startsWith('/sld/')) {
         pipeProxy(req, res, `http://127.0.0.1:${BACKEND_PORT}`);
         return;
       }

@@ -372,7 +372,20 @@ export default function MultisitePage() {
     }, { replace: true });
   };
 
-  const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
+  const selectedStationId = stationIdFromQuery;
+  const setSelectedStationId = useCallback((id: string | null) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (id) {
+        next.set('stationId', id);
+        localStorage.setItem('selected_station_id', id);
+      } else {
+        next.delete('stationId');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const [selectedProvince, setSelectedProvince] = useState<string | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(false);
@@ -402,32 +415,6 @@ export default function MultisitePage() {
       }
     }
   }, [activeTab, selectedStationId, selectedProvince]);
-
-  useEffect(() => {
-    if (selectedStationId === stationIdFromQuery) return;
-    setSelectedStationId(stationIdFromQuery);
-    if (stationIdFromQuery) {
-      if (activeTab === 'overview') {
-        setShowRightPanel(true);
-      }
-    }
-  }, [activeTab, stationIdFromQuery]);
-
-  // Đồng bộ selectedStationId lên URL query params để tránh lưu giữ khi đóng hoặc đổi tab
-  useEffect(() => {
-    if ((selectedStationId && stationIdFromQuery === selectedStationId) || (!selectedStationId && !stationIdFromQuery)) {
-      return;
-    }
-
-    const next = new URLSearchParams(searchParams);
-    if (selectedStationId) {
-      next.set('stationId', selectedStationId);
-      localStorage.setItem('selected_station_id', selectedStationId);
-    } else {
-      next.delete('stationId');
-    }
-    setSearchParams(next, { replace: true });
-  }, [selectedStationId, stationIdFromQuery, searchParams, setSearchParams]);
 
   useEffect(() => {
     overviewFittedRef.current = false;
@@ -2706,7 +2693,8 @@ export default function MultisitePage() {
                         let baseUrl = raw.replace(/\/$/, '');
                         try {
                           const u = new URL(baseUrl);
-                          if (u.hostname === window.location.hostname) {
+                          const isLoopback = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                          if (u.hostname === window.location.hostname && isLoopback) {
                             u.hostname = '127.0.0.1';
                             baseUrl = u.toString().replace(/\/$/, '');
                           }
