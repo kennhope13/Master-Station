@@ -20,7 +20,19 @@ export default function LoginPage() {
     return null;
   };
 
+  // Cấu hình ban đầu trước đây được lưu theo origin. Khi Master mở trạm bằng
+  // IP LAN lần đầu, origin đó chưa có localStorage dù trạm đã cấu hình qua
+  // localhost. Master truyền lại hai giá trị này để không bắt cấu hình lại.
+  const restoreStationSetupFromQuery = () => {
+    const params = new URLSearchParams(window.location.search);
+    const stationName = params.get('stationName')?.trim();
+    const serverIp = params.get('serverIp')?.trim();
+    if (stationName) localStorage.setItem('station_name', stationName);
+    if (serverIp) localStorage.setItem('server_ip', serverIp);
+  };
+
   useEffect(() => {
+    restoreStationSetupFromQuery();
     if (authService.isAuthenticated()) {
       const u = authService.getUser();
       navigate(resolveNextPath() || (isCentralUser(u) ? '/multisite' : '/dashboard'), { replace: true });

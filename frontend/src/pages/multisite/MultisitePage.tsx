@@ -733,6 +733,45 @@ export default function MultisitePage() {
     }
   };
 
+  const openChildStation = async (station: Station) => {
+    if (!station.apiUrl || isOpeningStation) return;
+
+    const raw = station.webUrl?.trim() || deriveWebUrl(normalizeUrl(station.apiUrl));
+    let baseUrl = raw.replace(/\/$/, '');
+    try {
+      const u = new URL(baseUrl);
+      const isLoopback = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (u.hostname === window.location.hostname && isLoopback) {
+        u.hostname = '127.0.0.1';
+        baseUrl = u.toString().replace(/\/$/, '');
+      }
+    } catch { /* giữ nguyên URL đã cấu hình */ }
+
+    setIsOpeningStation(true);
+    try {
+      const desktopInvoke = (window as any).__TAURI__?.core?.invoke;
+      if (typeof desktopInvoke === 'function') {
+        baseUrl = await desktopInvoke('normalize_station_url', { url: baseUrl });
+      }
+
+      const target = new URL(baseUrl);
+      target.searchParams.set('stationName', station.name);
+      try {
+        target.searchParams.set('serverIp', new URL(normalizeUrl(station.apiUrl)).hostname);
+      } catch { /* apiUrl không hợp lệ: trạm con vẫn nhận được tên */ }
+      if (station.code) target.searchParams.set('stationCode', station.code);
+
+      try {
+        const { token } = await stationApi.getRemoteToken(station.id);
+        if (token) target.searchParams.set('token', token);
+      } catch { /* vẫn mở trạm để người dùng đăng nhập thủ công */ }
+
+      window.open(target.toString(), `station_${station.id}`, 'width=1440,height=900,noopener');
+    } finally {
+      setIsOpeningStation(false);
+    }
+  };
+
   const handleTestConnection = async () => {
     if (!newStationApiUrl.trim()) return;
     const url = resolveApiUrl(newStationApiUrl);
@@ -2200,7 +2239,14 @@ export default function MultisitePage() {
                             <div
                               key={v.station.id}
                               className={`station-item-card ${isActive ? 'active-card' : ''}`}
-                              onClick={() => { setSelectedStationId(v.station.id); setShowRightPanel(true); }}
+                              onClick={() => {
+                                if (isOnline && v.station.apiUrl) {
+                                  void openChildStation(v.station);
+                                  return;
+                                }
+                                setSelectedStationId(v.station.id);
+                                setShowRightPanel(true);
+                              }}
                               style={{ padding: '4px 8px', display: 'flex', flexDirection: 'column', gap: 1 }}
                             >
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
@@ -2689,54 +2735,7 @@ export default function MultisitePage() {
                   {selectedView.station.apiUrl ? (
                     <button
                       disabled={isOpeningStation}
-                      onClick={async () => {
-                        // webUrl từ backend hoặc fallback tính ở client
-                        const raw = selectedView.station.webUrl?.trim() || (() => {
-                          try {
-                            const u = new URL(normalizeUrl(selectedView.station.apiUrl!));
-                            if (u.port === '5000') u.port = '4173';
-                            else if (u.port === '6000') u.port = '6173';
-                            return u.toString().replace(/\/$/, '');
-                          } catch { return selectedView.station.apiUrl!; }
-                        })();
-
-                        // Trên web, chuẩn hóa khi hostname đã trùng. Trong Electron,
-                        // main process còn nhận diện mọi IP LAN của chính máy.
-                        let baseUrl = raw.replace(/\/$/, '');
-                        try {
-                          const u = new URL(baseUrl);
-                          const isLoopback = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                          if (u.hostname === window.location.hostname && isLoopback) {
-                            u.hostname = '127.0.0.1';
-                            baseUrl = u.toString().replace(/\/$/, '');
-                          }
-                        } catch { /* giữ nguyên */ }
-
-                        setIsOpeningStation(true);
-                        try {
-                          const desktopInvoke = (window as any).__TAURI__?.core?.invoke;
-                          if (typeof desktopInvoke === 'function') {
-                            baseUrl = await desktopInvoke('normalize_station_url', { url: baseUrl });
-                          }
-
-                          let url = baseUrl;
-                          const stationCode = selectedView.station.code || '';
-                          try {
-                            const { token } = await stationApi.getRemoteToken(selectedView.station.id);
-                            const params = new URLSearchParams();
-                            if (token) params.set('token', token);
-                            if (stationCode) params.set('stationCode', stationCode);
-                            const qs = params.toString();
-                            if (qs) url = `${baseUrl}?${qs}`;
-                          } catch {
-                            /* fallback: mở không token, nhưng vẫn truyền stationCode */
-                            if (stationCode) url = `${baseUrl}?stationCode=${encodeURIComponent(stationCode)}`;
-                          }
-                          window.open(url, `station_${selectedView.station.id}`, 'width=1440,height=900,noopener');
-                        } finally {
-                          setIsOpeningStation(false);
-                        }
-                      }}
+                      onClick={() => void openChildStation(selectedView.station)}
                       style={{
                         width: '100%', padding: '7px 0',
                         background: isOpeningStation ? 'rgba(245,158,11,0.05)' : 'rgba(245,158,11,0.1)',
