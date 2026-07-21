@@ -917,6 +917,12 @@ export default function MultisitePage() {
             .then(kpi => setRemoteKpis(prev => ({ ...prev, [createdStation.id]: kpi })))
             .catch(() => {});
         }
+
+        // Tạo trạm thành công là đi thẳng vào trạm, không bắt người dùng
+        // chọn lại trạm hoặc nhấn thêm nút "Vào trạm".
+        if (createdStation.apiUrl) {
+          await openChildStation(createdStation);
+        }
       }
 
       showToast('Đã thêm trạm mới thành công!', 'success');

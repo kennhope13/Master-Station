@@ -79,6 +79,11 @@ export class StationService {
     return apiFetch(`/stations/${id}/remote-license-request`, true);
   }
 
+  /** Lấy trạng thái license thực tế từ trạm cục bộ qua proxy trạm trung tâm. */
+  async getRemoteLicenseStatus(id: string): Promise<any> {
+    return apiFetch(`/stations/${id}/remote-license-status`, true);
+  }
+
   /** Nhập file license .lic vào trạm cục bộ qua proxy trạm trung tâm. */
   async importRemoteLicense(id: string, file: File): Promise<any> {
     const formData = new FormData();

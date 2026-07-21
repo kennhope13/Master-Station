@@ -54,6 +54,7 @@ class StationApiService {
   getRemoteCameras = stationService.getRemoteCameras.bind(stationService);
   getRemoteToken = stationService.getRemoteToken.bind(stationService);
   getRemoteLicenseRequest = stationService.getRemoteLicenseRequest.bind(stationService);
+  getRemoteLicenseStatus = stationService.getRemoteLicenseStatus.bind(stationService);
   importRemoteLicense = stationService.importRemoteLicense.bind(stationService);
   provisionRemoteLicense = stationService.provisionRemoteLicense.bind(stationService);
   clearRemoteLicense = stationService.clearRemoteLicense.bind(stationService);

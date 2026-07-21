@@ -242,6 +242,7 @@ export default function LicensePage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importMsg, setImportMsg] = useState('');
   const [managedStations, setManagedStations] = useState<Station[]>([]);
+  const [childLicenseStatuses, setChildLicenseStatuses] = useState<Record<string, LicenseStatus | null>>({});
   const [provinces, setProvinces] = useState<Province[]>([]);
   const [selectedProvinceId, setSelectedProvinceId] = useState('all');
   const [activeTab, setActiveTab] = useState<'master' | 'child'>('master');
@@ -424,9 +425,20 @@ export default function LicensePage() {
       ]);
       setManagedStations(stations);
       setProvinces(provinceList);
+
+      const statusEntries = await Promise.all(stations.map(async station => {
+        if (!station.apiUrl) return [station.id, null] as const;
+        try {
+          return [station.id, await stationApi.getRemoteLicenseStatus(station.id)] as const;
+        } catch {
+          return [station.id, null] as const;
+        }
+      }));
+      setChildLicenseStatuses(Object.fromEntries(statusEntries));
     } catch {
       setManagedStations([]);
       setProvinces([]);
+      setChildLicenseStatuses({});
     }
   };
 
@@ -542,6 +554,8 @@ export default function LicensePage() {
     setImportMsg('');
     try {
       const data = await stationApi.importRemoteLicense(station.id, file);
+      const remoteStatus = await stationApi.getRemoteLicenseStatus(station.id).catch(() => null);
+      setChildLicenseStatuses(prev => ({ ...prev, [station.id]: remoteStatus }));
       setImportMsg(data?.message ?? `Đã nhập license cho trạm cục bộ ${station.name}`);
     } catch (err: any) {
       setImportMsg(err?.message ?? 'Lỗi nhập license vào trạm cục bộ');
@@ -1017,11 +1031,14 @@ export default function LicensePage() {
     return leftName.localeCompare(rightName, 'vi');
   });
   const getProvinceName = (station: Station) => provinceById.get(getStationProvinceId(station))?.name ?? 'Chưa gán tỉnh';
-  const getStationLicenseUsage = (station: Station) => ({
-    stations: 1,
-    cameras: station.cameraQuota ?? 0,
-    sensors: station.sensorQuota ?? 0,
-  });
+  const getStationLicenseUsage = (station: Station) => {
+    const remoteStatus = childLicenseStatuses[station.id];
+    return {
+      stations: 1,
+      cameras: remoteStatus?.activated ? (remoteStatus.maxCameras ?? 0) : (station.cameraQuota ?? 0),
+      sensors: remoteStatus?.activated ? (remoteStatus.maxSensors ?? 0) : (station.sensorQuota ?? 0),
+    };
+  };
   const getProvinceLicenseUsage = (stations: Station[]) => stations.reduce(
     (total, station) => {
       const usage = getStationLicenseUsage(station);
@@ -1033,16 +1050,21 @@ export default function LicensePage() {
     },
     { stations: 0, cameras: 0, sensors: 0 }
   );
-  const getChildLicenseExportRows = () => filteredChildStations.map(station => ({
-    'Tỉnh': getProvinceName(station),
-    'Tên trạm': station.name,
-    'Mã trạm': station.code || '',
-    'Chiếm trạm': '1',
-    'Camera đã cấp': String(station.cameraQuota ?? 0),
-    'Sensor đã cấp': String(station.sensorQuota ?? 0),
-    'API trạm cục bộ': station.apiUrl || 'Chưa cấu hình API URL',
-    'Trạng thái': station.apiUrl ? (station.connectionStatus || 'unknown') : 'no api',
-  }));
+  const getChildLicenseExportRows = () => filteredChildStations.map(station => {
+    const usage = getStationLicenseUsage(station);
+    return {
+      'Tỉnh': getProvinceName(station),
+      'Tên trạm': station.name,
+      'Mã trạm': station.code || '',
+      'Chiếm trạm': '1',
+      'Camera đã cấp': String(usage.cameras),
+      'Sensor đã cấp': String(usage.sensors),
+      'API trạm cục bộ': station.apiUrl || 'Chưa cấu hình API URL',
+      'Trạng thái kết nối': station.apiUrl ? (station.connectionStatus || 'unknown') : 'no api',
+      'Trạng thái license': childLicenseStatuses[station.id]?.isValid ? 'Đã kích hoạt' : 'Chưa kích hoạt',
+      'Gói license': childLicenseStatuses[station.id]?.tier || '',
+    };
+  });
 
   const exportChildLicenseCsv = () => {
     const rows = getChildLicenseExportRows();
@@ -1050,7 +1072,7 @@ export default function LicensePage() {
       alert('Không có dữ liệu để xuất CSV');
       return;
     }
-    const headers = ['Tỉnh', 'Tên trạm', 'Mã trạm', 'Chiếm trạm', 'Camera đã cấp', 'Sensor đã cấp', 'API trạm cục bộ', 'Trạng thái'];
+    const headers = ['Tỉnh', 'Tên trạm', 'Mã trạm', 'Chiếm trạm', 'Camera đã cấp', 'Sensor đã cấp', 'API trạm cục bộ', 'Trạng thái kết nối', 'Trạng thái license', 'Gói license'];
     const csv = [headers, ...rows.map(row => headers.map(key => (row as Record<string, string>)[key]))]
       .map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
       .join('\n');
@@ -1071,7 +1093,7 @@ export default function LicensePage() {
     }
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [{ wch: 24 }, { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 42 }, { wch: 14 }];
+    ws['!cols'] = [{ wch: 24 }, { wch: 30 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 42 }, { wch: 16 }, { wch: 18 }, { wch: 16 }];
     XLSX.utils.book_append_sheet(wb, ws, 'LicenseTramCon');
     XLSX.writeFile(wb, `License_TramCon_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
@@ -1090,7 +1112,7 @@ export default function LicensePage() {
     autoTable(doc, {
       startY: 72,
       styles: { fontSize: 8, cellPadding: 4 },
-      head: [['Tinh', 'Ten tram', 'Ma tram', 'Tram', 'Camera', 'Sensor', 'API tram cuc bo', 'Trang thai']],
+      head: [['Tinh', 'Ten tram', 'Ma tram', 'Tram', 'Camera', 'Sensor', 'API tram cuc bo', 'Ket noi', 'License', 'Goi']],
       body: rows.map(row => [
         row['Tỉnh'],
         row['Tên trạm'],
@@ -1099,7 +1121,9 @@ export default function LicensePage() {
         row['Camera đã cấp'],
         row['Sensor đã cấp'],
         row['API trạm cục bộ'],
-        row['Trạng thái'],
+        row['Trạng thái kết nối'],
+        row['Trạng thái license'],
+        row['Gói license'],
       ]),
       margin: { left: 24, right: 24 },
     });
@@ -1186,8 +1210,12 @@ export default function LicensePage() {
                               </div>
                               <div className="license-station-state">
                                 <div className="license-cell-label">Trạng thái</div>
-                                <span className={`license-station-status ${station.connectionStatus || 'unknown'}`}>
-                                  {station.apiUrl ? (station.connectionStatus || 'unknown') : 'no api'}
+                                <span className={`license-station-status ${childLicenseStatuses[station.id]?.isValid ? 'online' : 'offline'}`}>
+                                  {childLicenseStatuses[station.id]?.isValid
+                                    ? `Đã kích hoạt${childLicenseStatuses[station.id]?.tier ? ` · ${childLicenseStatuses[station.id]?.tier}` : ''}`
+                                    : childLicenseStatuses[station.id] === undefined
+                                      ? 'Đang đồng bộ...'
+                                      : 'Chưa kích hoạt'}
                                 </span>
                               </div>
                               {canManageLicense && (

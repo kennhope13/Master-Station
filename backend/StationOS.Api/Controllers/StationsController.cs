@@ -1754,6 +1754,14 @@ public class StationsController : ControllerBase
         return await ProxyGetToStationAsync(id, "/api/v1/license/request");
     }
 
+    /// <summary>Lấy trạng thái license thực tế đang áp dụng tại trạm cục bộ.</summary>
+    [HttpGet("{id}/remote-license-status")]
+    [HasPermission("license:manage")]
+    public async Task<IActionResult> GetRemoteLicenseStatus(Guid id)
+    {
+        return await ProxyGetToStationAsync(id, "/api/v1/license/status");
+    }
+
     /// <summary>Nhập file license vào trạm cục bộ qua trạm trung tâm.</summary>
     [HttpPost("{id}/remote-license-import")]
     [HasPermission("license:manage")]
