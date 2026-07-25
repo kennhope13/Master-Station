@@ -26,6 +26,8 @@ export default function VideoStorageTab() {
   const [saving, setSaving] = useState(false);
   const [cleaning, setCleaning] = useState(false);
   const [cleanResult, setCleanResult] = useState<{ deletedFiles: number; freedMb: number } | null>(null);
+  const [dbCleaning, setDbCleaning] = useState(false);
+  const [dbCleanResult, setDbCleanResult] = useState<{ deletedCount: number } | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -87,6 +89,20 @@ export default function VideoStorageTab() {
       showToast(`Lỗi dọn dẹp: ${e.message || e}`, 'error');
     } finally {
       setCleaning(false);
+    }
+  };
+
+  const handleDbCleanup = async () => {
+    setDbCleaning(true);
+    setDbCleanResult(null);
+    try {
+      const data = await stationApi.cleanupSensorReadings(Number(retentionDays));
+      setDbCleanResult({ deletedCount: data.deletedCount ?? 0 });
+      showToast(`Đã xóa thành công ${data.deletedCount} bản ghi đo lường cũ`, 'success');
+    } catch (e: any) {
+      showToast(`Lỗi dọn dẹp database: ${e.message || e}`, 'error');
+    } finally {
+      setDbCleaning(false);
     }
   };
 
@@ -220,7 +236,7 @@ export default function VideoStorageTab() {
           {/* Dọn dẹp thủ công */}
           <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--admin-accent)', textTransform: 'uppercase', letterSpacing: '0.6px', borderBottom: '1px solid var(--admin-border-light)', paddingBottom: 8 }}>
-              DỌN DẸP THỦ CÔNG
+              DỌN DẸP THỦ CÔNG (FILE VIDEO/ẢNH)
             </div>
 
             <div style={{ fontSize: '0.72rem', color: 'var(--admin-text-muted)' }}>
@@ -240,6 +256,32 @@ export default function VideoStorageTab() {
               disabled={cleaning}
             >
               {cleaning ? 'ĐANG XÓA...' : `XÓA FILE CŨ HƠN ${retentionDays} NGÀY NGAY BÂY`}
+            </button>
+          </div>
+
+          {/* Dọn dẹp đo lường thủ công */}
+          <div style={{ background: 'var(--admin-card-bg)', border: '1px solid var(--admin-border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--admin-accent)', textTransform: 'uppercase', letterSpacing: '0.6px', borderBottom: '1px solid var(--admin-border-light)', paddingBottom: 8 }}>
+              DỌN DẸP LỊCH SỬ ĐO LƯỜNG (DATABASE)
+            </div>
+
+            <div style={{ fontSize: '0.72rem', color: 'var(--admin-text-muted)' }}>
+              Xóa các bản ghi đo lường cảm biến cũ hơn <strong style={{ color: 'var(--admin-text)' }}>{retentionDays} ngày</strong> để tối ưu dung lượng cơ sở dữ liệu.
+            </div>
+
+            {dbCleanResult && (
+              <div style={{ background: 'color-mix(in srgb, var(--admin-success) 12%, transparent)', border: '1px solid var(--admin-success)', padding: '8px 12px', fontSize: '0.72rem', color: 'var(--admin-success)', fontWeight: 700 }}>
+                ✓ Đã xóa thành công {dbCleanResult.deletedCount} bản ghi đo lường cũ.
+              </div>
+            )}
+
+            <button
+              className="btn-industrial btn-danger"
+              style={{ fontSize: '0.72rem', fontWeight: 800, padding: '8px 16px', opacity: dbCleaning ? 0.6 : 1 }}
+              onClick={handleDbCleanup}
+              disabled={dbCleaning}
+            >
+              {dbCleaning ? 'ĐANG XÓA...' : `XÓA DỮ LIỆU CŨ HƠN ${retentionDays} NGÀY NGAY BÂY`}
             </button>
           </div>
 

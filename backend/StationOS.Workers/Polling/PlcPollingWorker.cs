@@ -61,12 +61,12 @@ public class PlcPollingWorker : BackgroundService
                 if (dbSaveSetting != null && int.TryParse(dbSaveSetting.Value.Trim('"'), out var dbSecs) && dbSecs > 0)
                     dbSaveIntervalS = dbSecs;
 
-                // Tự động dọn dẹp dữ liệu cũ mỗi 1 giờ
-                if ((DateTime.UtcNow - _lastCleanup).TotalHours >= 1)
-                {
-                    await CleanupOldDataAsync(stoppingToken);
-                    _lastCleanup = DateTime.UtcNow;
-                }
+                // Tự động dọn dẹp dữ liệu cũ mỗi 1 giờ (Đã vô hiệu hóa theo yêu cầu người dùng, chuyển sang xóa thủ công)
+                // if ((DateTime.UtcNow - _lastCleanup).TotalHours >= 1)
+                // {
+                //     await CleanupOldDataAsync(stoppingToken);
+                //     _lastCleanup = DateTime.UtcNow;
+                // }
 
                 await PollAllPlcDevicesAsync(dbSaveIntervalS, stoppingToken);
             }

@@ -579,6 +579,24 @@ public class MeasurementsController : ControllerBase
         return Ok(new { success = true, count = readingsToSave.Count });
     }
 
+    /// <summary>
+    /// Xóa thủ công dữ liệu SensorReadings trước số ngày được chọn.
+    /// </summary>
+    [HttpPost("measurements/cleanup")]
+    public async Task<IActionResult> CleanupSensorReadings([FromQuery] int days)
+    {
+        if (days <= 0)
+            return BadRequest(new { message = "Số ngày giữ lại phải lớn hơn 0" });
+
+        var cutoff = DateTime.UtcNow.AddDays(-days);
+        var deletedCount = await _db.Database.ExecuteSqlRawAsync(
+            "DELETE FROM \"SensorReadings\" WHERE \"Time\" < {0}",
+            cutoff
+        );
+
+        return Ok(new { success = true, deletedCount, message = $"Đã xóa thành công {deletedCount} bản ghi dữ liệu cảm biến cũ hơn {days} ngày." });
+    }
+
     private static Dictionary<string, object?> TryParseConfig(string? json)
     {
         if (string.IsNullOrEmpty(json)) return [];

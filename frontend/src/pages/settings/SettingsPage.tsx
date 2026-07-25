@@ -12,9 +12,10 @@ import { useSearchParams } from 'react-router-dom';
 import GeneralTab from './tabs/GeneralTab';
 import NotificationTab from './tabs/NotificationTab';
 import CloudSyncTab from './tabs/CloudSyncTab';
+import VideoStorageTab from './tabs/VideoStorageTab';
 import './SettingsPage.css';
 
-const TABS = ['CHUNG', 'THÔNG BÁO', 'CLOUD SYNC'];
+const TABS = ['CHUNG', 'THÔNG BÁO', 'CLOUD SYNC', 'LƯU TRỮ'];
 
 export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -50,6 +51,7 @@ export default function SettingsPage() {
         {activeTab === 0 && <GeneralTab />}
         {activeTab === 1 && <NotificationTab />}
         {activeTab === 2 && <CloudSyncTab />}
+        {activeTab === 3 && <VideoStorageTab />}
       </div>
     </div>
   );

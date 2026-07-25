@@ -112,6 +112,7 @@ class StationApiService {
   getLatestPoints = sensorService.getLatestPoints.bind(sensorService);
   getHistory = sensorService.getHistory.bind(sensorService);
   getHistoryBulk = sensorService.getHistoryBulk.bind(sensorService);
+  cleanupSensorReadings = sensorService.cleanupHistory.bind(sensorService);
 
   // ── Rules ─────────────────────────────────────────────────
   getRules = ruleService.getRules.bind(ruleService);

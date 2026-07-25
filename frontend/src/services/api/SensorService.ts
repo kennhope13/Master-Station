@@ -4,7 +4,7 @@
 // Export: sensorService (singleton), dùng qua StationApiService facade
 // ============================================================
 
-import { apiFetch } from './BaseApiService';
+import { apiFetch, apiMutate } from './BaseApiService';
 import type { SensorPoint } from '@/types/api.types';
 
 export class SensorService {
@@ -58,6 +58,14 @@ export class SensorService {
       value:   item.value !== undefined ? item.value : item.Value,
       deviceId: item.deviceId || item.DeviceId
     }));
+  }
+
+  /** Xóa thủ công lịch sử dữ liệu cảm biến */
+  async cleanupHistory(days: number): Promise<{ success: boolean; deletedCount: number; message: string }> {
+    return apiMutate<{ success: boolean; deletedCount: number; message: string }>(
+      'POST',
+      `/measurements/cleanup?days=${days}`
+    );
   }
 }
 
