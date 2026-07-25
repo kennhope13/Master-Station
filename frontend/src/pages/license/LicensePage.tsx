@@ -374,21 +374,24 @@ export default function LicensePage() {
     limitsAbortCtrlRef.current = ctrl;
     if (showLoading || limits.length === 0) { setLimitsLoading(true); }
     try {
-      const [data, actualCounts] = await Promise.all([
-        stationApi.getLicenseLimits().catch(() => []),
-        getActualResourceCounts(),
-      ]);
+      const data = await stationApi.getLicenseLimits();
       if (ctrl.signal.aborted) return;
-      const mergedLimits = data.length > 0 ? mergeActualCounts(data, actualCounts) : [
-        { resource: 'stations', current: actualCounts.stations, max: status?.maxStations && status.maxStations >= 999 ? -1 : (status?.maxStations ?? 10), exceeded: false },
-        { resource: 'cameras', current: actualCounts.cameras, max: status?.maxCameras && status.maxCameras >= 999 ? -1 : (status?.maxCameras ?? 10), exceeded: false },
-        { resource: 'sensors', current: actualCounts.sensors, max: status?.maxSensors && status.maxSensors >= 999 ? -1 : (status?.maxSensors ?? 10), exceeded: false },
-        { resource: 'roi_points', current: actualCounts.roi_points, max: status?.maxRoiPoints && status.maxRoiPoints >= 999 ? -1 : (status?.maxRoiPoints ?? 10), exceeded: false },
-        { resource: 'roi_regions', current: actualCounts.roi_regions, max: status?.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status?.maxRoiRegions ?? 10), exceeded: false },
-        { resource: 'pd_regions', current: actualCounts.pd_regions, max: status?.maxPdRegions && status.maxPdRegions >= 999 ? -1 : (status?.maxPdRegions ?? 10), exceeded: false },
-      ].map(item => ({ ...item, exceeded: item.max !== -1 && item.max < 999 && item.current >= item.max }));
-      safeSet(setLimits, mergedLimits);
-      sessionStorage.setItem(LICENSE_LIMITS_CACHE_KEY, JSON.stringify(mergedLimits));
+
+      let finalLimits = data;
+      if (!data || data.length === 0) {
+        const actualCounts = await getActualResourceCounts();
+        if (ctrl.signal.aborted) return;
+        finalLimits = [
+          { resource: 'stations', current: actualCounts.stations, max: status?.maxStations && status.maxStations >= 999 ? -1 : (status?.maxStations ?? 10), exceeded: false },
+          { resource: 'cameras', current: actualCounts.cameras, max: status?.maxCameras && status.maxCameras >= 999 ? -1 : (status?.maxCameras ?? 10), exceeded: false },
+          { resource: 'sensors', current: actualCounts.sensors, max: status?.maxSensors && status.maxSensors >= 999 ? -1 : (status?.maxSensors ?? 10), exceeded: false },
+          { resource: 'roi_points', current: actualCounts.roi_points, max: status?.maxRoiPoints && status.maxRoiPoints >= 999 ? -1 : (status?.maxRoiPoints ?? 10), exceeded: false },
+          { resource: 'roi_regions', current: actualCounts.roi_regions, max: status?.maxRoiRegions && status.maxRoiRegions >= 999 ? -1 : (status?.maxRoiRegions ?? 10), exceeded: false },
+          { resource: 'pd_regions', current: actualCounts.pd_regions, max: status?.maxPdRegions && status.maxPdRegions >= 999 ? -1 : (status?.maxPdRegions ?? 10), exceeded: false },
+        ].map(item => ({ ...item, exceeded: item.max !== -1 && item.max < 999 && item.current >= item.max }));
+      }
+      safeSet(setLimits, finalLimits);
+      sessionStorage.setItem(LICENSE_LIMITS_CACHE_KEY, JSON.stringify(finalLimits));
     } catch {
       if (ctrl.signal.aborted) return;
       safeSet(setLimits, [] as ResourceLimit[]);
